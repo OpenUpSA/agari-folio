@@ -447,3 +447,80 @@ Content-Type: application/json
   "redirect_uri": "https://agari.openup.org.za/",
   "send_email": "false"
 }
+
+
+
+##########################
+### TEMPLATES
+##########################
+
+# @name list_templates
+GET {{folio}}/templates
+
+###
+
+# @name create_template
+PUT {{folio}}/templates/
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary123
+
+------WebKitFormBoundary123
+Content-Disposition: form-data; name="pathogen_id"
+
+{{pathogen_id}}
+------WebKitFormBoundary123
+Content-Disposition: form-data; name="schema_version"
+
+1
+------WebKitFormBoundary123
+Content-Disposition: form-data; name="file"; filename="template_v1.xlsx"
+Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+
+< ./test_template.xlsx
+------WebKitFormBoundary123--
+
+###
+@template_id = {{create_template.response.body.template.id}}
+
+# @name download_template
+GET {{folio}}/templates/{{template_id}}/download
+
+###
+
+# @name update_template
+PUT {{folio}}/templates/
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary456
+
+------WebKitFormBoundary456
+Content-Disposition: form-data; name="pathogen_id"
+
+{{pathogen_id}}
+------WebKitFormBoundary456
+Content-Disposition: form-data; name="schema_version"
+
+1
+------WebKitFormBoundary456
+Content-Disposition: form-data; name="file"; filename="template_v1_updated.xlsx"
+Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+
+< ./test_template.xlsx
+------WebKitFormBoundary456--
+
+###
+
+# @name delete_template_soft
+DELETE {{folio}}/templates/{{template_id}}
+Authorization: Bearer {{token}}
+
+###
+
+# @name restore_template
+POST {{folio}}/templates/{{template_id}}/restore
+Authorization: Bearer {{token}}
+
+###
+
+# @name delete_template_hard
+DELETE {{folio}}/templates/{{template_id}}?hard=true
+Authorization: Bearer {{token}}

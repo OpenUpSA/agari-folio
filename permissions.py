@@ -21,6 +21,12 @@ PERMISSIONS = {
     "delete_pathogen": ["system-admin"],
     "view_pathogens": [],
 
+    # Template management
+    "create_template": ["system-admin"],
+    "edit_template": ["system-admin"],
+    "delete_template": ["system-admin"],
+    "view_templates": [],
+
     # Project management
     "create_project": ["system-admin", "agari-org-owner", "agari-org-admin"],
     "edit_projects": ["system-admin", "agari-org-owner", "agari-org-admin"],

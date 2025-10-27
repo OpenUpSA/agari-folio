@@ -1,16 +1,16 @@
-import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
 import logging
+from settings import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
 
 # Database configuration
 DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'localhost'),
-    'port': os.getenv('DB_PORT', '5434'),
-    'database': os.getenv('DB_NAME', 'folio'),
-    'user': os.getenv('DB_USER', 'admin'),
-    'password': os.getenv('DB_PASSWORD', 'folio-db-pass-123')
+    'host': DB_HOST,
+    'port': DB_PORT,
+    'database': DB_NAME,
+    'user': DB_USER,
+    'password': DB_PASSWORD
 }
 
 # Configure logging

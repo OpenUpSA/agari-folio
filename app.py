@@ -1,9 +1,10 @@
 from flask import Flask,request
 from flask_restx import Api, Resource
-from auth import KeycloakAuth, require_auth, extract_user_info, require_permission, user_has_permission
+from auth import keycloak_auth, require_auth, extract_user_info, require_permission, user_has_permission
 from permissions import PERMISSIONS
 from database import get_db_cursor, test_connection
-import os
+from routes.templates import template_ns
+from settings import OVERTURE_SONG_URL, OVERTURE_SCORE_URL, PORT
 import json
 from datetime import datetime, date
 from decimal import Decimal
@@ -24,15 +25,8 @@ class CustomJSONEncoder(json.JSONEncoder):
 app = Flask(__name__)
 app.json_encoder = CustomJSONEncoder
 
-song = os.getenv('OVERTURE_SONG', 'http://song.local')
-score = os.getenv('OVERTURE_SCORE', 'http://score.local')
-
-keycloak_auth = KeycloakAuth(
-    keycloak_url=os.getenv('KEYCLOAK_URL', 'http://keycloak.local'),
-    realm=os.getenv('KEYCLOAK_REALM', 'agari'),
-    client_id=os.getenv('KEYCLOAK_CLIENT_ID', 'dms'),
-    client_secret=os.getenv('KEYCLOAK_CLIENT_SECRET', 'VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc')
-)
+song = OVERTURE_SONG_URL
+score = OVERTURE_SCORE_URL
 
 app.keycloak_auth = keycloak_auth
 
@@ -45,6 +39,9 @@ api = Api(app,
 
 # Configure Flask-RESTX to use our custom JSON encoder
 app.config['RESTX_JSON'] = {'cls': CustomJSONEncoder}
+
+# Register template namespace
+api.add_namespace(template_ns)
 
 ##########################
 ### INFO
@@ -1472,5 +1469,4 @@ class StudyAnalysisUnpublish(Resource):
 
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 8000))
-    app.run(debug=True, host='0.0.0.0', port=port)
+    app.run(debug=True, host='0.0.0.0', port=PORT)
