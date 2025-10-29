@@ -1366,6 +1366,21 @@ class ProjectUsers(Resource):
             user = keycloak_auth.get_user(user_id)
             if not user:
                 return {'error': 'User not found in Keycloak'}, 404
+
+            # Don't send an invite if user is not in the projects org and project privacy is private
+            if user.get("attributes"):
+                current_org = user["attributes"].get("organisation_id", [""])[0]
+            project = None
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT *
+                    FROM projects
+                    WHERE id = %s AND deleted_at IS NULL
+                """, (project_id,))
+                project = cursor.fetchone()
+            if current_org != project["organisation_id"] and project["privacy"] == "private":
+                return {'error': 'For private projects the user must belong to the same organisation as the project'}, 403
+
             response = invite_user_to_project(user, redirect_uri, project_id, role)
             return response
         except Exception as e:
