@@ -1054,9 +1054,8 @@ class ProjectList(Resource):
     @require_auth(keycloak_auth)
     @require_permission('create_project')
     def post(self):
-        
         """Create a new project
-        
+
         Request Body:
         {
             "name": "Project Name",
@@ -1064,11 +1063,9 @@ class ProjectList(Resource):
             "pathogen_id": "<associated_pathogen_id>",
             "privacy": "public|private|semi-private" 
         }
-        
-        
         """
 
-         # Extract user info to get the user_id and organisation_id
+        # Extract user info to get the user_id and organisation_id
         user_info = extract_user_info(request.user)
         user_id = user_info.get('user_id')
         organisation_id = user_info.get('organisation_id')[0]
@@ -1080,12 +1077,12 @@ class ProjectList(Resource):
             data = request.get_json()
             if not data:
                 return {'error': 'No JSON data provided'}, 400
-            
+
             name = data.get('name')
             description = data.get('description')
             pathogen_id = data.get('pathogen_id')
-            privacy = data.get('privacy', 'public')  
-            
+            privacy = data.get('privacy', 'public')
+
             if not name:
                 return {'error': 'Project name is required'}, 400
             if not pathogen_id:
@@ -1099,12 +1096,13 @@ class ProjectList(Resource):
                 """, (name, description, pathogen_id, user_id, organisation_id, privacy))
 
                 new_project = cursor.fetchone()
+                role_user(user_id, new_project["id"], "project-admin")
 
                 return {
                     'message': 'Project created successfully',
                     'project': new_project
                 }, 201
-                
+
         except Exception as e:
             if 'duplicate key value violates unique constraint' in str(e):
                 return {'error': f'Project with name "{name}" already exists'}, 409
