@@ -16,7 +16,7 @@ from settings import (
     KEYCLOAK_URL,
     KEYCLOAK_REALM,
     KEYCLOAK_CLIENT_ID,
-    KEYCLOAK_CLIENT_SECRET
+    KEYCLOAK_CLIENT_SECRET,
 )
 
 sg_api_key = SENDGRID_API_KEY
@@ -44,7 +44,7 @@ def sendgrid_email(to_email, to_name, subject, html_content):
         response = sg.send(message)
         return response, response.status_code
     else:
-        return {'error': 'Email not configured'}, 204
+        return {"error": "Email not configured"}, 204
 
 
 def mjml_to_html(template_name):
@@ -127,7 +127,7 @@ def invite_user_to_project(user, redirect_uri, project_id, role):
             FROM projects
             WHERE id = %s AND deleted_at IS NULL
         """,
-            (project_id,)
+            (project_id,),
         )
         project = cursor.fetchone()
         if not project:
@@ -152,7 +152,7 @@ def invite_user_to_project(user, redirect_uri, project_id, role):
         keycloak_auth.add_attribute_value(user["id"], "invite_project_id", project_id)
         keycloak_auth.add_attribute_value(user["id"], "invite_role", role)
         if status_code == 204:
-            return f"Email not sent"
+            return f"Inivte send without email"
         else:
             return f"Invitation email sent successfully"
     else:
@@ -177,7 +177,7 @@ def invite_user_to_org(user, redirect_uri, org_id, role):
             FROM organisations
             WHERE id = %s AND deleted_at IS NULL
         """,
-            (org_id,)
+            (org_id,),
         )
         org = cursor.fetchone()
         if not org:
@@ -206,6 +206,29 @@ def invite_user_to_org(user, redirect_uri, org_id, role):
             return f"Invitation email sent successfully"
     else:
         return {"error": "Failed to send invitation email"}, 500
+
+
+def role_user(user_id, project_id, role):
+    # Remove user from all existing project roles first (role hierarchy enforcement)
+    removed_roles = []
+    for existing_role in ["project-admin", "project-contributor", "project-viewer"]:
+        if keycloak_auth.user_has_attribute(user_id, existing_role, project_id):
+            success = keycloak_auth.remove_attribute_value(
+                user_id, existing_role, project_id
+            )
+            if success:
+                removed_roles.append(existing_role)
+                print(
+                    f"Removed project_id {project_id} from role {existing_role} for user {user_id}"
+                )
+            else:
+                return {"error": f"Failed to remove existing role {existing_role}"}, 500
+
+    # Add the user to the new role
+    success = keycloak_auth.add_attribute_value(user_id, role, project_id)
+    if not success:
+        return {"error": f"Failed to add user to role {role}"}, 500
+    return removed_roles
 
 
 def access_revoked_notification(user_id):

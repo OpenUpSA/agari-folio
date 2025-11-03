@@ -21,6 +21,7 @@ from helpers import (
     log_event,
     log_submission,
     tsv_to_json,
+    role_user,
 )
 import uuid
 import settings  # module import allows override via conftest.py
@@ -1381,14 +1382,13 @@ class ProjectUsers(Resource):
     @require_auth(keycloak_auth)
     @require_permission('manage_project_users', resource_type='project', resource_id_arg='project_id')
     def post(self, project_id):
-
         """Add a user to a project with a specific role"""
 
         try:
             data = request.get_json()
             if not data:
                 return {'error': 'No JSON data provided'}, 400
-            
+
             user_id = data.get('user_id')
             role = data.get('role')
             redirect_uri = data.get('redirect_uri')
@@ -1403,7 +1403,12 @@ class ProjectUsers(Resource):
             user = keycloak_auth.get_user(user_id)
             if not user:
                 return {'error': 'User not found in Keycloak'}, 404
-            response = invite_user_to_project(user, redirect_uri, project_id, role)
+
+            if 'force_role' in data:
+                role_user(user["id"], project_id, role)
+                return f"User role updated for project {project_id}"
+            else:
+                response = invite_user_to_project(user, redirect_uri, project_id, role)
             return response
         except Exception as e:
             logger.exception(f"Error adding user to project: {str(e)}")
@@ -2401,10 +2406,8 @@ class ProjectInviteStatus(Resource):
         print(invite)
 
 
-
 @invite_ns.route('/project/<string:token>/accept')
 class ProjectInviteConfirm(Resource):
-
     ### POST /invites/<token>/accept ###
 
     @api.doc('accept_project_invite')
@@ -2412,33 +2415,11 @@ class ProjectInviteConfirm(Resource):
         user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
         user_id = user["user_id"]
 
-        project_id = None
-        for role_attr in ['project-admin', 'project-contributor', 'project-viewer']:
-            role_values = user["attributes"].get(role_attr, [])
-            if role_values:
-                project_id = role_values[0]
-                break
-
         invite_role = user["attributes"].get("invite_role", [""])[0]
         invite_project_id = user["attributes"].get("invite_project_id", [""])[0]
 
-        # Remove user from all existing project roles first (role hierarchy enforcement)
-        removed_roles = []
-        for existing_role in ['project-admin', 'project-contributor', 'project-viewer']:
-            if keycloak_auth.user_has_attribute(user_id, existing_role, invite_project_id):
-                success = keycloak_auth.remove_attribute_value(user_id, existing_role, invite_project_id)
-                if success:
-                    removed_roles.append(existing_role)
-                    print(f"Removed project_id {invite_project_id} from role {existing_role} for user {user_id}")
-                else:
-                    return {'error': f'Failed to remove existing role {existing_role}'}, 500
-
-        # Add the user to the new role
-        success = keycloak_auth.add_attribute_value(user_id, invite_role, invite_project_id)
-        if not success:
-            return {'error': f'Failed to add user to role {invite_role}'}, 500
-
-        print(f"Added project_id {project_id} to role {invite_role} for user {user_id}")
+        removed_roles = role_user(user_id, invite_project_id, invite_role)
+        print(f"Added project_id {invite_project_id} to role {invite_role} for user {user_id}")
 
         # Remove temp attributes
         keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
