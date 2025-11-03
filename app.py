@@ -2067,6 +2067,118 @@ class UnpublishSubmission(Resource):
         
 
 
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files/<string:object_id>')
+class ProjectSubmissionFileDetails(Resource):
+    ### GET /projects/<project_id>/submissions/<submission_id>/files/<object_id> ###
+
+    @api.doc('get_submission_file_details')
+    @require_auth(keycloak_auth)
+    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
+    def get(self, project_id, submission_id, object_id):
+
+        """Get details for a submission file from SCORE (proxy endpoint)"""
+
+        try:
+            # Clean and validate UUIDs
+            try:
+                clean_project_id = str(uuid.UUID(project_id.strip('"')))
+                clean_submission_id = str(uuid.UUID(submission_id.strip('"')))
+            except ValueError as e:
+                return {'error': f'Invalid UUID format: {str(e)}'}, 400
+
+            # Get submission details to find the analysis_id and study_id
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT study_id, analysis_id
+                    FROM submissions
+                    WHERE id = %s AND project_id = %s
+                """, (clean_submission_id, clean_project_id))
+                
+                submission = cursor.fetchone()
+                
+                if not submission:
+                    return {'error': 'Submission not found for this project'}, 404
+                
+                study_id = submission.get('study_id')
+                analysis_id = submission.get('analysis_id')
+
+            if not analysis_id or not study_id:
+                return {'error': 'Submission does not have associated analysis'}, 400
+
+            # Get client token for SONG API
+            song_token = keycloak_auth.get_client_token()
+            if not song_token:
+                return {'error': 'Failed to authenticate with SONG service'}, 500
+
+            song_headers = {
+                'Authorization': f'Bearer {song_token}',
+                'Content-Type': 'application/json'
+            }
+
+            # Get analysis details from SONG to find file size
+            song_analysis_url = f"{SONG_URL}/studies/{study_id}/analysis/{analysis_id}"
+            song_response = requests.get(song_analysis_url, headers=song_headers)
+
+           
+
+            if song_response.status_code != 200:
+                return {'error': f'Failed to get analysis from SONG: {song_response.status_code} - {song_response.text}'}, song_response.status_code
+
+            analysis_data = song_response.json()
+            
+            # Find the file with matching object_id in the files array
+            file_info = None
+            files = analysis_data.get('files', [])
+            
+            for file_obj in files:
+                if file_obj.get('objectId') == object_id:
+                    file_info = file_obj
+                    break
+            
+            if not file_info:
+                return {'error': f'File with object_id {object_id} not found in submission'}, 404
+
+            file_size = file_info.get('fileSize', 0)
+
+           
+            
+            # Get client token for SCORE API
+            score_token = keycloak_auth.get_client_token()
+            if not score_token:
+                return {'error': 'Failed to authenticate with SCORE service'}, 500
+
+            score_headers = {
+                'Authorization': f'Bearer {score_token}',
+                'User-Agent': 'Agari-Folio/1.0'
+            }
+
+            # Get download URL from SCORE
+            score_file_url = f"{SCORE_URL}/download/{object_id}?offset=0&length={file_size}"
+
+            print(f"Requesting download URL from SCORE: {score_file_url}")
+
+            score_response = requests.get(score_file_url, headers=score_headers, allow_redirects=False)
+
+            
+            if score_response.status_code == 200:
+
+                file_url = score_response.json().get('parts', [{}])[0].get('url')
+                if not file_url:
+                    return {'error': 'Download URL not found in SCORE response'}, 500
+
+                return {
+                    'file_url': file_url,
+                    'object_id': object_id,
+                    'file_size': file_size
+                }, 200
+            
+               
+            else:
+                return {'error': f'Failed to get download URL from SCORE: {score_response.status_code} - {score_response.text}'}, score_response.status_code
+
+        except Exception as e:
+            logger.exception(f"Error getting download URL for file {object_id} in submission {submission_id}: {str(e)}")
+            return {'error': f'Failed to get download URL: {str(e)}'}, 500
 
 
 

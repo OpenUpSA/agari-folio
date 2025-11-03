@@ -1,11 +1,13 @@
-# @folio = http://localhost:5000
-@folio = https://folio-staging.openup.org.za
-# @keycloak = http://keycloak.local
-@keycloak = https://keycloak-staging.openup.org.za
+@folio = http://localhost:8000
+# @folio = https://folio-staging.openup.org.za
+@keycloak = http://keycloak.local
+# @keycloak = https://keycloak-staging.openup.org.za
 
-# @song = http://song.local
-@song = https://song-staging.openup.org.za
+@song = http://song.local
+# @song = https://song-staging.openup.org.za
 
+@score = http://score.local
+# @score = https://score-staging.openup.org.za
 
 # @minio = http://minio.local
 @minio = http://localhost:9000
@@ -329,7 +331,7 @@ Content-Type: application/json
 
 ###
 
-@project_id = 2bc307f3-22a7-4b61-b97d-cfff86d61b31
+@project_id = 1cea44fb-c8ef-4e63-a1ed-1fcd9567bb60
 
 ### @name get_project
 GET {{folio}}/projects/{{project_id}}
@@ -403,7 +405,7 @@ Authorization: Bearer {{token}}
 
 ###
 
-@study_id = cholera-999
+@study_id = cholera-002
 @study_folio_id = 73feb9b9-915b-41c2-bb4a-908ed10668e8
 
 # @name create_study
@@ -462,8 +464,8 @@ Content-Disposition: form-data; name="metadata"
 {
   "studyId": "{{study_id}}",
   "analysisType": {
-    "name": "cholera_schema",
-    "version": 4
+    "name": "one_to_many_schema",
+    "version": 1
   },
   "submissionName": "Cholera TSV Submission",
   "files": [
@@ -471,7 +473,7 @@ Content-Disposition: form-data; name="metadata"
       "fileName": "cholera2.fasta",
       "fileType": "FASTA",
       "fileSize": 6643,
-      "fileMd5sum": "1dfd8800948e9f2bf44942003f9265fm",
+      "fileMd5sum": "1dfd8800948e9f2bf44942003f9265f8",
       "fileAccess": "open",
       "dataType": "Cholera Genome"
     }
@@ -488,7 +490,7 @@ Content-Type: text/plain
 
 ###
 
-@submission_id = 8c296739-c9a4-40cb-88dd-8df6e7d79a64
+@submission_id = 1572b5e8-479b-446c-a782-65e23b472a27
 
 # @name getSubmissionDetails
 GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}
@@ -496,7 +498,22 @@ Authorization: Bearer {{token}}
 
 ###
 
-@object_id = 0ebc4e28-b0c7-590b-bc36-f4344d983329
+@object_id = 65a227f9-9eb2-5099-80ae-6978b8da382b
+
+# @name get_submission_file
+GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/files/{{object_id}}
+Authorization: Bearer {{token}}
+
+###
+
+@url = http://minio:9000/object/data/65a227f9-9eb2-5099-80ae-6978b8da382b?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251103T134737Z&X-Amz-SignedHeaders=host%3Brange&X-Amz-Expires=86400&X-Amz-Credential=admin%2F20251103%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=48b18c8af124fe1228f7cd2c7820a2814cd08c478cafd14dd48ffbb342c3cd9f
+
+# @name get_minio_presigned_url
+GET {{url}}
+
+
+###
+
 
 # @name upload_init
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/init
@@ -507,14 +524,14 @@ Content-Type: application/json
     "object_id": "{{object_id}}",
     "overwrite": true,
     "fileSize": 6643,
-    "md5": "1dfd8800948e9f2bf44942003f9265fm"
+    "md5": "1dfd8800948e9f2bf44942003f9265f8"
 }
 
 ###
 
 # @name upload_file_to_minio
 
-@url = https://minio-staging.openup.org.za/object/data/0ebc4e28-b0c7-590b-bc36-f4344d983329?uploadId=Mjc1Njc3MDktNmZiNS00MTczLWEwOTEtOGQ5Njg4Y2YzZDg5LjNlNDBiMjcxLTA1MGMtNDQ3ZC1iNjU5LTZkZTdkYmU3YjgzNQ&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251029T185530Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518399&X-Amz-Credential=admin%2F20251029%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=f44afe7395cc8b7fa0411e6e12e0a19b7269a90aaf64c3157bb9d075d971cdbc
+@url = http://minio:9000/object/data/65a227f9-9eb2-5099-80ae-6978b8da382b?uploadId=NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLjk4N2U1NTkzLWY5OWUtNDZjYy05MmMzLWE3ZjM1ZGEwOTI1MQ&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251103T132904Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518399&X-Amz-Credential=admin%2F20251103%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=673aa1d50d6a7dad8b35a67c9a63535ffd1c405cc31ebd8b6f891b149f2cb038
 PUT {{url}}
 Content-Type: application/octet-stream
 
@@ -531,10 +548,10 @@ Content-Type: application/json
 
 {
   "object_id": "{{object_id}}",
-  "upload_id": "Mjc1Njc3MDktNmZiNS00MTczLWEwOTEtOGQ5Njg4Y2YzZDg5LjNlNDBiMjcxLTA1MGMtNDQ3ZC1iNjU5LTZkZTdkYmU3YjgzNQ",
+  "upload_id": "NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLjk4N2U1NTkzLWY5OWUtNDZjYy05MmMzLWE3ZjM1ZGEwOTI1MQ",
   "etag": "bda8ea08a3e76e699a0248038737649d",
   "part_number": 1,
-  "md5": "1dfd8800948e9f2bf44942003f9265fm"
+  "md5": "1dfd8800948e9f2bf44942003f9265f8"
 }
 
 ###
@@ -545,8 +562,8 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "object_id": "7ecdaca1-897d-59c2-ab54-8ff17ab2c0ad",
-  "upload_id": "Mjc1Njc3MDktNmZiNS00MTczLWEwOTEtOGQ5Njg4Y2YzZDg5LjhhMjJhZWM4LWExOGItNGI5ZC1hZjRkLTZmYWFjZTNhZjBjNw",
+  "object_id": "{{object_id}}",
+  "upload_id": "NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLjk4N2U1NTkzLWY5OWUtNDZjYy05MmMzLWE3ZjM1ZGEwOTI1MQ",
   "parts": [
     {
       "part_number": 1,
@@ -562,7 +579,6 @@ Content-Type: application/json
 # @name publish_analysis
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/publish
 Authorization: Bearer {{token}}
-
 
 
 ##########################
@@ -628,6 +644,21 @@ Content-Type: application/json
   "redirect_uri": "https://agari.openup.org.za/",
   "send_email": "false"
 }
+
+
+##########################
+### SCORE
+##########################
+
+# @object_id = 41e82afe-2e03-5f4c-8537-aa58a8d00e5e
+@length = 6643
+
+# @name download_score_file
+GET {{score}}/download/{{object_id}}?offset=0&length={{length}}
+Authorization: Bearer {{token}}
+User-Agent: RestClient/2.1.0 (darwin20 x86_64) ruby/2.7.6p219
+
+###
 
 
 ##########################
