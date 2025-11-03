@@ -42,7 +42,7 @@ def sendgrid_email(to_email, to_name, subject, html_content):
     )
     if sg_api_key != "":
         response = sg.send(message)
-        return response
+        return response, response.status_code
     else:
         return {'error': 'Email not configured'}, 204
 
