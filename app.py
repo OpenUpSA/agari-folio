@@ -9,7 +9,6 @@ from auth import (
 )
 from permissions import PERMISSIONS
 from database import get_db_cursor, test_connection
-import os
 import json
 from datetime import datetime, date
 from decimal import Decimal
@@ -24,6 +23,14 @@ from helpers import (
     tsv_to_json,
 )
 import uuid
+import settings  # module import allows override via conftest.py
+from logging import getLogger
+
+SONG_URL = settings.OVERTURE_SONG
+SCORE_URL = settings.OVERTURE_SCORE
+
+logger = getLogger(__name__)
+
 
 
 # Custom JSON encoder to handle datetime and other types
@@ -40,14 +47,12 @@ class CustomJSONEncoder(json.JSONEncoder):
 app = Flask(__name__)
 app.json_encoder = CustomJSONEncoder
 
-song = os.getenv('OVERTURE_SONG', 'http://song.local')
-score = os.getenv('OVERTURE_SCORE', 'http://score.local')
-
+print("app", settings.KEYCLOAK_URL)
 keycloak_auth = KeycloakAuth(
-    keycloak_url=os.getenv('KEYCLOAK_URL', 'http://keycloak.local'),
-    realm=os.getenv('KEYCLOAK_REALM', 'agari'),
-    client_id=os.getenv('KEYCLOAK_CLIENT_ID', 'dms'),
-    client_secret=os.getenv('KEYCLOAK_CLIENT_SECRET', 'VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc')
+    keycloak_url=settings.KEYCLOAK_URL,
+    realm=settings.KEYCLOAK_REALM,
+    client_id=settings.KEYCLOAK_CLIENT_ID,
+    client_secret=settings.KEYCLOAK_CLIENT_SECRET
 )
 
 app.keycloak_auth = keycloak_auth
@@ -175,6 +180,7 @@ class PermissionsCheckResource(Resource):
                 'details': details
             }
         except Exception as e:
+            logger.exception(f"Error checking permission: {str(e)}")
             return {'error': f'Failed to check permission: {str(e)}'}, 500
 
 
@@ -224,6 +230,7 @@ class PathogenList(Resource):
                 return pathogens
 
         except Exception as e:
+            logger.exception(f"Error retrieving pathogens: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 
 
@@ -267,6 +274,7 @@ class PathogenList(Resource):
         except Exception as e:
             if 'duplicate key value violates unique constraint' in str(e):
                 return {'error': f'Pathogen with name "{name}" already exists'}, 409
+            logger.exception(f"Error creating pathogen: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 
 @pathogen_ns.route('/<string:pathogen_id>')
@@ -295,6 +303,7 @@ class Pathogen(Resource):
                 return pathogen
                 
         except Exception as e:
+            logger.exception(f"Error retrieving pathogen {pathogen_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
         
     ### DELETE /pathogens/<pathogen_id> ###
@@ -303,7 +312,6 @@ class Pathogen(Resource):
     @require_auth(keycloak_auth)
     @require_permission('create_pathogen')
     def delete(self, pathogen_id):
-
         """Delete a pathogen by ID (system-admin only)
         
         Query Parameters: 
@@ -352,6 +360,7 @@ class Pathogen(Resource):
                     }
                 
         except Exception as e:
+            logger.exception(f"Error deleting pathogen {pathogen_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
         
     ### PUT /pathogens/<pathogen_id> ###
@@ -398,6 +407,7 @@ class Pathogen(Resource):
         except Exception as e:
             if 'duplicate key value violates unique constraint' in str(e):
                 return {'error': f'Pathogen with name "{name}" already exists'}, 409
+            logger.exception(f"Error updating pathogen {pathogen_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 
 
@@ -435,6 +445,7 @@ class PathogenRestore(Resource):
         except Exception as e:
             if 'duplicate key value violates unique constraint' in str(e):
                 return {'error': 'Cannot restore: A pathogen with this name already exists'}, 409
+            logger.exception(f"Error restoring pathogen {pathogen_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 
 ##########################
@@ -457,6 +468,7 @@ class UserList(Resource):
             users = keycloak_auth.get_all_users()
             return users
         except Exception as e:
+            logger.exception(f"Error retrieving users: {str(e)}")
             return {'error': f'Failed to retrieve users: {str(e)}'}, 500
 
     ### POST /users ###
@@ -513,6 +525,7 @@ class User(Resource):
             return user_info
             
         except Exception as e:
+            logger.exception(f"Error retrieving user {user_id}: {str(e)}")
             return {'error': f'Failed to retrieve user: {str(e)}'}, 500
 
     ### DELETE /users/<user_id> ###
@@ -528,6 +541,7 @@ class User(Resource):
             access_revoked_notification(user_id)
             return {'message': 'User deleted successfully'}, 204
         except Exception as e:
+            logger.exception(f"Error deleting user {user_id}: {str(e)}")
             return {'error': f'Failed to delete user: {str(e)}'}, 500
         
     ### PUT /users/<user_id> ###
@@ -607,6 +621,7 @@ class User(Resource):
                 }, 500
                 
         except Exception as e:
+            logger.exception(f"Error updating user {user_id}: {str(e)}")
             return {'error': f'Failed to update user: {str(e)}'}, 500
 
 ##########################
@@ -637,6 +652,7 @@ class OrganisationList(Resource):
                 return organisations
 
         except Exception as e:
+            logger.exception(f"Error retrieving organisations: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
         
 
@@ -680,6 +696,7 @@ class OrganisationList(Resource):
         except Exception as e:
             if 'duplicate key value violates unique constraint' in str(e):
                 return {'error': f'Organisation with name "{name}" already exists'}, 409
+            logger.exception(f"Error creating organisation: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 
     
@@ -710,6 +727,7 @@ class Organisation(Resource):
                 return organisation
                 
         except Exception as e:
+            logger.exception(f"Error retrieving organisation {org_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
         
     ### PUT /organisations/<id> ###
@@ -789,6 +807,7 @@ class Organisation(Resource):
         except Exception as e:
             if 'duplicate key value violates unique constraint' in str(e):
                 return {'error': f'Organisation name already exists'}, 409
+            logger.exception(f"Error updating organisation {org_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
         
     ### DELETE /organisations/<id> ###
@@ -817,6 +836,7 @@ class Organisation(Resource):
                 }, 204
                 
         except Exception as e:
+            logger.exception(f"Error deleting organisation {org_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 
         
@@ -837,6 +857,7 @@ class OrganisationUsers(Resource):
             users = keycloak_auth.get_users_by_attribute('organisation_id', org_id)
             return users
         except Exception as e:
+            logger.exception(f"Error retrieving organisation members for {org_id}: {str(e)}")
             return {'error': f'Failed to retrieve users: {str(e)}'}, 500
         
     
@@ -889,6 +910,7 @@ class OrganisationUsers(Resource):
             return response
             
         except Exception as e:
+            logger.exception(f"Error adding user to organisation {org_id}: {str(e)}")
             return {'error': f'Failed to add user to organisation: {str(e)}'}, 500
 
 
@@ -1022,6 +1044,7 @@ class ProjectList(Resource):
                 }
 
         except Exception as e:
+            logger.exception(f"Error retrieving projects: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
         
     ### POST /projects ###
@@ -1084,6 +1107,7 @@ class ProjectList(Resource):
         except Exception as e:
             if 'duplicate key value violates unique constraint' in str(e):
                 return {'error': f'Project with name "{name}" already exists'}, 409
+            logger.exception(f"Error creating project: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 
 
@@ -1127,6 +1151,7 @@ class Project(Resource):
                     return project
 
         except Exception as e:
+            logger.exception(f"Error retrieving project {project_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
         
     ### PUT /projects/<project_id> ###    
@@ -1201,6 +1226,7 @@ class Project(Resource):
         except Exception as e:
             if 'duplicate key value violates unique constraint' in str(e):
                 return {'error': f'Project name already exists'}, 409
+            logger.exception(f"Error updating project {project_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
         
 
@@ -1259,6 +1285,7 @@ class Project(Resource):
                     }
                 
         except Exception as e:
+            logger.exception(f"Error deleting project {project_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 
 @project_ns.route('/<string:project_id>/restore')
@@ -1294,6 +1321,7 @@ class ProjectRestore(Resource):
         except Exception as e:
             if 'duplicate key value violates unique constraint' in str(e):
                 return {'error': 'Cannot restore: A project with this name already exists'}, 409
+            logger.exception(f"Error restoring project {project_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 
 
@@ -1343,10 +1371,11 @@ class ProjectUsers(Resource):
                 'total_users': len(project_admins) + len(project_contributors) + len(project_viewers)
             }
         except Exception as e:
+            logger.exception(f"Error retrieving users for project {project_id}: {str(e)}")
             return {'error': f'Failed to retrieve project users: {str(e)}'}, 500
     
     ### POST /projects/<project_id>/users ###
-    ### Body: { "user_id": "<keycloak_user_id>", "role": "project-admin|project-contributor|project-viewer" } ###
+    ### Body: { "user_id": "<keycloak_user_id>", "role": "project-admin|project-contributor|project-viewer", "redirect_uri": "<redirect_uri>" } ###
     
     @api.doc('add_project_user')
     @require_auth(keycloak_auth)
@@ -1377,6 +1406,7 @@ class ProjectUsers(Resource):
             response = invite_user_to_project(user, redirect_uri, project_id, role)
             return response
         except Exception as e:
+            logger.exception(f"Error adding user to project: {str(e)}")
             return {'error': f'Failed to add user to project: {str(e)}'}, 500
 
 
@@ -1420,6 +1450,7 @@ class DeleteProjectUsers(Resource):
             }, 200
 
         except Exception as e:
+            logger.exception(f"Error removing user from project: {str(e)}")
             return {'error': f'Failed to remove user from project: {str(e)}'}, 500
 
 
@@ -1463,6 +1494,7 @@ class ProjectSubmissions(Resource):
                     'submissions': submissions
                 }
         except Exception as e:
+            logger.exception(f"Error retrieving submissions for project {project_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
         
     
@@ -1541,7 +1573,7 @@ class ProjectSubmissions(Resource):
                 except UnicodeDecodeError:
                     return {'error': 'File must be UTF-8 encoded'}, 400
                 except Exception as e:
-                    print(f"Error processing TSV: {str(e)}")
+                    logger.exception(f"Error processing TSV: {str(e)}")
                     return {'error': f'Failed to process TSV file: {str(e)}'}, 500
             else:
                 print("No file upload detected, checking for JSON body")
@@ -1563,7 +1595,7 @@ class ProjectSubmissions(Resource):
             }
             
             # Forward the request to SONG
-            song_submit_url = f"{song}/submit/{metadata['studyId']}?allowDuplicates=true"
+            song_submit_url = f"{SONG_URL}/submit/{metadata['studyId']}?allowDuplicates=true"
             song_response = requests.post(song_submit_url, headers=song_headers, json=data)
 
             print(f"SONG submit response status: {song_response.status_code}")
@@ -1595,6 +1627,7 @@ class ProjectSubmissions(Resource):
             return response_data, song_response.status_code
 
         except Exception as e:
+            logger.exception(f"Error submitting analysis for project {project_id}: {str(e)}")
             return {'error': f'Failed to submit analysis: {str(e)}'}, 500
         
 
@@ -1661,7 +1694,7 @@ class ProjectSubmission(Resource):
                         'Content-Type': 'application/json'
                     }
 
-                    song_response = requests.get(f"{song}/studies/{study_id}/analysis/{analysis_id}", headers=song_headers)
+                    song_response = requests.get(f"{SONG_URL}/studies/{study_id}/analysis/{analysis_id}", headers=song_headers)
 
                     if song_response.status_code == 200:
                         song_data = song_response.json()
@@ -1669,6 +1702,7 @@ class ProjectSubmission(Resource):
 
                 return submission
         except Exception as e:
+            logger.exception(f"Error retrieving submission {submission_id} for project {project_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 
 
@@ -1707,7 +1741,7 @@ class ProjectSubmissionUploadInit(Resource):
             }
 
             # Initialize upload with SCORE
-            init_upload_url = f"{score}/upload/{object_id}/uploads"
+            init_upload_url = f"{SCORE_URL}/upload/{object_id}/uploads"
             init_data = {
                 'fileSize': file_size,
                 'md5': file_md5,
@@ -1724,6 +1758,7 @@ class ProjectSubmissionUploadInit(Resource):
             return init_response.json(), 200
 
         except Exception as e:
+            logger.exception(f"Error initializing upload for submission {submission_id}: {str(e)}")
             log_submission(submission_id, request.user.get('user_id'), 500, f'Failed to initialize upload: {str(e)}')
             return {'error': f'Failed to initialize upload: {str(e)}'}, 500
 
@@ -1765,7 +1800,7 @@ class ProjectSubmissionUploadFinalisePart(Resource):
             }
 
             # Finalise part upload
-            finalise_part_url = f"{score}/upload/{object_id}/parts"
+            finalise_part_url = f"{SCORE_URL}/upload/{object_id}/parts"
             finalise_part_params = {
                 'partNumber': part_number,
                 'etag': etag,
@@ -1795,6 +1830,7 @@ class ProjectSubmissionUploadFinalisePart(Resource):
             }, 200
 
         except Exception as e:
+            logger.exception(f"Error finalising part upload for submission {submission_id}: {str(e)}")
             log_submission(submission_id, request.user.get('user_id'), 500, f'{str(e)}')
             return {'error': f'Failed to finalise part upload: {str(e)}'}, 500
 
@@ -1838,7 +1874,7 @@ class ProjectSubmissionUploadFinalise(Resource):
             }
 
             # Finalize complete upload
-            finalize_upload_url = f"{score}/upload/{object_id}"
+            finalize_upload_url = f"{SCORE_URL}/upload/{object_id}"
             finalize_upload_params = {'uploadId': upload_id}
             
             # Include parts data in the request body if provided
@@ -1880,6 +1916,7 @@ class ProjectSubmissionUploadFinalise(Resource):
             return response_data, 200
 
         except Exception as e:
+            logger.exception(f"Error finalising upload for submission {submission_id}: {str(e)}")
             log_submission(submission_id, request.user.get('user_id'), 500, f'{str(e)}')
             return {'error': f'Failed to finalise upload: {str(e)}'}, 500
         
@@ -1931,7 +1968,7 @@ class PublishSubmission(Resource):
             }
 
             # Forward the publish request to SONG
-            song_publish_url = f"{song}/studies/{study_id}/analysis/publish/{analysis_id}"
+            song_publish_url = f"{SONG_URL}/studies/{study_id}/analysis/publish/{analysis_id}"
             song_response = requests.put(song_publish_url, headers=song_headers)
 
             print(f"SONG publish response status: {song_response.status_code}")
@@ -1950,6 +1987,7 @@ class PublishSubmission(Resource):
             return response_data, song_response.status_code
 
         except Exception as e:
+            logger.exception(f"Error publishing submission {submission_id} for project {project_id}: {str(e)}")
             log_submission(submission_id, request.user.get('user_id'), 500, f'{str(e)}')
             return {'error': f'Failed to publish analysis: {str(e)}'}, 500
 
@@ -2001,7 +2039,7 @@ class UnpublishSubmission(Resource):
             }
 
             # Forward the unpublish request to SONG
-            song_unpublish_url = f"{song}/studies/{study_id}/analysis/unpublish/{analysis_id}"
+            song_unpublish_url = f"{SONG_URL}/studies/{study_id}/analysis/unpublish/{analysis_id}"
             song_response = requests.put(song_unpublish_url, headers=song_headers)
 
             print(f"SONG unpublish response status: {song_response.status_code}")
@@ -2020,6 +2058,7 @@ class UnpublishSubmission(Resource):
             return response_data, song_response.status_code
 
         except Exception as e:
+            logger.exception(f"Error unpublishing submission {submission_id} for project {project_id}: {str(e)}")
             log_submission(submission_id, request.user.get('user_id'), 500, f'{str(e)}')
             return {'error': f'Failed to unpublish analysis: {str(e)}'}, 500
         
@@ -2059,6 +2098,7 @@ class StudyList(Resource):
                 return studies
 
         except Exception as e:
+            logger.exception("Error retrieving studies")
             return {'error': f'Database error: {str(e)}'}, 500
 
     ### POST /studies ###
@@ -2101,7 +2141,7 @@ class StudyList(Resource):
                 'Content-Type': 'application/json'
             }
             
-            song_check_url = f"{song}/studies/{studyId}"
+            song_check_url = f"{SONG_URL}/studies/{studyId}"
             app.logger.info(f"Checking SONG for existing studyId at {song_check_url} ...")
             song_response = requests.get(song_check_url, headers=song_headers)
     
@@ -2115,7 +2155,7 @@ class StudyList(Resource):
                 return {'error': f'Error checking study in SONG: {song_response.status_code} - {song_response.text}'}, 500
     
             ### CREATE STUDY IN SONG ###
-            song_create_url = f"{song}/studies/{studyId}/"
+            song_create_url = f"{SONG_URL}/studies/{studyId}/"
             song_payload = {
                 'studyId': studyId,
                 'name': name,
@@ -2148,6 +2188,7 @@ class StudyList(Resource):
         except Exception as e:
             if 'duplicate key value violates unique constraint' in str(e):
                 return {'error': f'Study with name "{name}" already exists'}, 409
+            logger.exception("Error creating study")
             return {'error': f'Database error: {str(e)}'}, 500
 
 @study_ns.route('/<string:study_id>/analysis')
@@ -2181,9 +2222,9 @@ class StudyAnalysis(Resource):
             }
 
             if states:
-                song_analysis_url = f"{song}/studies/{study_id}/analysis?analysisStates={states}"
+                song_analysis_url = f"{SONG_URL}/studies/{study_id}/analysis?analysisStates={states}"
             else:
-                song_analysis_url = f"{song}/studies/{study_id}/analysis"
+                song_analysis_url = f"{SONG_URL}/studies/{study_id}/analysis"
 
             song_response = requests.get(song_analysis_url, headers=song_headers)
 
@@ -2193,11 +2234,13 @@ class StudyAnalysis(Resource):
             try:
                 response_data = song_response.json()
             except:
+                logger.exception("Error parsing SONG response")
                 response_data = {'message': song_response.text}
             
             return response_data, song_response.status_code
 
         except Exception as e:
+            logger.exception("Error retrieving analysis")
             return {'error': f'Failed to retrieve analysis results: {str(e)}'}, 500
 
 @study_ns.route('/<string:project_id>/<string:study_id>/analysis/<string:analysis_id>/upload')
@@ -2250,7 +2293,7 @@ class StudyAnalysisUpload(Resource):
             }
 
             # Step 1: Initialize upload with SCORE
-            init_upload_url = f"{score}/upload/{object_id}/uploads"
+            init_upload_url = f"{SCORE_URL}/upload/{object_id}/uploads"
             init_data = {
                 'fileSize': file_size,
                 'md5': file_md5,
@@ -2280,7 +2323,7 @@ class StudyAnalysisUpload(Resource):
             app.logger.info(f"File uploaded to MinIO - ETag: {etag}")
 
             # Step 3: Finalize part upload
-            finalize_part_url = f"{score}/upload/{object_id}/parts"
+            finalize_part_url = f"{SCORE_URL}/upload/{object_id}/parts"
             finalize_part_params = {
                 'partNumber': 1,
                 'etag': etag,
@@ -2305,7 +2348,7 @@ class StudyAnalysisUpload(Resource):
             app.logger.info("Part upload finalized")
 
             # Step 4: Finalize complete upload
-            finalize_upload_url = f"{score}/upload/{object_id}"
+            finalize_upload_url = f"{SCORE_URL}/upload/{object_id}"
             finalize_upload_params = {'uploadId': upload_id}
             
             finalize_upload_response = requests.post(
@@ -2333,6 +2376,7 @@ class StudyAnalysisUpload(Resource):
             }, 200
 
         except Exception as e:
+            logger.exception(f"Error uploading file to analysis {analysis_id} in study {study_id}: {str(e)}")
             return {'error': f'Failed to upload file: {str(e)}'}, 500
         
 
@@ -2466,5 +2510,5 @@ class OrganisationInviteConfirm(Resource):
 
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 8000))
-    app.run(debug=True, host='0.0.0.0', port=port)
+    from settings import PORT
+    app.run(debug=True, host='0.0.0.0', port=PORT)

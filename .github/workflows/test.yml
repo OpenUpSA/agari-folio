@@ -46,14 +46,15 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install -r requirements_test.txt
 
-    - name: Set environment variables
-      run: |
-        echo "DB_HOST=localhost" >> $GITHUB_ENV
-        echo "DB_PORT=5434" >> $GITHUB_ENV
-        echo "DB_NAME=folio" >> $GITHUB_ENV
-        echo "DB_USER=admin" >> $GITHUB_ENV
-        echo "DB_PASSWORD=folio-db-pass-123" >> $GITHUB_ENV
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install MJML
+      run: npm install -g mjml
 
     - name: Run tests
       run: |

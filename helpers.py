@@ -1,5 +1,4 @@
 from email import message
-import os
 import subprocess
 import json
 import hashlib
@@ -10,24 +9,27 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail, From, To
 
 from database import get_db_cursor
-
-
-sg_api_key = os.getenv(
-    "SENDGRID_API_KEY",
-    "",
+from settings import (
+    SENDGRID_API_KEY,
+    SENDGRID_FROM_EMAIL,
+    SENDGRID_FROM_NAME,
+    KEYCLOAK_URL,
+    KEYCLOAK_REALM,
+    KEYCLOAK_CLIENT_ID,
+    KEYCLOAK_CLIENT_SECRET
 )
-sg_from_email = os.getenv("SENDGRID_FROM_EMAIL", "webapps+agaridev@openup.org.za")
-sg_from_name = os.getenv("SENDGRID_FROM_NAME", "AGARI")
+
+sg_api_key = SENDGRID_API_KEY
+sg_from_email = SENDGRID_FROM_EMAIL
+sg_from_name = SENDGRID_FROM_NAME
 
 sg = SendGridAPIClient(sg_api_key)
 
 keycloak_auth = KeycloakAuth(
-    keycloak_url=os.getenv("KEYCLOAK_URL", "http://keycloak.local"),
-    realm=os.getenv("KEYCLOAK_REALM", "agari"),
-    client_id=os.getenv("KEYCLOAK_CLIENT_ID", "dms"),
-    client_secret=os.getenv(
-        "KEYCLOAK_CLIENT_SECRET", "VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc"
-    ),
+    keycloak_url=KEYCLOAK_URL,
+    realm=KEYCLOAK_REALM,
+    client_id=KEYCLOAK_CLIENT_ID,
+    client_secret=KEYCLOAK_CLIENT_SECRET,
 )
 
 

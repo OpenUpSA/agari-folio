@@ -51,6 +51,7 @@ services:
       KC_FEATURES: preview
       KC_CORS_ORIGINS: "*"
       JAVA_OPTS_APPEND: "-Djava.awt.headless=true -Djboss.modules.system.pkgs=org.jboss.byteman -Djava.net.preferIPv4Stack=true -server -Xms512m -Xmx768m"
+      KC_LOG_LEVEL_ORG_KEYCLOAK: DEBUG
     command:
       - start-dev
       # "If a realm already exists in the server, the import operation is skipped."
