@@ -11,24 +11,31 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_DB: folio
-          POSTGRES_USER: admin
-          POSTGRES_PASSWORD: folio-db-pass-123
-        ports:
-          - 5434:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Start Docker Compose services
+      run: |
+        docker compose -f docker-compose.dev.yml up -d
+
+    - name: Wait for services to be ready
+      run: |
+        echo "Waiting for all services to be healthy..."
+
+        # Wait for folio-db
+        echo "Waiting for postgres..."
+        timeout 60 bash -c 'until docker compose -f docker-compose.dev.yml exec -T folio-db pg_isready -U admin -d folio; do sleep 2; done'
+
+        # Wait for keycloak-db
+        echo "Waiting for keycloak-db..."
+        timeout 60 bash -c 'until docker compose -f docker-compose.dev.yml exec -T keycloak-db pg_isready -U admin -d keycloak_db; do sleep 2; done'
+
+        # Wait for keycloak
+        echo "Waiting for keycloak..."
+        timeout 300 bash -c 'until curl --silent --fail-with-body http://localhost:8080/admin/master/console/; do sleep 5; done'
+
+        echo "All services are ready!"
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -51,3 +58,11 @@ jobs:
     - name: Run tests
       run: |
         pytest -v
+
+    - name: Print service logs on failure
+      if: failure()
+      run: |
+        echo "============================================"
+        echo "Printing logs from all services..."
+        echo "============================================"
+        docker compose -f docker-compose.dev.yml logs
