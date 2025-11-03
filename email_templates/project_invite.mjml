@@ -40,15 +40,6 @@
   </mj-head>
 
   <mj-body background-color="var(--agari-bg)">
-    <!-- Subject -->
-    <mj-section padding="24px 0 0 0">
-      <mj-column>
-        <mj-text font-size="12px" color="var(--agari-muted)" align="center">
-          Subject: You've been invited to AGARI
-        </mj-text>
-      </mj-column>
-    </mj-section>
-
     <!-- Card -->
     <mj-section padding="24px 8px">
       <mj-column background-color="var(--agari-surface)" border-radius="14px" border="1px solid var(--agari-border)">
@@ -56,7 +47,7 @@
         <!-- Header -->
         <mj-section padding="24px 24px 0 24px">
           <mj-column>
-            <mj-image src="https://i.imgur.com/cfpVdur.png" alt="AGARI Logo" width="120px" align="left" />
+            <mj-image src="cid:agari_logo" alt="AGARI Logo" width="120px" align="left" />
           </mj-column>
         </mj-section>
 

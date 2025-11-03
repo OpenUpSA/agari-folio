@@ -40,22 +40,13 @@
   </mj-head>
 
   <mj-body background-color="#F7FAFC">
-    <!-- Subject -->
-    <mj-section padding="16px 0 16px 0">
-      <mj-column>
-        <mj-text font-size="12px" color="#6B7280" align="center">
-          Subject: Your AGARI sign-in link
-        </mj-text>
-      </mj-column>
-    </mj-section>
-
     <!-- Card -->
     <mj-section padding="16px 8px">
 
 
       <!-- Header -->
       <mj-column>
-        <mj-image src="https://i.imgur.com/cfpVdur.png" alt="AGARI Logo" width="120px" align="left" />
+        <mj-image src="cid:agari_logo" alt="AGARI Logo" width="120px" align="left" />
       </mj-column>
     </mj-section>
 

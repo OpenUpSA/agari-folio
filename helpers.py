@@ -6,7 +6,18 @@ import requests
 from flask import render_template_string
 from auth import KeycloakAuth
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, From, To
+from sendgrid.helpers.mail import (
+    Mail,
+    From,
+    To,
+    Attachment,
+    FileContent,
+    FileName,
+    FileType,
+    Disposition,
+    ContentId,
+)
+import base64
 
 from database import get_db_cursor
 from settings import (
@@ -40,6 +51,19 @@ def sendgrid_email(to_email, to_name, subject, html_content):
         subject=subject,
         html_content=html_content,
     )
+
+    with open("email_templates/agari_logo.png", "rb") as f:
+        data = f.read()
+        encoded_file = base64.b64encode(data).decode()
+    attachment = Attachment(
+        FileContent(encoded_file),
+        FileName("agari_logo.png"),
+        FileType("image/png"),
+        Disposition("inline"),
+        ContentId("agari_logo"),
+    )
+    message.add_attachment(attachment)
+
     if sg_api_key != "":
         response = sg.send(message)
         return response, response.status_code
