@@ -1,15 +1,23 @@
-#@folio = http://localhost:5000
-@folio = https://folio-staging.openup.org.za
-@keycloak = https://keycloak-staging.openup.org.za
+@folio = http://localhost:8000
+# @folio = https://folio-staging.openup.org.za
+@keycloak = http://keycloak.local
+# @keycloak = https://keycloak-staging.openup.org.za
 
+@song = http://song.local
+# @song = https://song-staging.openup.org.za
 
+@score = http://score.local
+# @score = https://score-staging.openup.org.za
+
+# @minio = http://minio.local
+@minio = http://localhost:9000
 
 @realm = agari
 @client_id = dms
 @client_secret = VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc
 
-# @username = system.admin@agari.tech
-@username = owner@org1.ac.za
+@username = system.admin@agari.tech
+# @username = owner@org1.ac.za
 # @username = owner@org2.ac.za
 # @username = org-admin@org1.ac.za
 # @username = org-admin@org2.ac.za
@@ -19,6 +27,8 @@
 
 
 @password = pass123
+
+@testuser1 = a056925c-4d53-417f-a9f6-45e4421654cc
 
 ### 1. LOGIN to get access token
 # @name login
@@ -112,6 +122,107 @@ Content-Type: application/json
 }
 
 ##########################
+### USERS
+##########################
+
+# @name get_current_user
+GET {{folio}}/info/whoami
+Authorization: Bearer {{token}}
+
+###
+
+# @name get_user_by_id
+GET {{folio}}/users/{{testuser1}}
+Authorization: Bearer {{token}}
+
+###
+
+# @name update_user_by_id
+PUT {{folio}}/users/{{testuser1}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "name",
+  "surname" : "surname",
+  "email": "testuser1@example.com",
+  "bio": "lorem",
+  "preferences": {
+    "theme": "dark"
+  },
+  "accepted_terms": true,
+  "accepted_governance": true
+}
+
+##########################
+## ORGANISATIONS
+##########################
+
+
+# @name list_organisations
+GET {{folio}}/organisations
+Authorization: Bearer {{token}}
+
+###
+
+# @name create_organisation
+POST {{folio}}/organisations/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "name": "The National Institute For Communicable Diseases",
+    "abbreviation": "NICD",
+    "about": "About NICD",
+    "url": "https://www.nicd.ac.za"
+}
+
+###
+
+@organisation_id = 783b767c-c41e-4a6a-9132-ea52fadb8e17
+
+# @name get_organisation
+GET {{folio}}/organisations/{{organisation_id}}
+Authorization: Bearer {{token}}
+
+###
+
+# @name update_organisation
+PUT {{folio}}/organisations/{{organisation_id}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "about": "Updated Organisation 3"
+}
+
+###
+
+# @name delete_organisation
+DELETE {{folio}}/organisations/{{organisation_id}}
+Authorization: Bearer {{token}}
+
+###
+
+# @name add_organisation_member
+POST {{folio}}/organisations/{{organisation_id}}/members
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "user_id": "3948dda5-f903-44eb-8d16-759fed3492a1",
+    "role": "org-owner"
+}
+
+###
+
+# @name organisation_users
+GET {{folio}}/organisations/{{organisation_id}}/members
+Authorization: Bearer {{token}}
+
+
+
+##########################
 ### PATHOGENS
 ##########################
 
@@ -131,14 +242,14 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Cholera4",
-    "description": "Cholera Virus4",
-    "scientific_name": "Vibrio cholerae4"
+    "name": "Cholera",
+    "description": "Cholera Virus",
+    "scientific_name": "Vibrio cholerae"
 }
 
 ###
 
-@pathogen_id = 0683f0f6-04b3-4005-a078-383d0e3e88f2
+@pathogen_id = 6d2494af-a5e5-4965-8494-ad618ba844db
 
 # @name get_pathogen
 GET {{folio}}/pathogens/{{pathogen_id}}
@@ -174,12 +285,34 @@ Content-Type: application/json
 POST {{folio}}/pathogens/{{pathogen_id}}/restore
 Authorization: Bearer {{token}}
 
+
+###
+
+# @name register_schema
+POST {{song}}/schemas
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+< ./cholera_schema.json
+
+
+###
+
+# @name list_schemas
+GET {{song}}/schemas
+Authorization: Bearer {{token}}
+
+
+###
+
+
 ##########################
 ### PROJECTS
 ##########################
 
 # @name list_projects
 GET {{folio}}/projects
+
 Authorization: Bearer {{token}}
 
 ###
@@ -198,7 +331,7 @@ Content-Type: application/json
 
 ###
 
-@project_id = 8772fbeb-5c94-41d6-8159-48290874378b
+@project_id = 1cea44fb-c8ef-4e63-a1ed-1fcd9567bb60
 
 ### @name get_project
 GET {{folio}}/projects/{{project_id}}
@@ -212,7 +345,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "privacy": "private"
+    "privacy": "public"
 }
 
 ###
@@ -272,7 +405,8 @@ Authorization: Bearer {{token}}
 
 ###
 
-@study_id = study-003
+@study_id = cholera-002
+@study_folio_id = 73feb9b9-915b-41c2-bb4a-908ed10668e8
 
 # @name create_study
 POST {{folio}}/studies/
@@ -290,74 +424,170 @@ Content-Type: application/json
     }
 }
 
-### 
+##########################
+### SONG
+##########################
 
 # @name get_studies_in_song
-GET http://song.local/studies/all
+GET {{song}}/studies/all
 Authorization: Bearer {{token}}
 
 
 ###
 
 # @name get_study_in_song
-GET http://song.local/studies/{{study_id}}
+GET {{song}}/studies/{{study_id}}
 Authorization: Bearer {{token}}
 
 ###
 
-# @name submitAnalysis
-POST {{folio}}/studies/submit/{{study_id}}/
+
+##########################
+### SUBMISSIONS
+##########################
+
+# @name getProjectSubmissions
+GET {{folio}}/projects/{{project_id}}/submissions
+Authorization: Bearer {{token}}
+
+###
+
+
+# @name submitAnalysisFile
+POST {{folio}}/projects/{{project_id}}/submissions
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary123
+
+------WebKitFormBoundary123
+Content-Disposition: form-data; name="metadata"
+
+{
+  "studyId": "{{study_id}}",
+  "analysisType": {
+    "name": "one_to_many_schema",
+    "version": 1
+  },
+  "submissionName": "Cholera TSV Submission",
+  "files": [
+    {
+      "fileName": "cholera2.fasta",
+      "fileType": "FASTA",
+      "fileSize": 6643,
+      "fileMd5sum": "1dfd8800948e9f2bf44942003f9265f8",
+      "fileAccess": "open",
+      "dataType": "Cholera Genome"
+    }
+  ]
+}
+
+------WebKitFormBoundary123
+Content-Disposition: form-data; name="file"; filename="multiple-cholera.tsv"
+Content-Type: text/plain
+
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/multiple-cholera.tsv
+
+------WebKitFormBoundary123--
+
+###
+
+@submission_id = 1572b5e8-479b-446c-a782-65e23b472a27
+
+# @name getSubmissionDetails
+GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}
+Authorization: Bearer {{token}}
+
+###
+
+@object_id = 65a227f9-9eb2-5099-80ae-6978b8da382b
+
+# @name get_submission_file
+GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/files/{{object_id}}
+Authorization: Bearer {{token}}
+
+###
+
+@url = http://minio:9000/object/data/65a227f9-9eb2-5099-80ae-6978b8da382b?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251103T134737Z&X-Amz-SignedHeaders=host%3Brange&X-Amz-Expires=86400&X-Amz-Credential=admin%2F20251103%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=48b18c8af124fe1228f7cd2c7820a2814cd08c478cafd14dd48ffbb342c3cd9f
+
+# @name get_minio_presigned_url
+GET {{url}}
+
+
+###
+
+
+# @name upload_init
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/init
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "studyId": "study-003",
-  "analysisId": "analysis001",
-  "analysisType": {
-    "name": "sequencingRead",
-    "version": 1
-  },
-  "samples": [
-    {
-      "sampleId": "SA001",
-      "submitterSampleId": "SA001",
-      "sampleType": "Total DNA",
-      "matchedNormalSubmitterSampleId": null,
-      "specimen": {
-        "specimenId": "SP001", 
-        "submitterSpecimenId": "SP001",
-        "specimenType": "Normal",
-        "specimenTissueSource": "Blood derived",
-        "tumourNormalDesignation": "Normal"
-      },
-      "donor": {
-        "studyId": "study-003",
-        "donorId": "D001",
-        "submitterDonorId": "D001",
-        "gender": "Female"
-      }
-    }
-  ],
-  "files": [
-    {
-      "fileName": "test_data.fasta",
-      "fileType": "FASTA",
-      "fileSize": 298,
-      "fileMd5sum": "cc70b8e811b39c98a938edf87145e34d",
-      "fileAccess": "open",
-      "dataType": "Sequencing Reads"
-    }
-  ],
-  "experiment": {
-    "libraryStrategy": "WGS",
-    "pairedEnd": false,
-    "aligned": false
-  }
+    "object_id": "{{object_id}}",
+    "overwrite": true,
+    "fileSize": 6643,
+    "md5": "1dfd8800948e9f2bf44942003f9265f8"
 }
 
 ###
 
-@analysis_id = f1646e21-6c01-4f09-a46e-216c01af09d6
+# @name upload_file_to_minio
+
+@url = http://minio:9000/object/data/65a227f9-9eb2-5099-80ae-6978b8da382b?uploadId=NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLjk4N2U1NTkzLWY5OWUtNDZjYy05MmMzLWE3ZjM1ZGEwOTI1MQ&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251103T132904Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518399&X-Amz-Credential=admin%2F20251103%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=673aa1d50d6a7dad8b35a67c9a63535ffd1c405cc31ebd8b6f891b149f2cb038
+PUT {{url}}
+Content-Type: application/octet-stream
+
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/cholera2.fasta
+
+
+###
+
+
+# @name finalise_part
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/finalise-part
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "object_id": "{{object_id}}",
+  "upload_id": "NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLjk4N2U1NTkzLWY5OWUtNDZjYy05MmMzLWE3ZjM1ZGEwOTI1MQ",
+  "etag": "bda8ea08a3e76e699a0248038737649d",
+  "part_number": 1,
+  "md5": "1dfd8800948e9f2bf44942003f9265f8"
+}
+
+###
+
+# @name finalize_upload
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/finalise
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "object_id": "{{object_id}}",
+  "upload_id": "NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLjk4N2U1NTkzLWY5OWUtNDZjYy05MmMzLWE3ZjM1ZGEwOTI1MQ",
+  "parts": [
+    {
+      "part_number": 1,
+      "etag": "bda8ea08a3e76e699a0248038737649d"
+    }
+  ]
+}
+
+
+
+###
+
+# @name publish_analysis
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/publish
+Authorization: Bearer {{token}}
+
+
+##########################
+### SONG
+##########################
+
+
+@analysis_id = e7c07e97-5ded-43ed-807e-975dedf3ed54
+
 
 # @name list_study_analyses
 GET http://song.local/studies/{{study_id}}/analysis?analysisStates=PUBLISHED,UNPUBLISHED
@@ -370,39 +600,6 @@ GET http://song.local/{{study_id}}/analysis/{{analysis_id}}
 Authorization: Bearer {{token}}
 
 ###
-
-# @name upload_analysis_file_curl
-curl -X POST http://song.local/studies/study-002/analysis/f1646e21-6c01-4f09-a46e-216c01af09d6/upload -H "Authorization: Bearer {{token}}" -F "object_id=14e5f58a-73ed-5359-8101-e3ae6d544fbc" -F "overwrite=true" -F "file=@/home/dimee/Work/OpenUp/SANBI/agari-folio/test/test_data.fasta"
-
-###
-
-@object_id_from_analysis = 2966b6aa-7570-53a5-9392-740bd61221d5
-
-# @name upload_analysis_file_rest
-POST {{folio}}/studies/{{study_id}}/analysis/{{analysis_id}}/upload
-Authorization: Bearer {{token}}
-Content-Type: multipart/form-data; boundary=----WebKitFormBoundary123
-
-------WebKitFormBoundary123
-Content-Disposition: form-data; name="object_id"
-
-{{object_id_from_analysis}}
-------WebKitFormBoundary123
-Content-Disposition: form-data; name="overwrite"
-
-true
-------WebKitFormBoundary123
-Content-Disposition: form-data; name="file"; filename="test_data.fasta"
-Content-Type: text/plain
-
-< /media/michael/Data4/sanbi/agari-folio/test/test_data.fasta
-
-------WebKitFormBoundary123--
-###
-
-# @name publish_analysis
-POST {{folio}}/studies/{{study_id}}/analysis/publish/{{analysis_id}}
-Authorization: Bearer {{token}}
 
 ### Get user by email
 # @name getUserByEmail
@@ -447,3 +644,45 @@ Content-Type: application/json
   "redirect_uri": "https://agari.openup.org.za/",
   "send_email": "false"
 }
+
+
+##########################
+### SCORE
+##########################
+
+# @object_id = 41e82afe-2e03-5f4c-8537-aa58a8d00e5e
+@length = 6643
+
+# @name download_score_file
+GET {{score}}/download/{{object_id}}?offset=0&length={{length}}
+Authorization: Bearer {{token}}
+User-Agent: RestClient/2.1.0 (darwin20 x86_64) ruby/2.7.6p219
+
+###
+
+
+##########################
+### OLD
+##########################
+
+
+# @name upload_analysis_file_rest
+POST {{folio}}/studies/{{study_id}}/analysis/{{analysis_id}}/upload
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary123
+
+------WebKitFormBoundary123
+Content-Disposition: form-data; name="object_id"
+
+{{object_id_from_analysis}}
+------WebKitFormBoundary123
+Content-Disposition: form-data; name="overwrite"
+
+true
+------WebKitFormBoundary123
+Content-Disposition: form-data; name="file"; filename="test_data.fasta"
+Content-Type: text/plain
+
+< /media/dimee/Work/OpenUp/SANBI/agari-folio/test/LS997867.1 Vibrio cholerae strain NCTC 30 genome assembly, chromosome 1.fasta
+
+------WebKitFormBoundary123--

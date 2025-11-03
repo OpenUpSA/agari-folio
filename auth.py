@@ -211,6 +211,34 @@ class KeycloakAuth:
 
         return organisation_id
 
+
+    def get_user_projects(self):
+
+        """Extract and verify JWT token from Authorization header"""
+
+        projects_ids = []
+
+        auth_header = request.headers.get('Authorization')
+        if auth_header:
+            try:
+                token = auth_header.split(' ')[1]
+                user_info_raw = self.verify_token(token)
+
+                if user_info_raw and 'error' not in user_info_raw:
+                    user_info = extract_user_info(user_info_raw)
+                    for role in ["project-admin", "project-contributor", "project-viewer"]:
+                        if user_info.get("attributes"):
+                            projects_ids.extend(user_info["attributes"].get(role, []))
+                else:
+                    print(f"Token verification failed: {user_info_raw}")
+            except Exception as e:
+                print(f"Authentication failed: {str(e)}")
+                pass
+        else:
+            print(f"No Authorization header found")
+
+        return projects_ids
+
     ### GET USERS BY ATTRIBUTE ###
 
     def get_users_by_attribute(self, attribute_name, attribute_value, exact_match=True):
@@ -479,27 +507,85 @@ class KeycloakAuth:
         except requests.RequestException as e:
             print(f"Error updating realm roles: {e}")
             return False
+
+    ### GET USER INFO BY ID ###
+
+    def get_user_info_by_id(self, user_id):
+        """
+        Get formatted user information by user ID (similar to extract_user_info but from Keycloak API)
         
+        Args:
+            user_id (str): The user ID to fetch
+            
+        Returns:
+            dict: Formatted user info or None if user not found
+        """
+        user = self.get_user(user_id)
+        if not user:
+            return None
+        
+        # Extract attributes
+        attributes = user.get('attributes', {})
+        
+        # Get organization_id from attributes (it's stored as a list in Keycloak)
+        org_id = None
+        if 'organisation_id' in attributes:
+            org_id_list = attributes['organisation_id']
+            org_id = org_id_list[0] if org_id_list and len(org_id_list) > 0 else None
+        
+        # Extract custom attributes (excluding standard ones we handle separately)
+        user_attributes = {}
+        standard_attrs = {'organisation_id', 'name', 'surname', 'title', 'bio', 'preferences', 'accepted_terms'}
+        
+        for key, value in attributes.items():
+            if key not in standard_attrs:
+                user_attributes[key] = value
+        
+        # Get single values from attribute lists for standard fields
+        def get_attr_value(attr_name):
+            attr_list = attributes.get(attr_name, [])
+            return attr_list[0] if attr_list and len(attr_list) > 0 else None
+        
+        return {
+            'user_id': user.get('id'),
+            'username': user.get('username'),
+            'email': user.get('email'),
+            'title': get_attr_value('title'),
+            'name': get_attr_value('name'),
+            'surname': get_attr_value('surname'),
+            'organisation_id': org_id,
+            'bio': get_attr_value('bio'),
+            'preferences': get_attr_value('preferences'),
+            'roles': [],  # Would need separate API call to get user roles
+            'attributes': user_attributes,
+            'is_authenticated': True,
+            'accepted_terms': get_attr_value('accepted_terms') == 'true' if get_attr_value('accepted_terms') else False,
+        }
+
+
     ### UPDATE USER PROFILE ###
     
-    def update_user_profile(self, user_id, profile_data):
+    def update_user(self, user_id, update_data):
         """
-        Update a user's basic profile information (username, firstName, lastName, email)
+        Update user profile information including basic properties, email, roles, and attributes
         
         Args:
             user_id (str): The user ID to update
-            profile_data (dict): Dictionary containing profile fields to update
-                                Supported fields: username, firstName, lastName, email
-                                
+            update_data (dict): Dictionary of fields to update. Can include:
+                - Basic fields: 'name', 'surname', 'email', 'title', 'bio'
+                - 'realm_roles': list of role names to assign
+                - 'attributes': dict of custom attributes to update
+                
         Returns:
-            bool: True if update was successful, False otherwise
+            dict: Result with success status and any errors
         """
         admin_token = self.get_admin_token()
         if not admin_token:
-            return False
+            return {'success': False, 'error': 'Could not get admin token'}
+        
+        results = {'success': True, 'updates': {}, 'errors': {}}
         
         try:
-            # Get current user data
             user_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users/{user_id}"
             
             headers = {
@@ -507,28 +593,197 @@ class KeycloakAuth:
                 'Content-Type': 'application/json'
             }
             
+            # Get current user data
             response = requests.get(user_url, headers=headers)
             response.raise_for_status()
-            
             user = response.json()
             
-            # Update only the provided fields
-            allowed_fields = ['username', 'firstName', 'lastName', 'email']
-            for field in allowed_fields:
-                if field in profile_data:
-                    user[field] = profile_data[field]
+            # Separate different types of updates
+            basic_updates = {}
+            realm_roles = update_data.get('realm_roles')
+            attributes_update = update_data.get('attributes')
             
-            # Send update request
-            update_response = requests.put(user_url, headers=headers, json=user)
-            update_response.raise_for_status()
+            # Extract basic user properties (excluding special fields)
+            for key, value in update_data.items():
+                if key not in ['realm_roles', 'attributes']:
+                    basic_updates[key] = value
             
-            return True
+            # 1. Update basic user properties
+            if basic_updates:
+                try:
+                    for key, value in basic_updates.items():
+                        if key in ['name', 'surname']:
+                            # These go to attributes in Keycloak
+                            if 'attributes' not in user:
+                                user['attributes'] = {}
+                            user['attributes'][key] = [value] if value else []
+                        elif key == 'email':
+                            user['email'] = value
+                        elif key in ['title', 'bio']:
+                            # These also go to attributes
+                            if 'attributes' not in user:
+                                user['attributes'] = {}
+                            user['attributes'][key] = [value] if value else []
+                    
+                    update_response = requests.put(user_url, headers=headers, json=user)
+                    update_response.raise_for_status()
+                    results['updates']['basic_properties'] = f"Updated: {', '.join(basic_updates.keys())}"
+                except requests.RequestException as e:
+                    results['success'] = False
+                    results['errors']['basic_properties'] = f"Error updating basic properties: {e}"
+            
+            # 2. Update realm roles if provided
+            if realm_roles is not None:
+                try:
+                    role_success = self.update_realm_roles(user_id, realm_roles)
+                    if role_success:
+                        results['updates']['realm_roles'] = f"Updated roles: {', '.join(realm_roles)}" if realm_roles else "Removed all non-default roles"
+                    else:
+                        results['success'] = False
+                        results['errors']['realm_roles'] = "Failed to update realm roles"
+                except Exception as e:
+                    results['success'] = False
+                    results['errors']['realm_roles'] = f"Error updating realm roles: {e}"
+            
+            # 3. Update custom attributes if provided
+            if attributes_update is not None:
+                try:
+                    current_attributes = self.get_user_attributes(user_id)
+                    
+                    updated_attrs = []
+                    for attr_name, attr_value in attributes_update.items():
+                        if attr_value is None:
+                            # Remove attribute entirely if value is None
+                            current_values = current_attributes.get(attr_name, [])
+                            if current_values:
+                                for value in current_values:
+                                    remove_success = self.remove_attribute_value(user_id, attr_name, value)
+                                    if not remove_success:
+                                        results['errors'][f'attr_remove_{attr_name}'] = f"Failed to remove attribute {attr_name}"
+                                updated_attrs.append(f"removed {attr_name}")
+                        else:
+                            # Ensure attribute values are lists
+                            if not isinstance(attr_value, list):
+                                attr_value = [str(attr_value)]
+                            
+                            # Get current values for this attribute
+                            current_values = current_attributes.get(attr_name, [])
+                            
+                            # Remove values that are no longer needed
+                            for current_val in current_values:
+                                if current_val not in attr_value:
+                                    remove_success = self.remove_attribute_value(user_id, attr_name, current_val)
+                                    if not remove_success:
+                                        results['errors'][f'attr_remove_{attr_name}_{current_val}'] = f"Failed to remove value {current_val} from {attr_name}"
+                            
+                            # Add new values
+                            for new_val in attr_value:
+                                if new_val not in current_values:
+                                    add_success = self.add_attribute_value(user_id, attr_name, new_val)
+                                    if not add_success:
+                                        results['errors'][f'attr_add_{attr_name}_{new_val}'] = f"Failed to add value {new_val} to {attr_name}"
+                            
+                            updated_attrs.append(attr_name)
+                    
+                    if updated_attrs:
+                        results['updates']['attributes'] = f"Updated attributes: {', '.join(updated_attrs)}"
+                    else:
+                        results['updates']['attributes'] = "No attribute changes needed"
+                        
+                except Exception as e:
+                    results['success'] = False
+                    results['errors']['attributes'] = f"Error updating attributes: {e}"
+            
+            return results
             
         except requests.RequestException as e:
-            print(f"Error updating user profile: {e}")
-            return False
+            return {'success': False, 'error': f"Error fetching user {user_id}: {e}"}
         
-    
+
+    def delete_user(self, user_id):
+        admin_token = self.get_admin_token()
+        if not admin_token:
+            return {'success': False, 'error': 'Could not get admin token'}
+
+        user_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users/{user_id}"
+
+        headers = {
+            'Authorization': f'Bearer {admin_token}',
+            'Content-Type': 'application/json'
+        }
+
+        # Get current user data
+        response = requests.get(user_url, headers=headers)
+        response.raise_for_status()
+        user = response.json()
+
+        user['enabled'] = False
+        requests.put(user_url, headers=headers, json=user)
+
+    def get_user_access_token(self, user_id):
+        """Get an access token for a specific user using token exchange or admin token"""
+        try:
+            admin_token = self.get_client_token()
+            if not admin_token:
+                print("Failed to get admin token")
+                return None
+
+            token_url = f"{self.keycloak_url}/realms/{self.realm}/protocol/openid-connect/token"
+            exchange_data = {
+                'grant_type': 'urn:ietf:params:oauth:grant-type:token-exchange',
+                'client_id': self.client_id,
+                'client_secret': self.client_secret,
+                'subject_token': admin_token,
+                'requested_subject': user_id,
+                'audience': self.client_id,
+                'requested_token_type': 'urn:ietf:params:oauth:token-type:access_token'
+            }
+            headers = {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+
+            response = requests.post(token_url, data=exchange_data, headers=headers)
+            token_data = response.json()
+            return token_data.get('access_token')
+        except Exception as e:
+            print(f"Error getting user access token: {str(e)}")
+            return None
+
+
+    def get_user_auth_tokens(self, user_id):
+        """Get an auth token for a specific user using token exchange or admin token"""
+        try:
+            admin_token = self.get_client_token()
+            if not admin_token:
+                print("Failed to get admin token")
+                return None
+
+            token_url = f"{self.keycloak_url}/realms/{self.realm}/protocol/openid-connect/token"
+            exchange_data = {
+                'grant_type': 'urn:ietf:params:oauth:grant-type:token-exchange',
+                'client_id': self.client_id,
+                'client_secret': self.client_secret,
+                'subject_token': admin_token,
+                'requested_subject': user_id,
+                'audience': self.client_id,
+                'requested_token_type': 'urn:ietf:params:oauth:token-type:refresh_token'
+            }
+            headers = {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+
+            response = requests.post(token_url, data=exchange_data, headers=headers)
+            token_data = response.json()
+            return {
+                'access_token': token_data.get('access_token'),
+                'refresh_token': token_data.get('refresh_token'),
+                'expires_in': token_data.get('expires_in'),
+                'refresh_expires_in': token_data.get('refresh_expires_in')
+            }
+        except Exception as e:
+            print(f"Error getting user refresh token: {str(e)}")
+            return None
+
 
 def require_auth(keycloak_auth):
 
@@ -574,8 +829,9 @@ def extract_user_info(token_payload):
     standard_claims = {
         'iss', 'sub', 'aud', 'exp', 'nbf', 'iat', 'jti', 'typ', 'azp',
         'session_state', 'acr', 'allowed-origins', 'realm_access', 'resource_access',
-        'scope', 'sid', 'email_verified', 'name', 'preferred_username', 'given_name',
-        'family_name', 'email', 'groups'
+        'scope', 'sid', 'email_verified', 'preferred_username', 'given_name',
+        'family_name', 'email', 'groups', 'name', 'surname', 'title', 'organisation_id',
+        'bio', 'preferences', 'accepted_terms'
     }
 
     for key, value in token_payload.items():
@@ -586,12 +842,17 @@ def extract_user_info(token_payload):
         'user_id': token_payload.get('sub'),
         'username': token_payload.get('preferred_username'),
         'email': token_payload.get('email'),
+        'title': token_payload.get('title'),
+        'name': token_payload.get('name'),
+        'surname': token_payload.get('surname'),
         'organisation_id': token_payload.get('organisation_id'),
+        'bio': token_payload.get('bio'),
+        'preferences': token_payload.get('preferences'),
         'roles': realm_roles,
         'attributes': user_attributes,
         'is_authenticated': True,
+        'accepted_terms': token_payload.get('accepted_terms', False),
     }
-
 
 def user_has_permission(user_info, permission_name, resource_type=None, resource_id=None, parent_project_id=None):
     """
@@ -776,4 +1037,4 @@ def require_permission(permission_name, resource_type=None, resource_id_arg=None
                 return {'error': 'Permission denied', 'details': details}, 403
             return f(*args, **kwargs)
         return wrapper
-    return decorator
+    return decorator    

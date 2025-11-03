@@ -1,0 +1,69 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [ '*' ]
+  pull_request:
+    branches: [ '*' ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Start Docker Compose services
+      run: |
+        docker compose -f docker-compose.dev.yml up -d
+
+    - name: Wait for services to be ready
+      run: |
+        echo "Waiting for all services to be healthy..."
+
+        # Wait for folio-db
+        echo "Waiting for postgres..."
+        timeout 60 bash -c 'until docker compose -f docker-compose.dev.yml exec -T folio-db pg_isready -U admin -d folio; do sleep 2; done'
+
+        # Wait for keycloak-db
+        echo "Waiting for keycloak-db..."
+        timeout 60 bash -c 'until docker compose -f docker-compose.dev.yml exec -T keycloak-db pg_isready -U admin -d keycloak_db; do sleep 2; done'
+
+        # Wait for keycloak
+        echo "Waiting for keycloak..."
+        timeout 300 bash -c 'until curl --silent --fail-with-body http://localhost:8080/admin/master/console/; do sleep 5; done'
+
+        echo "All services are ready!"
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements_test.txt
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install MJML
+      run: npm install -g mjml
+
+    - name: Run tests
+      run: |
+        pytest -v
+
+    - name: Print service logs on failure
+      if: failure()
+      run: |
+        echo "============================================"
+        echo "Printing logs from all services..."
+        echo "============================================"
+        docker compose -f docker-compose.dev.yml logs

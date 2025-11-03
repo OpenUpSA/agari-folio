@@ -1,0 +1,122 @@
+<mjml>
+  <mj-head>
+    <mj-attributes>
+      <mj-text font-family="Inter, Arial, sans-serif" font-size="16px" color="#1B1B1B" line-height="1.5" />
+      <mj-button font-family="Inter, Arial, sans-serif" font-size="16px" font-weight="600" border-radius="6px" />
+    </mj-attributes>
+
+    <mj-style inline="inline">
+      :root{
+      --agari-bg:#F7FAFC;
+      --agari-surface:#FFFFFF;
+      --logo-green-dark:#204727;
+      --agari-primary-ink:#FFFFFF;
+      --agari-muted:#6B7280;
+      --agari-border:#E5E7EB;
+      --agari-link:#204727;
+      }
+
+      .agari-btn {
+      display: flex;
+      min-width: 80px;
+      padding: var(--padding-p-2, 8px) var(--padding-p-3, 12px);
+      justify-content: center;
+      align-items: center;
+      gap: 4px;
+      border-radius: 6px; /* rounded-md equivalent */
+      background: var(--logo-green-dark, #204727);
+      color: var(--agari-primary-ink);
+      text-decoration: none;
+      font-weight: 600;
+      transition: all 0.2s ease-in-out;
+      }
+
+      .agari-btn:hover {
+      background-color: #18381F;
+      }
+    </mj-style>
+
+    <mj-preview>Confirm your new email for AGARI</mj-preview>
+  </mj-head>
+
+  <mj-body background-color="#F7FAFC">
+    <!-- Subject -->
+    <mj-section padding="16px 0 16px 0">
+      <mj-column>
+        <mj-text font-size="12px" color="#6B7280" align="center">
+          Subject: Confirm your new email for AGARI
+        </mj-text>
+      </mj-column>
+    </mj-section>
+
+    <!-- Card -->
+    <mj-section padding="16px 8px">
+
+
+      <!-- Header -->
+      <mj-column>
+        <mj-text align="left" font-size="20px" font-weight="700" color="#204727">
+          AGARI LOGO
+        </mj-text>
+      </mj-column>
+    </mj-section>
+
+    <!-- Title -->
+    <mj-section padding="0 0 16px 0">
+      <mj-column>
+        <mj-text font-size="22px" font-weight="700" color="#1B1B1B">
+          Confirm your new email for AGARI
+        </mj-text>
+      </mj-column>
+    </mj-section>
+
+    <!-- Message -->
+    <mj-section padding="0 0 16px 0">
+      <mj-column>
+        <mj-text>
+          You requested to change the email address for your AGARI account.
+Click the button below to confirm this change. This link is valid for 24 hours.
+        </mj-text>
+      </mj-column>
+    </mj-section>
+
+    <!-- Custom Flex Button -->
+    <mj-section padding="0 0 16px 0">
+      <mj-column>
+        <mj-text align="center">
+          <a href="https://agari.example/accept-invite?token={{TOKEN}}" class="agari-btn">
+            Confirm Email Change
+          </a>
+        </mj-text>
+      </mj-column>
+    </mj-section>
+<!-- Message -->
+    <mj-section padding="0 0 16px 0">
+      <mj-column>
+        <mj-text>
+          Once confirmed, you will need to use your new email address to sign in.
+        </mj-text>
+      </mj-column>
+    </mj-section>
+    <!-- Disclaimer -->
+    <mj-section padding="0px 0px 24px 0px">
+      <mj-column>
+        <mj-text color="#6B7280" font-size="14px">
+          If you did not request this change, you can safely ignore this email.
+        </mj-text>
+      </mj-column>
+    </mj-section>
+    </mj-column>
+    </mj-section>
+
+    <!-- Footer -->
+    <mj-section padding="0 0 16px 0">
+      <mj-column>
+        <mj-text align="left" color="#6B7280" font-size="12px">
+          © {{YEAR}} AGARI • African CDC / ASLM
+          Need help? <a href="mailto:support@agari.example" style="color:var(--agari-link);">support@agari.example</a>
+        </mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>
