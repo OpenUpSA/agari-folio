@@ -480,7 +480,7 @@ class UserList(Resource):
         data = request.get_json()
         if not data:
             return {'error': 'No JSON data provided'}, 400
-        
+
         email = data.get('email')
         redirect_uri = data.get('redirect_uri')
         expiration_seconds = data.get('expiration_seconds', 600)
@@ -2413,8 +2413,8 @@ class ProjectInviteConfirm(Resource):
         user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
         user_id = user["user_id"]
 
-        invite_role = user["attributes"].get("invite_role", [""])[0]
         invite_project_id = user["attributes"].get("invite_project_id", [""])[0]
+        invite_role = user["attributes"].get(f"invite_role_{invite_project_id}", [""])[0]
 
         removed_roles = role_user(user_id, invite_project_id, invite_role)
         print(f"Added project_id {invite_project_id} to role {invite_role} for user {user_id}")
@@ -2422,7 +2422,7 @@ class ProjectInviteConfirm(Resource):
         # Remove temp attributes
         keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
         keycloak_auth.remove_attribute_value(user_id, 'invite_project_id', invite_project_id)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_role', invite_role)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_role_{invite_project_id}', invite_role)
 
         # Get access token for the user
         auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
@@ -2449,8 +2449,8 @@ class OrganisationInviteConfirm(Resource):
         user = keycloak_auth.get_users_by_attribute('invite_org_token', token)[0]
         user_id = user["user_id"]
 
-        invite_org_role = user["attributes"].get("invite_org_role", [""])[0]
         invite_org_id = user["attributes"].get("invite_org_id", [""])[0]
+        invite_org_role = user["attributes"].get(f"invite_org_role_{invite_org_id}", [""])[0]
 
         # Prepare update data with proper structure
         update_data = {
@@ -2464,7 +2464,7 @@ class OrganisationInviteConfirm(Resource):
         # Remove temp attributes
         keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', token)
         keycloak_auth.remove_attribute_value(user_id, 'invite_org_id', invite_org_id)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_org_role', invite_org_role)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_org_role_{invite_org_id}', invite_org_role)
 
         # Get access token for the user
         auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
@@ -2478,7 +2478,9 @@ class OrganisationInviteConfirm(Resource):
                 'organisation_id': invite_org_id,
                 'role': invite_org_role,
                 'realm_role_assigned': f'agari-{invite_org_role}',
-                'update_details': result.get('updates', {})
+                'update_details': result.get('updates', {}),
+                'access_token': auth_tokens["access_token"],
+                'refresh_token': auth_tokens["refresh_token"]
             }
         else:
             return {
