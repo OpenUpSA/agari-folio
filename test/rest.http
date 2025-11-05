@@ -220,7 +220,15 @@ Content-Type: application/json
 GET {{folio}}/organisations/{{organisation_id}}/members
 Authorization: Bearer {{token}}
 
+###
+# @name remove_organisation_users
+DELETE {{folio}}/organisations/members
+Authorization: Bearer {{token}}
+Content-Type: application/json
 
+{
+    "user_id": "3948dda5-f903-44eb-8d16-759fed3492a1"
+}
 
 ##########################
 ### PATHOGENS

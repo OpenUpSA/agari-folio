@@ -125,33 +125,57 @@ class KeycloakAuth:
                 return attribute_value.lower() in str(attr_values).lower()
         
         return False
-    
+
+
+    def get_realm_roles(self, user_id):
+        admin_token = self.get_admin_token()
+        if not admin_token:
+            return {'realm_roles': [], 'client_roles': []}
+
+        try:
+            headers = {
+                'Authorization': f'Bearer {admin_token}',
+                'Content-Type': 'application/json'
+            }
+
+            realm_roles_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users/{user_id}/role-mappings/realm"
+            realm_response = requests.get(realm_roles_url, headers=headers)
+            realm_response.raise_for_status()
+
+            realm_roles = realm_response.json()
+
+            return [role['name'] for role in realm_roles]
+        except requests.RequestException as e:
+            return(f"Error fetching realm roles: {e}")
+
+
     def _format_user_data(self, user):
-        
         """
         Format user data similar to whoami response
-        
+
         Args:
             user (dict): User object from Keycloak
-            
+
         Returns:
             dict: Formatted user data with user_id, username, organisation_id, roles, attributes
         """
-        
+
         # Extract custom attributes (excluding standard ones)
         user_attributes = {}
         attributes = user.get('attributes', {})
-        
+
         for key, value in attributes.items():
             if key != 'organisation_id':  # organisation_id is handled separately
                 user_attributes[key] = value
-        
+
+        realm_roles = self.get_realm_roles(user.get('id'))
+
         return {
             'user_id': user.get('id'),
             'username': user.get('username'),
             'email': user.get('email'),
             'organisation_id': attributes.get('organisation_id', [None])[0] if attributes.get('organisation_id') else None,
-            'roles': [],  # Roles would need to be fetched separately if needed
+            'roles': realm_roles,
             'attributes': user_attributes,
             'is_authenticated': True,
         }
@@ -282,7 +306,6 @@ class KeycloakAuth:
                     # Format user data similar to whoami response
                     user_data = self._format_user_data(user)
                     filtered_users.append(user_data)
-            
             return filtered_users
             
         except requests.RequestException as e:
@@ -507,6 +530,39 @@ class KeycloakAuth:
         except requests.RequestException as e:
             print(f"Error updating realm roles: {e}")
             return False
+
+
+    def remove_realm_roles(self, user_id):
+        admin_token = self.get_admin_token()
+        if not admin_token:
+            return False
+
+        try:
+            headers = {
+                'Authorization': f'Bearer {admin_token}',
+                'Content-Type': 'application/json'
+            }
+            current_roles_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users/{user_id}/role-mappings/realm"
+
+            current_roles_response = requests.get(current_roles_url, headers=headers)
+            current_roles_response.raise_for_status()
+            current_roles = current_roles_response.json()
+
+            if not current_roles:
+                print(f"User {user_id} has no realm roles to remove")
+                return False
+
+            # Remove the roles using DELETE with the role objects
+            remove_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users/{user_id}/role-mappings/realm"
+            remove_response = requests.delete(remove_url, headers=headers, json=current_roles)
+            remove_response.raise_for_status()
+
+            print(f"Successfully removed {current_roles[0]['name']} realm roles from user {user_id}")
+            return current_roles[0]["name"]
+        except requests.RequestException as e:
+            print(f"Error updating realm roles: {e}")
+            return False
+
 
     ### GET USER INFO BY ID ###
 
