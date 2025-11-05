@@ -249,7 +249,7 @@ Content-Type: application/json
 
 ###
 
-@pathogen_id = 6d2494af-a5e5-4965-8494-ad618ba844db
+@pathogen_id = 0392eece-ebfe-4a52-ae33-d400d556cd47
 
 # @name get_pathogen
 GET {{folio}}/pathogens/{{pathogen_id}}
@@ -293,8 +293,7 @@ POST {{song}}/schemas
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
-< ./cholera_schema.json
-
+< /home/dimee/Work/OpenUp/SANBI/agari-helm-2/metadata/schemas/cholera/cholera-v4-maestro.json
 
 ###
 
@@ -323,15 +322,15 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Cholera Project2",
-    "description": "Project description2",
+    "name": "Cholera",
+    "description": "Project description",
     "pathogen_id": "{{pathogen_id}}",
     "privacy": "public"
 }
 
 ###
 
-@project_id = 1cea44fb-c8ef-4e63-a1ed-1fcd9567bb60
+@project_id = ab0a0feb-c3ea-4d72-bc00-1fb6cc5332ab
 
 ### @name get_project
 GET {{folio}}/projects/{{project_id}}
@@ -405,8 +404,8 @@ Authorization: Bearer {{token}}
 
 ###
 
-@study_id = cholera-002
-@study_folio_id = 73feb9b9-915b-41c2-bb4a-908ed10668e8
+@study_id = cholera
+@study_folio_id = baaf06b8-7720-40e8-9f30-300d7aee570f
 
 # @name create_study
 POST {{folio}}/studies/
@@ -464,10 +463,10 @@ Content-Disposition: form-data; name="metadata"
 {
   "studyId": "{{study_id}}",
   "analysisType": {
-    "name": "one_to_many_schema",
-    "version": 1
+    "name": "cholera_schema_maestro",
+    "version": 2
   },
-  "submissionName": "Cholera TSV Submission",
+  "submissionName": "v4",
   "files": [
     {
       "fileName": "cholera2.fasta",
@@ -490,7 +489,8 @@ Content-Type: text/plain
 
 ###
 
-@submission_id = 1572b5e8-479b-446c-a782-65e23b472a27
+
+@submission_id = 3e3f7b95-2932-45ca-904a-b927ebff38fd
 
 # @name getSubmissionDetails
 GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}
@@ -498,7 +498,7 @@ Authorization: Bearer {{token}}
 
 ###
 
-@object_id = 65a227f9-9eb2-5099-80ae-6978b8da382b
+@object_id = 185dfdc3-679f-5c2e-b14a-a7a1bbd6a682
 
 # @name get_submission_file
 GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/files/{{object_id}}
@@ -506,7 +506,7 @@ Authorization: Bearer {{token}}
 
 ###
 
-@url = http://minio:9000/object/data/65a227f9-9eb2-5099-80ae-6978b8da382b?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251103T134737Z&X-Amz-SignedHeaders=host%3Brange&X-Amz-Expires=86400&X-Amz-Credential=admin%2F20251103%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=48b18c8af124fe1228f7cd2c7820a2814cd08c478cafd14dd48ffbb342c3cd9f
+@url = http://minio:9000/object/data/3889c019-699b-5ef3-808b-6253f7bcc899?uploadId=NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLmI2ZjkzOWI2LTlmYTUtNDZjYy05OGE2LTdhN2IwZGU2MzRlMA&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251105T090027Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518400&X-Amz-Credential=admin%2F20251105%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=7128bce04fb72d5a9a2cb277079d0cd4c153e213070c8197c350b6c6079971d6
 
 # @name get_minio_presigned_url
 GET {{url}}
@@ -531,7 +531,7 @@ Content-Type: application/json
 
 # @name upload_file_to_minio
 
-@url = http://minio:9000/object/data/65a227f9-9eb2-5099-80ae-6978b8da382b?uploadId=NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLjk4N2U1NTkzLWY5OWUtNDZjYy05MmMzLWE3ZjM1ZGEwOTI1MQ&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251103T132904Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518399&X-Amz-Credential=admin%2F20251103%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=673aa1d50d6a7dad8b35a67c9a63535ffd1c405cc31ebd8b6f891b149f2cb038
+@url = http://minio:9000/object/data/185dfdc3-679f-5c2e-b14a-a7a1bbd6a682?uploadId=NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLmRmMjI4NGIyLWIxMTgtNDAxYS05YWI1LTI0ODBmOWVmNDA4OA&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251105T105533Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518400&X-Amz-Credential=admin%2F20251105%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=f575de70d9187369498e314c62b52025fb6a8962a4cc60f1022a02dd72413209
 PUT {{url}}
 Content-Type: application/octet-stream
 
@@ -548,7 +548,7 @@ Content-Type: application/json
 
 {
   "object_id": "{{object_id}}",
-  "upload_id": "NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLjk4N2U1NTkzLWY5OWUtNDZjYy05MmMzLWE3ZjM1ZGEwOTI1MQ",
+  "upload_id": "NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLmRmMjI4NGIyLWIxMTgtNDAxYS05YWI1LTI0ODBmOWVmNDA4OA",
   "etag": "bda8ea08a3e76e699a0248038737649d",
   "part_number": 1,
   "md5": "1dfd8800948e9f2bf44942003f9265f8"
@@ -563,7 +563,7 @@ Content-Type: application/json
 
 {
   "object_id": "{{object_id}}",
-  "upload_id": "NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLjk4N2U1NTkzLWY5OWUtNDZjYy05MmMzLWE3ZjM1ZGEwOTI1MQ",
+  "upload_id": "NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLmRmMjI4NGIyLWIxMTgtNDAxYS05YWI1LTI0ODBmOWVmNDA4OA",
   "parts": [
     {
       "part_number": 1,
@@ -586,7 +586,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 
-@analysis_id = e7c07e97-5ded-43ed-807e-975dedf3ed54
+@analysis_id = 7bb4edfa-b7d6-4058-b4ed-fab7d620583c
 
 
 # @name list_study_analyses
@@ -659,6 +659,52 @@ Authorization: Bearer {{token}}
 User-Agent: RestClient/2.1.0 (darwin20 x86_64) ruby/2.7.6p219
 
 ###
+
+
+##########################
+### ELASTICSEARCH
+##########################
+
+# @name search_by_country
+POST http://localhost:9200/agari-file-index/_search
+Content-Type: application/json
+
+{
+  "query": {
+    "match": {
+      "donors.specimens.samples.geo_loc_name_country": "South Africa"
+    }
+  }
+}
+
+
+###
+
+# @name search_samples_by_country
+POST http://localhost:9200/agari-file-index/_search
+Content-Type: application/json
+
+{
+  "query": {
+    "nested": {
+      "path": "donors.specimens.samples",
+      "query": {
+        "match": {
+          "donors.specimens.samples.geo_loc_name_country": "South Africa"
+        }
+      }
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
 
 
 ##########################

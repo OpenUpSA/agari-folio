@@ -313,3 +313,53 @@ def tsv_to_json(tsv_string):
         json_list.append(record)
 
     return json_list
+
+
+def tsv_to_maestro_json(tsv_string):
+    """
+    Convert TSV to JSON with Maestro-compatible structure.
+    Standard fields go at top level, custom fields go in 'info' object.
+    """
+    lines = tsv_string.strip().split("\n")
+    headers = lines[0].split("\t")
+    json_list = []
+
+    # Define standard Maestro fields and their mappings
+    field_mappings = {
+        # Standard fields that go at top level
+        'specimen_collector_sample_id': 'sampleId',
+        'isolate_id': 'submitterSampleId',  # Could also map to specimen.specimenId
+        # Add more mappings as needed
+    }
+
+    for line in lines[1:]:
+        values = line.split("\t")
+        raw_record = {headers[i]: values[i] for i in range(len(headers))}
+        
+        # Build Maestro-compatible structure
+        maestro_record = {
+            'sampleId': raw_record.get('specimen_collector_sample_id', ''),
+            'submitterSampleId': raw_record.get('specimen_collector_sample_id', ''),
+            'sampleType': 'DNA',  # Default value
+            'specimen': {
+                'specimenId': raw_record.get('isolate_id', ''),
+                'submitterSpecimenId': raw_record.get('isolate_id', ''),  # Required field
+                'specimenType': raw_record.get('biospecimen', ''),
+                'tumourNormalDesignation': 'N/A'
+            },
+            'donor': {
+                'studyId': raw_record.get('study_id', ''),  # Required field
+                'donorId': raw_record.get('isolate_id', ''),  # Use isolate_id as donor fallback
+                'submitterDonorId': raw_record.get('isolate_id', ''),
+                'gender': raw_record.get('subject_sex', 'Unknown')  # Use actual gender from TSV
+            },
+
+            'info': {}
+        }
+        
+        # Put all original fields in info object
+        maestro_record['info'] = raw_record
+        
+        json_list.append(maestro_record)
+
+    return json_list
