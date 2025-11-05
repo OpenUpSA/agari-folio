@@ -293,7 +293,7 @@ POST {{song}}/schemas
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
-< /home/dimee/Work/OpenUp/SANBI/agari-helm-2/metadata/schemas/cholera/cholera-v4-maestro.json
+< /home/dimee/Work/OpenUp/SANBI/agari-helm-2/metadata/schemas/cholera/cholera-v4.json
 
 ###
 
@@ -330,7 +330,7 @@ Content-Type: application/json
 
 ###
 
-@project_id = ab0a0feb-c3ea-4d72-bc00-1fb6cc5332ab
+@project_id = fcc3c80b-a1d8-4e1e-843d-d3802e44d444
 
 ### @name get_project
 GET {{folio}}/projects/{{project_id}}
@@ -405,7 +405,7 @@ Authorization: Bearer {{token}}
 ###
 
 @study_id = cholera
-@study_folio_id = baaf06b8-7720-40e8-9f30-300d7aee570f
+@study_folio_id = 1d0a5aac-5055-41ed-8c16-d19dee8a9bd1
 
 # @name create_study
 POST {{folio}}/studies/
@@ -463,7 +463,7 @@ Content-Disposition: form-data; name="metadata"
 {
   "studyId": "{{study_id}}",
   "analysisType": {
-    "name": "cholera_schema_maestro",
+    "name": "cholera_schema",
     "version": 2
   },
   "submissionName": "v4",
@@ -490,7 +490,7 @@ Content-Type: text/plain
 ###
 
 
-@submission_id = 3e3f7b95-2932-45ca-904a-b927ebff38fd
+@submission_id = 1087f3f2-43ea-44c4-9ea2-ca61ea8e5cd3
 
 # @name getSubmissionDetails
 GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}
@@ -498,22 +498,7 @@ Authorization: Bearer {{token}}
 
 ###
 
-@object_id = 185dfdc3-679f-5c2e-b14a-a7a1bbd6a682
-
-# @name get_submission_file
-GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/files/{{object_id}}
-Authorization: Bearer {{token}}
-
-###
-
-@url = http://minio:9000/object/data/3889c019-699b-5ef3-808b-6253f7bcc899?uploadId=NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLmI2ZjkzOWI2LTlmYTUtNDZjYy05OGE2LTdhN2IwZGU2MzRlMA&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251105T090027Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518400&X-Amz-Credential=admin%2F20251105%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=7128bce04fb72d5a9a2cb277079d0cd4c153e213070c8197c350b6c6079971d6
-
-# @name get_minio_presigned_url
-GET {{url}}
-
-
-###
-
+@object_id = f920cc59-61d3-5d5b-9f05-4ced73239e88
 
 # @name upload_init
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/init
@@ -531,7 +516,8 @@ Content-Type: application/json
 
 # @name upload_file_to_minio
 
-@url = http://minio:9000/object/data/185dfdc3-679f-5c2e-b14a-a7a1bbd6a682?uploadId=NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLmRmMjI4NGIyLWIxMTgtNDAxYS05YWI1LTI0ODBmOWVmNDA4OA&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251105T105533Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518400&X-Amz-Credential=admin%2F20251105%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=f575de70d9187369498e314c62b52025fb6a8962a4cc60f1022a02dd72413209
+@url = http://minio:9000/object/data/f920cc59-61d3-5d5b-9f05-4ced73239e88?uploadId=YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmRlZWMyOTJmLWY1ZjctNDFjNC04MDc0LTlkNGE5NDFmYTViOQ&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251105T165408Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518400&X-Amz-Credential=admin%2F20251105%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=994508592b61eaf743613c279f720aa8ee4bc2cef0370970e8de135d65894a3b
+
 PUT {{url}}
 Content-Type: application/octet-stream
 
@@ -540,6 +526,7 @@ Content-Type: application/octet-stream
 
 ###
 
+@upload_id = YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmRlZWMyOTJmLWY1ZjctNDFjNC04MDc0LTlkNGE5NDFmYTViOQ
 
 # @name finalise_part
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/finalise-part
@@ -548,7 +535,7 @@ Content-Type: application/json
 
 {
   "object_id": "{{object_id}}",
-  "upload_id": "NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLmRmMjI4NGIyLWIxMTgtNDAxYS05YWI1LTI0ODBmOWVmNDA4OA",
+  "upload_id": "{{upload_id}}",
   "etag": "bda8ea08a3e76e699a0248038737649d",
   "part_number": 1,
   "md5": "1dfd8800948e9f2bf44942003f9265f8"
@@ -563,7 +550,7 @@ Content-Type: application/json
 
 {
   "object_id": "{{object_id}}",
-  "upload_id": "NTVlNGQ0ZTktMDA4NC00MDEyLTkyMjEtM2VjMDkwNWFjYzViLmRmMjI4NGIyLWIxMTgtNDAxYS05YWI1LTI0ODBmOWVmNDA4OA",
+  "upload_id": "{{upload_id}}",
   "parts": [
     {
       "part_number": 1,
@@ -580,6 +567,25 @@ Content-Type: application/json
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/publish
 Authorization: Bearer {{token}}
 
+###
+
+# @name unpublish_analysis
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/unpublish
+Authorization: Bearer {{token}}
+
+###
+
+# @name get_submission_file
+GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/files/{{object_id}}
+Authorization: Bearer {{token}}
+
+###
+
+# @name get_minio_presigned_url
+GET {{url}}
+
+
+###
 
 ##########################
 ### SONG
@@ -665,8 +671,252 @@ User-Agent: RestClient/2.1.0 (darwin20 x86_64) ruby/2.7.6p219
 ### ELASTICSEARCH
 ##########################
 
+# @name check_indices
+GET http://localhost:9200/_cat/indices?v
+
+###
+
+# @name get_all_indexed_samples
+GET http://localhost:9200/agari-samples/_search
+Content-Type: application/json
+
+{
+  "query": {
+    "match_all": {}
+  },
+  "size": 10
+}
+
+###
+
+# @name search_by_study_id
+POST http://localhost:9200/agari-samples/_search
+Content-Type: application/json
+
+{
+  "query": {
+    "term": {
+      "studyId.keyword": "cholera"
+    }
+  }
+}
+
+###
+
 # @name search_by_country
-POST http://localhost:9200/agari-file-index/_search
+POST http://localhost:9200/agari-samples/_search
+Content-Type: application/json
+
+{
+  "query": {
+    "match": {
+      "geo_loc_name_country": "Uganda"
+    }
+  }
+}
+
+###
+
+# @name search_by_pathogen
+POST http://localhost:9200/agari-samples/_search
+Content-Type: application/json
+
+{
+  "query": {
+    "match": {
+      "serogroup": "Vibrio cholerae"
+    }
+  }
+}
+
+###
+
+# @name search_by_resistance_genes
+POST http://localhost:9200/agari-samples/_search
+Content-Type: application/json
+
+{
+  "query": {
+    "exists": {
+      "field": "resistance_genes"
+    }
+  }
+}
+
+###
+
+# @name aggregate_by_country
+POST http://localhost:9200/agari-samples/_search
+Content-Type: application/json
+
+{
+  "size": 0,
+  "aggs": {
+    "countries": {
+      "terms": {
+        "field": "geo_loc_name_country.keyword",
+        "size": 10
+      }
+    }
+  }
+}
+
+###
+
+# @name aggregate_by_serotype
+POST http://localhost:9200/agari-samples/_search
+Content-Type: application/json
+
+{
+  "size": 0,
+  "aggs": {
+    "serotypes": {
+      "terms": {
+        "field": "serotype.keyword",
+        "size": 10
+      }
+    }
+  }
+}
+
+###
+
+# @name search_by_date_range
+POST http://localhost:9200/agari-samples/_search
+Content-Type: application/json
+
+{
+  "query": {
+    "range": {
+      "sample_collection_date": {
+        "gte": "2020-01-01",
+        "lte": "2025-12-31",
+        "format": "yyyy-MM-dd"
+      }
+    }
+  }
+}
+
+###
+
+# @name complex_search_vibrio_cholera_south_africa
+POST http://localhost:9200/agari-samples/_search
+Content-Type: application/json
+
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "match": {
+            "serogroup": "Vibrio cholerae"
+          }
+        },
+        {
+          "match": {
+            "geo_loc_name_country": "South Africa"
+          }
+        }
+      ]
+    }
+  }
+}
+
+###
+
+# @name search_by_project_id
+POST http://localhost:9200/agari-samples/_search
+Content-Type: application/json
+
+{
+  "query": {
+    "term": {
+      "projectId.keyword": "fcc3c80b-a1d8-4e1e-843d-d3802e44d444"
+    }
+  }
+}
+
+###
+
+# @name search_by_analysis_id
+POST http://localhost:9200/agari-samples/_search
+Content-Type: application/json
+
+{
+  "query": {
+    "term": {
+      "analysisId.keyword": "bb037d7d-052e-4dca-837d-7d052ecdcac5"
+    }
+  }
+}
+
+###
+
+# @name get_samples_mapping
+GET http://localhost:9200/agari-samples/_mapping
+Content-Type: application/json
+
+###
+
+# @name aggregate_by_sequencing_instrument
+POST http://localhost:9200/agari-samples/_search
+Content-Type: application/json
+
+{
+  "size": 0,
+  "aggs": {
+    "instruments": {
+      "terms": {
+        "field": "sequencing_instrument.keyword",
+        "size": 10
+      }
+    }
+  }
+}
+
+###
+
+# @name search_by_vaccination_status
+POST http://localhost:9200/agari-samples/_search
+Content-Type: application/json
+
+{
+  "query": {
+    "term": {
+      "vaccination_status.keyword": "Fully Vaccinated"
+    }
+  }
+}
+
+###
+
+# @name search_multi_resistance_genes
+POST http://localhost:9200/agari-samples/_search
+Content-Type: application/json
+
+{
+  "query": {
+    "bool": {
+      "should": [
+        {
+          "match": {
+            "resistance_genes": "tetA"
+          }
+        },
+        {
+          "match": {
+            "resistance_genes": "tetB"
+          }
+        }
+      ]
+    }
+  }
+}
+
+###
+
+# @name search_by_country
+POST http://localhost:9200/agari-index/_search
 Content-Type: application/json
 
 {
@@ -681,7 +931,7 @@ Content-Type: application/json
 ###
 
 # @name search_samples_by_country
-POST http://localhost:9200/agari-file-index/_search
+POST http://localhost:9200/agari-index/_search
 Content-Type: application/json
 
 {
