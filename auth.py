@@ -557,7 +557,7 @@ class KeycloakAuth:
             remove_response = requests.delete(remove_url, headers=headers, json=current_roles)
             remove_response.raise_for_status()
 
-            print(f"Successfully removed {current_roles[0]["name"]} realm roles from user {user_id}")
+            print(f"Successfully removed {current_roles[0]['name']} realm roles from user {user_id}")
             return current_roles[0]["name"]
         except requests.RequestException as e:
             print(f"Error updating realm roles: {e}")

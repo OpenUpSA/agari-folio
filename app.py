@@ -38,9 +38,9 @@ logger = getLogger(__name__)
 class CustomJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime):
-            return obj.strftime('%Y-%m-%d %H:%M:%S')
+            return obj.strftime("%Y-%m-%d %H:%M:%S")
         elif isinstance(obj, date):
-            return obj.strftime('%Y-%m-%d')
+            return obj.strftime("%Y-%m-%d")
         elif isinstance(obj, Decimal):
             return float(obj)
         return super().default(obj)
@@ -53,16 +53,16 @@ keycloak_auth = KeycloakAuth(
     keycloak_url=settings.KEYCLOAK_URL,
     realm=settings.KEYCLOAK_REALM,
     client_id=settings.KEYCLOAK_CLIENT_ID,
-    client_secret=settings.KEYCLOAK_CLIENT_SECRET
+    client_secret=settings.KEYCLOAK_CLIENT_SECRET,
 )
 
 app.keycloak_auth = keycloak_auth
 
 api = Api(app, 
-    version='1.0', 
-    title='Folio API',
-    description='API documentation for the Folio application',
-    doc='/docs/'
+    version="1.0",
+    title="Folio API",
+    description="API documentation for the Folio application",
+    doc="/docs/"
 )
 
 # Configure Flask-RESTX to use our custom JSON encoder
