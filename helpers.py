@@ -176,7 +176,7 @@ def invite_user_to_project(user, redirect_uri, project_id, role):
         keycloak_auth.add_attribute_value(user["id"], "invite_project_id", project_id)
         keycloak_auth.add_attribute_value(user["id"], f"invite_role_{project_id}", role)
         if status_code == 204:
-            return f"Inivte sent without email"
+            return f"Invite created without sending email"
         else:
             return f"Invitation email sent successfully"
     else:
