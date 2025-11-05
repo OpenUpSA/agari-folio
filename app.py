@@ -915,6 +915,40 @@ class OrganisationUsers(Resource):
             return {'error': f'Failed to add user to organisation: {str(e)}'}, 500
 
 
+@organisation_ns.route('/members')
+class OrganisationRoles(Resource):
+    ### DELETE /organisations/members ###
+
+    @organisation_ns.doc('remove_organisation_member')
+    @require_auth(keycloak_auth)
+    @require_permission('remove_org_members')
+    def delete(self):
+        """Remove a user from an organisation"""
+        try:
+            data = request.get_json()
+            if not data:
+                return {'error': 'No JSON data provided'}, 400
+
+            user_id = data.get('user_id')
+            if not user_id:
+                return {'error': 'User ID is required'}, 400
+
+            # Check if user exists in Keycloak
+            user = keycloak_auth.get_user(user_id)
+            if not user:
+                return {'error': 'User not found in Keycloak'}, 404
+
+            removed_role = keycloak_auth.remove_realm_roles(user["id"])
+            if removed_role:
+                return f"Removed role {removed_role}"
+            else:
+                return f"User has no role"
+
+        except Exception as e:
+            logger.exception(f"Error removing user from organisation role: {str(e)}")
+            return {'error': f"Failed to remove user from organisation role: {str(e)}"}, 500
+
+
 ##########################
 ### PROJECTS
 ##########################

@@ -531,6 +531,39 @@ class KeycloakAuth:
             print(f"Error updating realm roles: {e}")
             return False
 
+
+    def remove_realm_roles(self, user_id):
+        admin_token = self.get_admin_token()
+        if not admin_token:
+            return False
+
+        try:
+            headers = {
+                'Authorization': f'Bearer {admin_token}',
+                'Content-Type': 'application/json'
+            }
+            current_roles_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users/{user_id}/role-mappings/realm"
+
+            current_roles_response = requests.get(current_roles_url, headers=headers)
+            current_roles_response.raise_for_status()
+            current_roles = current_roles_response.json()
+
+            if not current_roles:
+                print(f"User {user_id} has no realm roles to remove")
+                return False
+
+            # Remove the roles using DELETE with the role objects
+            remove_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users/{user_id}/role-mappings/realm"
+            remove_response = requests.delete(remove_url, headers=headers, json=current_roles)
+            remove_response.raise_for_status()
+
+            print(f"Successfully removed {current_roles[0]["name"]} realm roles from user {user_id}")
+            return current_roles[0]["name"]
+        except requests.RequestException as e:
+            print(f"Error updating realm roles: {e}")
+            return False
+
+
     ### GET USER INFO BY ID ###
 
     def get_user_info_by_id(self, user_id):
