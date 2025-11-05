@@ -174,9 +174,9 @@ def invite_user_to_project(user, redirect_uri, project_id, role):
         # assign temp invite attributes to user
         keycloak_auth.add_attribute_value(user["id"], "invite_token", inv_token)
         keycloak_auth.add_attribute_value(user["id"], "invite_project_id", project_id)
-        keycloak_auth.add_attribute_value(user["id"], "invite_role", role)
+        keycloak_auth.add_attribute_value(user["id"], f"invite_role_{project_id}", role)
         if status_code == 204:
-            return f"Inivte send without email"
+            return f"Inivte sent without email"
         else:
             return f"Invitation email sent successfully"
     else:
@@ -223,7 +223,7 @@ def invite_user_to_org(user, redirect_uri, org_id, role):
         # assign temp invite attributes to user
         keycloak_auth.add_attribute_value(user["id"], "invite_org_token", inv_token)
         keycloak_auth.add_attribute_value(user["id"], "invite_org_id", org_id)
-        keycloak_auth.add_attribute_value(user["id"], "invite_org_role", role)
+        keycloak_auth.add_attribute_value(user["id"], f"invite_org_role_{org_id}", role)
         if status_code == 204:
             return f"Email not sent"
         else:
