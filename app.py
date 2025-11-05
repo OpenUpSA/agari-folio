@@ -1545,12 +1545,7 @@ class ProjectSubmissions(Resource):
                     try:
                         metadata = json.loads(metadata_json)
                         
-                        # Check if this is a maestro-compatible schema
-                        schema_name = metadata.get('analysisType', {}).get('name', '')
-                        if schema_name == 'cholera_schema_maestro':
-                            samples_data = tsv_to_maestro_json(file_content)
-                        else:
-                            samples_data = tsv_to_json(file_content)
+                        samples_data = tsv_to_json(file_content)
 
                         if 'studyId' not in metadata:
                             return {'error': 'studyId is required in metadata'}, 400
@@ -1578,13 +1573,6 @@ class ProjectSubmissions(Resource):
                         "files": metadata['files'],
                         "samples": samples_data
                     }
-                    
-                    # Add experiment field for maestro-compatible schemas
-                    if schema_name == 'cholera_schema_maestro':
-                        data["experiment"] = {
-                            "libraryStrategy": "WGS",
-                            "experimentalStrategy": "WGS"
-                        }
                     
                     print(f"Final payload structure: studyId={data['studyId']}, samples_count={len(data['samples'])}, files_count={len(data['files'])}")
                     
