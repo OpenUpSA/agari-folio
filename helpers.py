@@ -193,8 +193,6 @@ def invite_user_to_org(user, redirect_uri, org_id, role):
         to_name = ""
     to_email = user["email"]
 
-    subject = "You've been invited to AGARI"
-
     with get_db_cursor() as cursor:
         cursor.execute(
             """
@@ -210,11 +208,15 @@ def invite_user_to_org(user, redirect_uri, org_id, role):
 
     hash_string = f"{user['id']}{org_id}"
     inv_token = hashlib.md5(hash_string.encode()).hexdigest()
-    accept_link = (
-        f"{redirect_uri}/accept-invite-org?userid={user['id']}&token={inv_token}"
-    )
 
-    html_template = mjml_to_html("new_user")
+    accept_link = f"{redirect_uri}/accept-invite-org?userid={user['id']}&token={inv_token}"  #
+
+    if role == "org-owner":
+        subject = f"Invitation: Become the Owner of {org['name']}"
+        html_template = mjml_to_html("org_ownership")
+    else:
+        subject = "You've been invited to AGARI"
+        html_template = mjml_to_html("new_user")
     html_content = render_template_string(
         html_template, org_name=org["name"], accept_link=accept_link
     )
@@ -315,12 +317,13 @@ def tsv_to_json(tsv_string):
 
     return json_list
 
+
 def send_to_elastic(index, document):
     es_url = settings.ELASTICSEARCH_URL
-    
+
     # Extract document ID if provided
-    doc_id = document.pop('_id', None) if isinstance(document, dict) else None
-    
+    doc_id = document.pop("_id", None) if isinstance(document, dict) else None
+
     if doc_id:
         # Use PUT with specific document ID to avoid duplicates
         es_index_url = f"{es_url}/{index}/_doc/{doc_id}"
@@ -342,13 +345,17 @@ def send_to_elastic(index, document):
         print(f"Error sending document to Elasticsearch: {e}")
         return False
 
+
 def remove_from_elastic(index, doc_id):
     es_url = settings.ELASTICSEARCH_URL
     es_delete_url = f"{es_url}/{index}/_doc/{doc_id}"
 
     try:
         response = requests.delete(es_delete_url)
-        if response.status_code in [200, 404]:  # 404 means document doesn't exist, which is OK
+        if response.status_code in [
+            200,
+            404,
+        ]:  # 404 means document doesn't exist, which is OK
             print(f"Successfully removed document {doc_id} from {index}")
             return True
         else:
@@ -358,27 +365,28 @@ def remove_from_elastic(index, doc_id):
         print(f"Error removing document from Elasticsearch: {e}")
         return False
 
+
 def remove_samples_from_elastic(analysis_id):
     """Remove all sample documents for a specific analysis from Elasticsearch"""
     es_url = settings.ELASTICSEARCH_URL
-    
+
     # Use delete by query to remove all sample documents for this analysis
-    delete_query = {
-        "query": {
-            "term": {
-                "analysisId.keyword": analysis_id
-            }
-        }
-    }
-    
+    delete_query = {"query": {"term": {"analysisId.keyword": analysis_id}}}
+
     es_delete_url = f"{es_url}/agari-samples/_delete_by_query"
 
     try:
-        response = requests.post(es_delete_url, json=delete_query, headers={'Content-Type': 'application/json'})
+        response = requests.post(
+            es_delete_url,
+            json=delete_query,
+            headers={"Content-Type": "application/json"},
+        )
         if response.status_code in [200, 409]:  # 409 can happen if no documents found
             result = response.json()
-            deleted_count = result.get('deleted', 0)
-            print(f"Successfully removed {deleted_count} sample documents for analysis {analysis_id}")
+            deleted_count = result.get("deleted", 0)
+            print(
+                f"Successfully removed {deleted_count} sample documents for analysis {analysis_id}"
+            )
             return True
         else:
             print(f"Failed to remove sample documents: {response.text}")
@@ -386,6 +394,19 @@ def remove_samples_from_elastic(analysis_id):
     except Exception as e:
         print(f"Error removing sample documents from Elasticsearch: {e}")
         return False
+
+
+def check_user_id(data, param_id):
+    user_id = data.get(param_id)
+
+    if not user_id:
+        return {"error": "User ID is required"}, 400
+
+    # Check if user exists in Keycloak
+    user = keycloak_auth.get_user(user_id)
+    if not user:
+        return {"error": f"User {user_id} not found in Keycloak"}, 404
+    return user
     
 def query_elastic(query_body):
     es_url = settings.ELASTICSEARCH_URL

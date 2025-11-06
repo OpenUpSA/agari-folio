@@ -7,16 +7,17 @@ PERMISSIONS = {
     "manage_users": ["system-admin", "agari-org-owner", "agari-org-admin"],
     "view_users": ["system-admin", "agari-org-owner", "agari-org-admin"],
 
-    # Organization management
+    # Organisation management
     "create_org": ["system-admin"],
     "delete_org": ["system-admin"],
     "manage_org_settings": ["system-admin", "agari-org-owner", "agari-org-admin"],
 
-    # Organization members management
+    # Organisation members management
     "add_org_members": ["system-admin", "agari-org-owner", "agari-org-admin"],
     "remove_org_members": ["system-admin", "agari-org-owner", "agari-org-admin"],
     "change_org_member_roles": ["system-admin", "agari-org-owner", "agari-org-admin"],
     "view_org_members": ["system-admin", "agari-org-owner", "agari-org-admin"],
+    "change_org_owner": ["system-admin", "agari-org-owner"],
 
     # Pathogen management
     "create_pathogen": ["system-admin"],

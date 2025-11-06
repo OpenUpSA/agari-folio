@@ -1,0 +1,64 @@
+@folio = http://127.0.0.1:8000/
+#@folio = https://folio-staging.openup.org.za
+
+
+@realm = agari
+@client_id = dms
+@client_secret = VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc
+
+@username = system.admin@agari.tech
+@password = pass123
+
+### Get access token
+# @name login
+POST https://keycloak-staging.openup.org.za/realms/{{realm}}/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+username={{username}}
+&password={{password}}
+&grant_type=password
+&client_id={{client_id}}
+&client_secret={{client_secret}}
+
+###
+@token = {{login.response.body.access_token}}
+
+##########################
+### 1. Get user id 
+##########################
+# @name create_users
+POST {{folio}}/users/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "email":"test-user2@example.com",
+  "redirect_uri":"http://agari-staging.openup.org.za",
+  "send_email": false
+}
+
+##########################
+### 2. Send invite to user
+##########################
+@org_id = b8a17c57-d543-4e27-a8df-815b6420a381
+
+# @name add_organisation_users
+POST {{folio}}/organisations/{{org_id}}/members
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "user_id": "a1163bae-f22d-437c-a4d9-4a1981714e8b",
+    "role": "org-admin",
+    "redirect_uri": "http://127.0.0.1"
+}
+
+##########################
+### 3. Email directs user to the frontend with a URL similar to 
+### https://agari-staging.openup.org.za/accept-invite-org?userid=887d7ebc-9e5e-47ae-bf1c-8562f48bdad7&token=5460558cfec1e17fb18693a036eac41d
+### Use the token in the request below to confirm the invite 
+##########################
+@inv_token = 2678e2768931eb5e507fe8aa09643599
+
+# @name accept_organisation_invite
+POST {{folio}}/invites/organisation/{{inv_token}}/accept
