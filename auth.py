@@ -475,7 +475,43 @@ class KeycloakAuth:
         except requests.RequestException as e:
             print(f"Error removing attribute value: {e}")
             return False
-        
+
+
+    def remove_org_attribute(self, user_id, attribute_name="organisation_id"):
+        admin_token = self.get_admin_token()
+        if not admin_token:
+            return False
+
+        try:
+            # Get current user data
+            user_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users/{user_id}"
+
+            headers = {
+                'Authorization': f'Bearer {admin_token}',
+                'Content-Type': 'application/json'
+            }
+
+            response = requests.get(user_url, headers=headers)
+            response.raise_for_status()
+
+            user = response.json()
+            attributes = user.get('attributes', {})
+
+            if attribute_name in attributes:
+                del attributes[attribute_name]
+
+            user['attributes'] = attributes
+
+            update_response = requests.put(user_url, headers=headers, json=user)
+            update_response.raise_for_status()
+
+            return True
+
+        except requests.RequestException as e:
+            print(f"Error removing attribute value: {e}")
+            return False
+
+
     def update_realm_roles(self, user_id, role_names):
         """
         Update a user's realm roles

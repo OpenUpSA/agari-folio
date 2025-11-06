@@ -939,11 +939,11 @@ class OrganisationRoles(Resource):
                 return {'error': 'User not found in Keycloak'}, 404
 
             removed_role = keycloak_auth.remove_realm_roles(user["id"])
+            keycloak_auth.remove_org_attribute(user_id)
             if removed_role:
                 return f"Removed role {removed_role}"
             else:
                 return f"User has no role"
-
         except Exception as e:
             logger.exception(f"Error removing user from organisation role: {str(e)}")
             return {'error': f"Failed to remove user from organisation role: {str(e)}"}, 500
