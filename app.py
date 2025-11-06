@@ -22,6 +22,9 @@ from helpers import (
     log_submission,
     tsv_to_json,
     role_user,
+    send_to_elastic,
+    remove_from_elastic,
+    remove_samples_from_elastic,
 )
 import uuid
 import settings  # module import allows override via conftest.py
@@ -1568,8 +1571,6 @@ class ProjectSubmissions(Resource):
                     # Read and convert TSV to JSON
                     file_content = file.read().decode('utf-8')
                     
-                    samples_data = tsv_to_json(file_content)
-                    
                     metadata_json = request.form.get('metadata')
 
                     if not metadata_json:
@@ -1577,6 +1578,8 @@ class ProjectSubmissions(Resource):
 
                     try:
                         metadata = json.loads(metadata_json)
+                        
+                        samples_data = tsv_to_json(file_content)
 
                         if 'studyId' not in metadata:
                             return {'error': 'studyId is required in metadata'}, 400
@@ -2019,7 +2022,58 @@ class PublishSubmission(Resource):
             if song_response.status_code != 200:
                 log_submission(clean_submission_id, request.user.get('user_id'), song_response.status_code, song_response.text)
             else:
-                log_submission(clean_submission_id, request.user.get('user_id'), song_response.status_code, 'Analysis published successfully')            
+                log_submission(clean_submission_id, request.user.get('user_id'), song_response.status_code, 'Analysis published successfully')
+                
+                # After successful publication, fetch the analysis data and index it to Elasticsearch
+                try:
+                    # Get the full analysis data from SONG
+                    song_analysis_url = f"{SONG_URL}/studies/{study_id}/analysis/{analysis_id}"
+                    analysis_response = requests.get(song_analysis_url, headers=song_headers)
+                    
+                    if analysis_response.status_code == 200:
+                        analysis_data = analysis_response.json()
+                        
+                        # Index each sample as a separate document in Elasticsearch
+                        samples = analysis_data.get('samples', [])
+                        indexed_samples = 0
+                        failed_samples = 0
+                        
+                        for i, sample in enumerate(samples):
+                            # Create a unique document ID for each sample
+                            sample_doc_id = f"{analysis_id}_sample_{i}"
+                            
+                            # Create the sample document with analysis metadata
+                            sample_doc = {
+                                "_id": sample_doc_id,
+                                "analysisId": analysis_id,
+                                "studyId": study_id,
+                                "projectId": clean_project_id,
+                                "submissionId": clean_submission_id,
+                                "publishedAt": datetime.now().isoformat(),
+                                "analysisType": analysis_data.get('analysisType', {}),
+                                "analysisState": analysis_data.get('analysisState'),
+                                "createdAt": analysis_data.get('createdAt'),
+                                "updatedAt": analysis_data.get('updatedAt'),
+                                "files": analysis_data.get('files', []),
+                                **sample  # Include all sample fields at the top level
+                            }
+                            
+                            # Index this sample document
+                            if send_to_elastic("agari-samples", sample_doc):
+                                indexed_samples += 1
+                            else:
+                                failed_samples += 1
+                        
+                        if indexed_samples > 0:
+                            logger.info(f"Successfully indexed {indexed_samples} samples from analysis {analysis_id} to Elasticsearch")
+                        if failed_samples > 0:
+                            logger.warning(f"Failed to index {failed_samples} samples from analysis {analysis_id} to Elasticsearch")
+                    else:
+                        logger.warning(f"Failed to fetch analysis data for indexing: {analysis_response.status_code}")
+                        
+                except Exception as es_error:
+                    logger.exception(f"Error indexing analysis to Elasticsearch: {str(es_error)}")
+                    # Don't fail the publish operation if Elasticsearch indexing fails            
                 
             return response_data, song_response.status_code
 
@@ -2091,6 +2145,17 @@ class UnpublishSubmission(Resource):
                 log_submission(clean_submission_id, request.user.get('user_id'), song_response.status_code, song_response.text)
             else:
                 log_submission(clean_submission_id, request.user.get('user_id'), song_response.status_code, 'Analysis unpublished successfully')
+                
+                # After successful unpublication, remove the sample documents from Elasticsearch
+                try:
+                    remove_success = remove_samples_from_elastic(analysis_id)
+                    if remove_success:
+                        logger.info(f"Successfully removed sample documents for analysis {analysis_id} from Elasticsearch")
+                    else:
+                        logger.warning(f"Failed to remove sample documents for analysis {analysis_id} from Elasticsearch")
+                except Exception as es_error:
+                    logger.exception(f"Error removing sample documents from Elasticsearch: {str(es_error)}")
+                    # Don't fail the unpublish operation if Elasticsearch removal fails
 
             return response_data, song_response.status_code
 

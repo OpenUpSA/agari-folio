@@ -21,6 +21,9 @@ KEYCLOAK_CLIENT_SECRET = os.getenv('KEYCLOAK_CLIENT_SECRET', 'VDyLEjGR3xDQvoQlrH
 OVERTURE_SONG = os.getenv('OVERTURE_SONG', 'http://song.local')
 OVERTURE_SCORE = os.getenv('OVERTURE_SCORE', 'http://score.local')
 
+# Elasticsearch Configuration
+ELASTICSEARCH_URL = os.getenv('ELASTICSEARCH_URL', 'http://localhost:9200')
+
 # SendGrid Configuration
 SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY', '')
 SENDGRID_FROM_EMAIL = os.getenv('SENDGRID_FROM_EMAIL', 'webapps+agaridev@openup.org.za')

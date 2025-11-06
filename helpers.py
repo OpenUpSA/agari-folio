@@ -3,6 +3,7 @@ import subprocess
 import json
 import hashlib
 import requests
+import settings
 from flask import render_template_string
 from auth import KeycloakAuth
 from sendgrid import SendGridAPIClient
@@ -313,3 +314,75 @@ def tsv_to_json(tsv_string):
         json_list.append(record)
 
     return json_list
+
+def send_to_elastic(index, document):
+    es_url = settings.ELASTICSEARCH_URL
+    
+    # Extract document ID if provided
+    doc_id = document.pop('_id', None) if isinstance(document, dict) else None
+    
+    if doc_id:
+        # Use PUT with specific document ID to avoid duplicates
+        es_index_url = f"{es_url}/{index}/_doc/{doc_id}"
+        method = requests.put
+    else:
+        # Use POST to auto-generate document ID
+        es_index_url = f"{es_url}/{index}/_doc"
+        method = requests.post
+
+    try:
+        response = method(es_index_url, json=document)
+        if response.status_code in [200, 201]:
+            print(f"Successfully indexed document to {index}")
+            return True
+        else:
+            print(f"Failed to index document: {response.text}")
+            return False
+    except Exception as e:
+        print(f"Error sending document to Elasticsearch: {e}")
+        return False
+
+def remove_from_elastic(index, doc_id):
+    es_url = settings.ELASTICSEARCH_URL
+    es_delete_url = f"{es_url}/{index}/_doc/{doc_id}"
+
+    try:
+        response = requests.delete(es_delete_url)
+        if response.status_code in [200, 404]:  # 404 means document doesn't exist, which is OK
+            print(f"Successfully removed document {doc_id} from {index}")
+            return True
+        else:
+            print(f"Failed to remove document: {response.text}")
+            return False
+    except Exception as e:
+        print(f"Error removing document from Elasticsearch: {e}")
+        return False
+
+def remove_samples_from_elastic(analysis_id):
+    """Remove all sample documents for a specific analysis from Elasticsearch"""
+    es_url = settings.ELASTICSEARCH_URL
+    
+    # Use delete by query to remove all sample documents for this analysis
+    delete_query = {
+        "query": {
+            "term": {
+                "analysisId.keyword": analysis_id
+            }
+        }
+    }
+    
+    es_delete_url = f"{es_url}/agari-samples/_delete_by_query"
+
+    try:
+        response = requests.post(es_delete_url, json=delete_query, headers={'Content-Type': 'application/json'})
+        if response.status_code in [200, 409]:  # 409 can happen if no documents found
+            result = response.json()
+            deleted_count = result.get('deleted', 0)
+            print(f"Successfully removed {deleted_count} sample documents for analysis {analysis_id}")
+            return True
+        else:
+            print(f"Failed to remove sample documents: {response.text}")
+            return False
+    except Exception as e:
+        print(f"Error removing sample documents from Elasticsearch: {e}")
+        return False
