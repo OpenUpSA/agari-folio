@@ -25,6 +25,7 @@ from helpers import (
     send_to_elastic,
     remove_from_elastic,
     remove_samples_from_elastic,
+    check_user_id,
 )
 import uuid
 import settings  # module import allows override via conftest.py
@@ -871,34 +872,33 @@ class OrganisationUsers(Resource):
     @require_auth(keycloak_auth)
     @require_permission('add_org_members')
     def post(self, org_id):
-
         """Add a user to an organisation with role"""
 
         try:
             # Extract current user info to check organization access
             user_info = extract_user_info(request.user)
             user_org_id = user_info.get('organisation_id')
-            
+
             # Check if user is system-admin (can add to any org)
             if 'system-admin' not in user_info.get('roles', []):
                 # For non-system-admin users, check organization match
                 if not user_org_id:
                     return {'error': 'Permission denied. User not assigned to any organisation.'}, 403
-                
+
                 # Handle case where user_org_id might be a list or string
                 user_orgs = user_org_id if isinstance(user_org_id, list) else [user_org_id]
-                
+
                 if org_id not in user_orgs:
                     return {'error': 'Permission denied. You can only add members to your own organisation.'}, 403
 
             data = request.get_json()
             if not data:
                 return {'error': 'No JSON data provided'}, 400
-            
+
             user_id = data.get('user_id')
             role = data.get('role')
             redirect_uri = data.get('redirect_uri')
-            
+
             if not user_id:
                 return {'error': 'User ID is required'}, 400
             if role not in {'org-viewer', 'org-admin', 'org-owner'}:
@@ -912,7 +912,7 @@ class OrganisationUsers(Resource):
             # Update user's organisation_id and org_role attributes in Keycloak
             response = invite_user_to_org(user, redirect_uri, org_id, role)
             return response
-            
+
         except Exception as e:
             logger.exception(f"Error adding user to organisation {org_id}: {str(e)}")
             return {'error': f'Failed to add user to organisation: {str(e)}'}, 500
@@ -950,6 +950,38 @@ class OrganisationRoles(Resource):
         except Exception as e:
             logger.exception(f"Error removing user from organisation role: {str(e)}")
             return {'error': f"Failed to remove user from organisation role: {str(e)}"}, 500
+
+@organisation_ns.route('/<string:org_id>/owner')
+class OrganisationOwner(Resource):
+    ### POST /organisations/owner ###
+
+    @organisation_ns.doc('change_organisation_owner')
+    @require_auth(keycloak_auth)
+    @require_permission('change_org_owner')
+    def post(self, org_id):
+        """Change an organisation's owner"""
+        try:
+            data = request.get_json()
+            if not data:
+                return {"error": "No JSON data provided"}, 400
+
+            current_owner = check_user_id(data, "current_owner_id")
+            new_owner = check_user_id(data, "new_owner_id")
+            redirect_uri = data.get("redirect_uri")
+
+            if isinstance(current_owner, tuple):
+                return current_owner
+            if isinstance(new_owner, tuple):
+                return new_owner
+
+            # Invite new owner and save old owner id
+            response = invite_user_to_org(new_owner, redirect_uri, org_id, "org-owner")
+            keycloak_auth.add_attribute_value(new_owner["id"], "invite_org_old_owner", current_owner["id"])
+            return response
+
+        except Exception as e:
+            logger.exception(f"Error changing organisation owner: {str(e)}")
+            return {'error': f"Error changing organisation owner: {str(e)}"}, 500
 
 
 ##########################
@@ -2676,6 +2708,12 @@ class OrganisationInviteConfirm(Resource):
         keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', token)
         keycloak_auth.remove_attribute_value(user_id, 'invite_org_id', invite_org_id)
         keycloak_auth.remove_attribute_value(user_id, f'invite_org_role_{invite_org_id}', invite_org_role)
+
+        if invite_org_role == 'org-owner':
+            user_attr = keycloak_auth.get_user_attributes(user_id)
+            keycloak_auth.remove_realm_roles(user_attr["invite_org_old_owner"][0])
+            keycloak_auth.remove_org_attribute(user_attr["invite_org_old_owner"][0])
+            keycloak_auth.remove_attribute_value(user_id, "invite_org_old_owner", user_attr["invite_org_old_owner"][0])
 
         # Get access token for the user
         auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)

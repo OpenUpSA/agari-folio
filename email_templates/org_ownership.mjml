@@ -36,28 +36,17 @@
       }
     </mj-style>
 
-    <mj-preview>Invitation: Become the Owner of [Organisation Name]</mj-preview>
+    <mj-preview>Invitation: Become the Owner of {{ org_name }}</mj-preview>
   </mj-head>
 
   <mj-body background-color="#F7FAFC">
-    <!-- Subject -->
-    <mj-section padding="16px 0 16px 0">
-      <mj-column>
-        <mj-text font-size="12px" color="#6B7280" align="center">
-          Subject: Invitation: Become the Owner of [Organisation Name]
-        </mj-text>
-      </mj-column>
-    </mj-section>
-
     <!-- Card -->
     <mj-section padding="16px 8px">
 
 
       <!-- Header -->
       <mj-column>
-        <mj-text align="left" font-size="20px" font-weight="700" color="#204727">
-          AGARI LOGO
-        </mj-text>
+        <mj-image src="cid:agari_logo" alt="AGARI Logo" width="120px" align="left" />
       </mj-column>
     </mj-section>
 
@@ -65,7 +54,7 @@
     <mj-section padding="0 0 16px 0">
       <mj-column>
         <mj-text font-size="22px" font-weight="700" color="#1B1B1B">
-          Invitation: Become the Owner of [Organisation Name]
+          Invitation: Become the Owner of {{ org_name }}
         </mj-text>
       </mj-column>
     </mj-section>
@@ -74,7 +63,7 @@
     <mj-section padding="0 0 16px 0">
       <mj-column>
         <mj-text>
-          You have been invited to become the new Owner of [Organisation Name] on AGARI. As Owner, you will have full administrative control. This link is valid for 24 hours.
+          You have been invited to become the new Owner of {{ org_name }} on AGARI. As Owner, you will have full administrative control. This link is valid for 24 hours.
         </mj-text>
       </mj-column>
     </mj-section>
@@ -83,7 +72,7 @@
     <mj-section padding="0 0 16px 0">
       <mj-column>
         <mj-text align="center">
-          <a href="https://agari.example/accept-invite?token={{TOKEN}}" class="agari-btn">
+          <a href="{{ accept_link }}" class="agari-btn">
             Accept Ownership
           </a>
         </mj-text>
