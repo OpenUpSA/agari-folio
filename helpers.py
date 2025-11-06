@@ -212,7 +212,7 @@ def invite_user_to_org(user, redirect_uri, org_id, role):
     accept_link = f"{redirect_uri}/accept-invite-org?userid={user['id']}&token={inv_token}"  #
 
     if role == "org-owner":
-        subject = f"Invitation: Become the Owner of {org["name"]}"
+        subject = f"Invitation: Become the Owner of {org['name']}"
         html_template = mjml_to_html("org_ownership")
     else:
         subject = "You've been invited to AGARI"
