@@ -2751,6 +2751,7 @@ class OrganisationInviteConfirm(Resource):
             },
             'realm_roles': [f'agari-{invite_org_role}']
         }
+        keycloak_auth.remove_realm_roles(user_id)
         result = keycloak_auth.update_user(user_id, update_data)
 
         # Remove temp attributes
