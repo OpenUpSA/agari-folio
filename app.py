@@ -902,7 +902,7 @@ class OrganisationUsers(Resource):
 
             if not user_id:
                 return {'error': 'User ID is required'}, 400
-            if role not in {'org-viewer', 'org-admin', 'org-owner'}:
+            if role not in {'org-viewer', 'org-admin', 'org-contributor', 'org-owner'}:
                 return {'error': 'Invalid role specified'}, 400
 
             # Check if user exists in Keycloak
