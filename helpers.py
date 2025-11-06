@@ -407,3 +407,18 @@ def check_user_id(data, param_id):
     if not user:
         return {"error": f"User {user_id} not found in Keycloak"}, 404
     return user
+    
+def query_elastic(query_body):
+    es_url = settings.ELASTICSEARCH_URL
+    es_query_url = f"{es_url}/agari-samples/_search"
+
+    try:
+        response = requests.post(es_query_url, json=query_body, headers={'Content-Type': 'application/json'})
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Failed to query Elasticsearch: {response.text}")
+            return None
+    except Exception as e:
+        print(f"Error querying Elasticsearch: {e}")
+        return None
