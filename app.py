@@ -25,6 +25,7 @@ from helpers import (
     send_to_elastic,
     remove_from_elastic,
     remove_samples_from_elastic,
+    query_elastic
 )
 import uuid
 import settings  # module import allows override via conftest.py
@@ -1945,6 +1946,21 @@ class PublishSubmission(Resource):
                 clean_submission_id = str(uuid.UUID(submission_id.strip('"')))
             except ValueError as e:
                 return {'error': f'Invalid UUID format: {str(e)}'}, 400
+            
+            # Get the project privacy setting
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT privacy
+                    FROM projects
+                    WHERE id = %s
+                """, (clean_project_id,))
+                
+                project = cursor.fetchone()
+                
+                if not project:
+                    return {'error': 'Project not found'}, 404
+                
+                privacy = project.get('privacy', 'public')
 
             # get the study_id and analysis_id from the submission record
             with get_db_cursor() as cursor:
@@ -2014,6 +2030,7 @@ class PublishSubmission(Resource):
                                 "analysisId": analysis_id,
                                 "studyId": study_id,
                                 "projectId": clean_project_id,
+                                "privacy": privacy,
                                 "submissionId": clean_submission_id,
                                 "publishedAt": datetime.now().isoformat(),
                                 "analysisType": analysis_data.get('analysisType', {}),
@@ -2130,6 +2147,38 @@ class UnpublishSubmission(Resource):
             log_submission(submission_id, request.user.get('user_id'), 500, f'{str(e)}')
             return {'error': f'Failed to unpublish analysis: {str(e)}'}, 500
         
+
+###########################
+### SEARCH
+###########################
+
+search_ns = api.namespace('search', description='Search endpoints')
+@search_ns.route('/')
+
+class Search(Resource):
+    
+    ### POST /search ###
+
+    @api.doc('search_samples')
+    @require_auth(keycloak_auth)
+    def post(self):
+
+        """Search published samples in Elasticsearch"""
+
+        try:
+            data = request.get_json()
+            if not data:
+                return {'error': 'No JSON data provided'}, 400
+
+            # Query Elasticsearch
+            results = query_elastic(data)
+
+            return results, 200
+
+        except Exception as e:
+            logger.exception(f"Error searching samples: {str(e)}")
+            return {'error': f'Search error: {str(e)}'}, 500
+
 
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files/<string:object_id>')

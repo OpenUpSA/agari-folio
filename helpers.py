@@ -386,3 +386,18 @@ def remove_samples_from_elastic(analysis_id):
     except Exception as e:
         print(f"Error removing sample documents from Elasticsearch: {e}")
         return False
+    
+def query_elastic(query_body):
+    es_url = settings.ELASTICSEARCH_URL
+    es_query_url = f"{es_url}/agari-samples/_search"
+
+    try:
+        response = requests.post(es_query_url, json=query_body, headers={'Content-Type': 'application/json'})
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Failed to query Elasticsearch: {response.text}")
+            return None
+    except Exception as e:
+        print(f"Error querying Elasticsearch: {e}")
+        return None

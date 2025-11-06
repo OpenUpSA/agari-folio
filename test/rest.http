@@ -1,16 +1,22 @@
 @folio = http://localhost:8000
 # @folio = https://folio-staging.openup.org.za
+# @folio = https://folio-ilifu.openup.org.za
+
 @keycloak = http://keycloak.local
 # @keycloak = https://keycloak-staging.openup.org.za
+# @keycloak = https://keycloak-ilifu.openup.org.za
 
 @song = http://song.local
 # @song = https://song-staging.openup.org.za
+# @song = https://song-ilifu.openup.org.za
 
 @score = http://score.local
 # @score = https://score-staging.openup.org.za
+# @score = https://score-ilifu.openup.org.za
 
 # @minio = http://minio.local
-@minio = http://localhost:9000
+# @minio = http://localhost:9000
+
 
 @realm = agari
 @client_id = dms
@@ -671,13 +677,15 @@ User-Agent: RestClient/2.1.0 (darwin20 x86_64) ruby/2.7.6p219
 ### ELASTICSEARCH
 ##########################
 
-# @name check_indices
+# @name list_all_indices
 GET http://localhost:9200/_cat/indices?v
+Content-Type: application/json
 
 ###
 
 # @name get_all_indexed_samples
-GET http://localhost:9200/agari-samples/_search
+POST {{folio}}/search
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -690,7 +698,8 @@ Content-Type: application/json
 ###
 
 # @name search_by_study_id
-POST http://localhost:9200/agari-samples/_search
+POST {{folio}}/search
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -704,7 +713,7 @@ Content-Type: application/json
 ###
 
 # @name search_by_country
-POST http://localhost:9200/agari-samples/_search
+POST {{elasticsearch}}/agari-samples
 Content-Type: application/json
 
 {
@@ -718,7 +727,7 @@ Content-Type: application/json
 ###
 
 # @name search_by_pathogen
-POST http://localhost:9200/agari-samples/_search
+POST {{elasticsearch}}/agari-samples/_search
 Content-Type: application/json
 
 {
@@ -732,7 +741,7 @@ Content-Type: application/json
 ###
 
 # @name search_by_resistance_genes
-POST http://localhost:9200/agari-samples/_search
+POST {{elasticsearch}}/agari-samples/_search
 Content-Type: application/json
 
 {
@@ -746,7 +755,7 @@ Content-Type: application/json
 ###
 
 # @name aggregate_by_country
-POST http://localhost:9200/agari-samples/_search
+POST {{elasticsearch}}/agari-samples/_search
 Content-Type: application/json
 
 {
@@ -764,7 +773,7 @@ Content-Type: application/json
 ###
 
 # @name aggregate_by_serotype
-POST http://localhost:9200/agari-samples/_search
+POST {{elasticsearch}}/agari-samples/_search
 Content-Type: application/json
 
 {
@@ -782,7 +791,7 @@ Content-Type: application/json
 ###
 
 # @name search_by_date_range
-POST http://localhost:9200/agari-samples/_search
+POST {{elasticsearch}}/agari-samples/_search
 Content-Type: application/json
 
 {
@@ -800,7 +809,7 @@ Content-Type: application/json
 ###
 
 # @name complex_search_vibrio_cholera_south_africa
-POST http://localhost:9200/agari-samples/_search
+POST {{elasticsearch}}/agari-samples/_search
 Content-Type: application/json
 
 {
@@ -825,7 +834,7 @@ Content-Type: application/json
 ###
 
 # @name search_by_project_id
-POST http://localhost:9200/agari-samples/_search
+POST {{elasticsearch}}/agari-samples/_search
 Content-Type: application/json
 
 {
@@ -839,7 +848,7 @@ Content-Type: application/json
 ###
 
 # @name search_by_analysis_id
-POST http://localhost:9200/agari-samples/_search
+POST {{elasticsearch}}/agari-samples/_search
 Content-Type: application/json
 
 {
@@ -853,13 +862,13 @@ Content-Type: application/json
 ###
 
 # @name get_samples_mapping
-GET http://localhost:9200/agari-samples/_mapping
+GET {{elasticsearch}}/agari-samples/_mapping
 Content-Type: application/json
 
 ###
 
 # @name aggregate_by_sequencing_instrument
-POST http://localhost:9200/agari-samples/_search
+POST {{elasticsearch}}/agari-samples/_search
 Content-Type: application/json
 
 {
@@ -877,7 +886,7 @@ Content-Type: application/json
 ###
 
 # @name search_by_vaccination_status
-POST http://localhost:9200/agari-samples/_search
+POST {{elasticsearch}}/agari-samples/_search
 Content-Type: application/json
 
 {
@@ -891,7 +900,7 @@ Content-Type: application/json
 ###
 
 # @name search_multi_resistance_genes
-POST http://localhost:9200/agari-samples/_search
+POST {{elasticsearch}}/agari-samples/_search
 Content-Type: application/json
 
 {
@@ -916,7 +925,7 @@ Content-Type: application/json
 ###
 
 # @name search_by_country
-POST http://localhost:9200/agari-index/_search
+POST {{elasticsearch}}/agari-index/_search
 Content-Type: application/json
 
 {
@@ -931,7 +940,7 @@ Content-Type: application/json
 ###
 
 # @name search_samples_by_country
-POST http://localhost:9200/agari-index/_search
+POST {{elasticsearch}}/agari-index/_search
 Content-Type: application/json
 
 {
