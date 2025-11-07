@@ -209,7 +209,9 @@ def invite_user_to_org(user, redirect_uri, org_id, role):
     hash_string = f"{user['id']}{org_id}"
     inv_token = hashlib.md5(hash_string.encode()).hexdigest()
 
-    accept_link = f"{redirect_uri}/accept-invite-org?userid={user['id']}&token={inv_token}"  #
+    accept_link = (
+        f"{redirect_uri}/accept-invite-org?userid={user['id']}&token={inv_token}"
+    )
 
     if role == "org-owner":
         subject = f"Invitation: Become the Owner of {org['name']}"
@@ -235,7 +237,7 @@ def invite_user_to_org(user, redirect_uri, org_id, role):
         return {"error": "Failed to send invitation email"}, 500
 
 
-def role_user(user_id, project_id, role):
+def role_project_member(user_id, project_id, role):
     # Remove user from all existing project roles first (role hierarchy enforcement)
     removed_roles = []
     for existing_role in ["project-admin", "project-contributor", "project-viewer"]:
@@ -256,6 +258,16 @@ def role_user(user_id, project_id, role):
     if not success:
         return {"error": f"Failed to add user to role {role}"}, 500
     return removed_roles
+
+
+def role_org_member(user_id, org_id, role):
+    # Prepare update data with proper structure
+    update_data = {
+        "attributes": {"organisation_id": [org_id]},
+        "realm_roles": [f"agari-{role}"],
+    }
+    keycloak_auth.remove_realm_roles(user_id)
+    result = keycloak_auth.update_user(user_id, update_data)
 
 
 def access_revoked_notification(user_id):
@@ -407,13 +419,16 @@ def check_user_id(data, param_id):
     if not user:
         return {"error": f"User {user_id} not found in Keycloak"}, 404
     return user
-    
+
+
 def query_elastic(query_body):
     es_url = settings.ELASTICSEARCH_URL
     es_query_url = f"{es_url}/agari-samples/_search"
 
     try:
-        response = requests.post(es_query_url, json=query_body, headers={'Content-Type': 'application/json'})
+        response = requests.post(
+            es_query_url, json=query_body, headers={"Content-Type": "application/json"}
+        )
         if response.status_code == 200:
             return response.json()
         else:

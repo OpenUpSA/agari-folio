@@ -21,7 +21,8 @@ from helpers import (
     log_event,
     log_submission,
     tsv_to_json,
-    role_user,
+    role_project_member,
+    role_org_member,
     send_to_elastic,
     remove_from_elastic,
     remove_samples_from_elastic,
@@ -911,7 +912,11 @@ class OrganisationUsers(Resource):
                 return {'error': 'User not found in Keycloak'}, 404
 
             # Update user's organisation_id and org_role attributes in Keycloak
-            response = invite_user_to_org(user, redirect_uri, org_id, role)
+            if 'force_role' in data:
+                role_org_member(user["id"], org_id, role)
+                return f"User role updated for organisation {org_id}"
+            else:
+                response = invite_user_to_org(user, redirect_uri, org_id, role)
             return response
 
         except Exception as e:
@@ -1166,7 +1171,7 @@ class ProjectList(Resource):
                 """, (name, description, pathogen_id, user_id, organisation_id, privacy))
 
                 new_project = cursor.fetchone()
-                role_user(user_id, new_project["id"], "project-admin")
+                role_project_member(user_id, new_project["id"], "project-admin")
 
                 return {
                     'message': 'Project created successfully',
@@ -1473,7 +1478,7 @@ class ProjectUsers(Resource):
                 return {'error': 'User not found in Keycloak'}, 404
 
             if 'force_role' in data:
-                role_user(user["id"], project_id, role)
+                role_project_member(user["id"], project_id, role)
                 return f"User role updated for project {project_id}"
             else:
                 response = invite_user_to_project(user, redirect_uri, project_id, role)
@@ -2708,7 +2713,7 @@ class ProjectInviteConfirm(Resource):
         invite_project_id = user["attributes"].get("invite_project_id", [""])[0]
         invite_role = user["attributes"].get(f"invite_role_{invite_project_id}", [""])[0]
 
-        removed_roles = role_user(user_id, invite_project_id, invite_role)
+        removed_roles = role_project_member(user_id, invite_project_id, invite_role)
         print(f"Added project_id {invite_project_id} to role {invite_role} for user {user_id}")
 
         # Remove temp attributes
@@ -2744,14 +2749,7 @@ class OrganisationInviteConfirm(Resource):
         invite_org_id = user["attributes"].get("invite_org_id", [""])[0]
         invite_org_role = user["attributes"].get(f"invite_org_role_{invite_org_id}", [""])[0]
 
-        # Prepare update data with proper structure
-        update_data = {
-            'attributes': {
-                'organisation_id': [invite_org_id]
-            },
-            'realm_roles': [f'agari-{invite_org_role}']
-        }
-        result = keycloak_auth.update_user(user_id, update_data)
+        result = role_org_member(user_id, invite_org_id, invite_org_role)
 
         # Remove temp attributes
         keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', token)
