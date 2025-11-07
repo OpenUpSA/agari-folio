@@ -2807,8 +2807,8 @@ class OrganisationInviteConfirm(Resource):
 
         if invite_org_role == 'org-owner':
             user_attr = keycloak_auth.get_user_attributes(user_id)
-            keycloak_auth.remove_realm_roles(user_attr["invite_org_old_owner"][0])
-            keycloak_auth.remove_org_attribute(user_attr["invite_org_old_owner"][0])
+            # Downgrade previous owner to org-admin
+            role_org_member(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
             keycloak_auth.remove_attribute_value(user_id, "invite_org_old_owner", user_attr["invite_org_old_owner"][0])
 
         # Get access token for the user

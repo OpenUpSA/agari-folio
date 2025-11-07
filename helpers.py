@@ -268,6 +268,7 @@ def role_org_member(user_id, org_id, role):
     }
     keycloak_auth.remove_realm_roles(user_id)
     result = keycloak_auth.update_user(user_id, update_data)
+    return result
 
 
 def access_revoked_notification(user_id):
