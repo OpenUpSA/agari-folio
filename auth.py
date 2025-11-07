@@ -262,6 +262,52 @@ class KeycloakAuth:
             print(f"No Authorization header found")
 
         return projects_ids
+    
+    ### GET USER ORGANISATION PROJECTS ###
+
+    def get_user_organisation_projects(self):
+
+        """Extract and verify JWT token from Authorization header"""
+
+        organisation_projects = []
+
+        # get attribute organisation_id from token
+        auth_header = request.headers.get('Authorization')
+        if auth_header:
+            try:
+                token = auth_header.split(' ')[1]
+                user_info_raw = self.verify_token(token)
+
+                if user_info_raw and 'error' not in user_info_raw:
+                    user_info = extract_user_info(user_info_raw)
+                    organisation_id = None
+                    org_ids = user_info.get('organisation_id', [])
+                    if org_ids and len(org_ids) > 0:
+                        organisation_id = org_ids[0]
+
+                        # get organisation projects from sql
+                        if organisation_id:
+                            from database import get_db_connection
+                            conn = get_db_connection()
+                            cursor = conn.cursor()
+                            query = """
+                                SELECT project_id FROM projects
+                                WHERE organisation_id = %s
+                            """
+                            cursor.execute(query, (organisation_id,))
+                            rows = cursor.fetchall()
+                            organisation_projects = [row[0] for row in rows]
+                            cursor.close()
+                            conn.close()
+
+                            return organisation_projects
+
+                else:
+                    print(f"Token verification failed: {user_info_raw}")
+            except Exception as e:
+                print(f"Authentication failed: {str(e)}")
+                return []
+
 
     ### GET USERS BY ATTRIBUTE ###
 

@@ -299,6 +299,21 @@ def log_event(log_type, resource_id, log_entry):
         print(f"Error saving submission log: {e}")
         return False
 
+def check_user_id(data, param_id):
+    user_id = data.get(param_id)
+
+    if not user_id:
+        return {"error": "User ID is required"}, 400
+
+    # Check if user exists in Keycloak
+    user = keycloak_auth.get_user(user_id)
+    if not user:
+        return {"error": f"User {user_id} not found in Keycloak"}, 404
+    return user
+
+#############################
+### SUBMISSION HELPERS
+#############################
 
 def log_submission(submission_id, user_id, status, message):
     try:
@@ -329,6 +344,9 @@ def tsv_to_json(tsv_string):
 
     return json_list
 
+##############################
+### ELASTICSEARCH HELPERS
+##############################
 
 def send_to_elastic(index, document):
     es_url = settings.ELASTICSEARCH_URL
@@ -406,19 +424,6 @@ def remove_samples_from_elastic(analysis_id):
     except Exception as e:
         print(f"Error removing sample documents from Elasticsearch: {e}")
         return False
-
-
-def check_user_id(data, param_id):
-    user_id = data.get(param_id)
-
-    if not user_id:
-        return {"error": "User ID is required"}, 400
-
-    # Check if user exists in Keycloak
-    user = keycloak_auth.get_user(user_id)
-    if not user:
-        return {"error": f"User {user_id} not found in Keycloak"}, 404
-    return user
 
 
 def query_elastic(query_body):
