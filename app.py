@@ -2238,6 +2238,55 @@ class Search(Resource):
 
         try:
             data = request.get_json()
+
+            print(data)
+
+            user_project_ids = keycloak_auth.get_user_projects()
+            organisation_project_ids = keycloak_auth.get_user_organisation_projects()
+
+            user_project_ids.extend(organisation_project_ids)
+
+            print(f"User project IDs for access control: {user_project_ids}")
+            
+            access_filter = {
+                "bool": {
+                    "should": [
+                        {
+                            "terms": {
+                                "project_id.keyword": user_project_ids
+                            }
+                        },
+                        {
+                            "terms": {
+                                "privacy.keyword": ["public", "semi-private"]
+                            }
+                        }
+                    ],
+                    "minimum_should_match": 1
+                }
+            }
+            
+            # Add access filter to the query
+            if 'query' in data and 'bool' in data['query']:
+                if 'must' not in data['query']['bool']:
+                    data['query']['bool']['must'] = []
+                elif not isinstance(data['query']['bool']['must'], list):
+                    data['query']['bool']['must'] = [data['query']['bool']['must']]
+                
+                data['query']['bool']['must'].append(access_filter)
+            elif 'query' in data:
+                existing_query = data['query']
+                data['query'] = {
+                    "bool": {
+                        "must": [
+                            existing_query,
+                            access_filter
+                        ]
+                    }
+                }
+            else:
+                data['query'] = access_filter
+
             if not data:
                 return {'error': 'No JSON data provided'}, 400
 
