@@ -2021,7 +2021,7 @@ class PublishSubmission(Resource):
             # Get the project privacy setting
             with get_db_cursor() as cursor:
                 cursor.execute("""
-                    SELECT privacy
+                    SELECT *
                     FROM projects
                     WHERE id = %s
                 """, (clean_project_id,))
@@ -2098,11 +2098,12 @@ class PublishSubmission(Resource):
                             # Create the sample document with analysis metadata
                             sample_doc = {
                                 "_id": sample_doc_id,
-                                "analysisId": analysis_id,
-                                "studyId": study_id,
                                 "projectId": clean_project_id,
-                                "privacy": privacy,
+                                "organisationId": project.get('organisation_id'),
                                 "submissionId": clean_submission_id,
+                                "studyId": study_id,
+                                "analysisId": analysis_id,
+                                "privacy": privacy,
                                 "publishedAt": datetime.now().isoformat(),
                                 "analysisType": analysis_data.get('analysisType', {}),
                                 "analysisState": analysis_data.get('analysisState'),
@@ -2246,26 +2247,26 @@ class Search(Resource):
 
             user_project_ids.extend(organisation_project_ids)
 
-            print(f"User project IDs for access control: {user_project_ids}")
-            
             access_filter = {
                 "bool": {
                     "should": [
                         {
                             "terms": {
-                                "project_id.keyword": user_project_ids
+                                "projectId.keyword": user_project_ids
                             }
                         },
                         {
                             "terms": {
-                                "privacy.keyword": ["public", "semi-private"]
+                                "privacy.keyword": ["public", "semi-private"],
                             }
                         }
                     ],
                     "minimum_should_match": 1
                 }
             }
-            
+
+            print(f"Access filter: {access_filter}")
+
             # Add access filter to the query
             if 'query' in data and 'bool' in data['query']:
                 if 'must' not in data['query']['bool']:
@@ -2290,7 +2291,6 @@ class Search(Resource):
             if not data:
                 return {'error': 'No JSON data provided'}, 400
 
-            # Query Elasticsearch
             results = query_elastic(data)
 
             return results, 200

@@ -1,0 +1,758 @@
+@folio = http://localhost:8000
+# @folio = https://folio-staging.openup.org.za
+# @folio = https://folio-ilifu.openup.org.za
+
+@keycloak = http://keycloak.local
+# @keycloak = https://keycloak-staging.openup.org.za
+# @keycloak = https://keycloak-ilifu.openup.org.za
+
+@song = http://song.local
+# @song = https://song-staging.openup.org.za
+# @song = https://song-ilifu.openup.org.za
+
+@score = http://score.local
+# @score = https://score-staging.openup.org.za
+# @score = https://score-ilifu.openup.org.za
+
+# @minio = http://minio.local
+# @minio = http://localhost:9000
+
+
+@realm = agari
+@client_id = dms
+@client_secret = VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc
+
+# @username = system.admin@agari.tech
+# @username = owner@org1.ac.za
+# @username = owner@org2.ac.za
+# @username = org-admin@org1.ac.za
+# @username = org-admin@org2.ac.za
+# @username = test-user1@example.com
+# @username = test-user2@example.com
+# @username = test-user3@example.com
+@username = dirk@openup.org.za
+
+@password = pass123
+
+@testuser1 = a056925c-4d53-417f-a9f6-45e4421654cc
+
+### 1. LOGIN to get access token
+# @name login
+POST {{keycloak}}/realms/{{realm}}/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+username={{username}}
+&password={{password}}
+&grant_type=password
+&client_id={{client_id}}
+&client_secret={{client_secret}}
+
+###
+@token = {{login.response.body.access_token}}
+
+### Keycloak generate magic link
+@redirect_uri = https://agari.openup.org.za
+# @name magiclink
+POST {{keycloak}}/realms/{{realm}}/magic-link
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "email": "michael@openup.org.za",
+  "client_id": "dms",
+  "redirect_uri": "https://agari.openup.org.za",
+  "expiration_seconds": 3600,
+  "send_email": false
+}
+
+### Keycloak authenticate with code
+POST {{keycloak}}/realms/agari/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+client_id={{client_id}}
+&client_secret={{client_secret}}
+&grant_type=authorization_code
+&code=[add code here]
+&redirect_uri={{redirect_uri}}
+
+##########################
+### INFO
+##########################
+
+# @name health
+GET {{folio}}/info/health
+
+###
+
+# @name databaseHealth
+GET {{folio}}/info//health/db
+
+###
+
+# @name whoami
+GET {{folio}}/info/whoami
+Authorization: Bearer {{token}}
+
+###
+
+# @name permissions
+GET {{folio}}/info/permissions
+Authorization: Bearer {{token}}
+
+###
+
+# @name userHasResourcePermission
+
+POST {{folio}}/info/permissions/check
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "permission": "create_project",
+    "resource_type": "project",
+    "resource_id": "80bd4fd2-10e3-4104-abe2-713dfdd92bfa"
+}
+
+
+###
+
+# @name permission_check
+POST {{folio}}/info/permissions/check
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "permission": "view_org_private_projects",
+    "resource_type": "project",
+    "resource_id": "80bd4fd2-10e3-4104-abe2-713dfdd92bfa"
+}
+
+##########################
+### USERS
+##########################
+
+# @name get_current_user
+GET {{folio}}/info/whoami
+Authorization: Bearer {{token}}
+
+###
+
+# @name get_user_by_id
+GET {{folio}}/users/{{testuser1}}
+Authorization: Bearer {{token}}
+
+###
+
+# @name update_user_by_id
+PUT {{folio}}/users/{{testuser1}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "name",
+  "surname" : "surname",
+  "email": "testuser1@example.com",
+  "bio": "lorem",
+  "preferences": {
+    "theme": "dark"
+  },
+  "accepted_terms": true,
+  "accepted_governance": true
+}
+
+##########################
+## ORGANISATIONS
+##########################
+
+
+# @name list_organisations
+GET {{folio}}/organisations
+Authorization: Bearer {{token}}
+
+###
+
+# @name create_organisation
+POST {{folio}}/organisations/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "name": "KNHI",
+    "abbreviation": "KNHI",
+    "about": "About NKNHI",
+    "url": "https://www.knhi.org"
+}
+
+###
+
+# @organisation_id = c6bc3b80-01fa-4e96-9b66-64cae90c3acf
+@organisation_id = fbec3c00-f914-4f74-baca-34e8335f4bd8
+
+# @name get_organisation
+GET {{folio}}/organisations/{{organisation_id}}
+Authorization: Bearer {{token}}
+
+###
+
+# @name update_organisation
+PUT {{folio}}/organisations/{{organisation_id}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "about": "Updated Organisation 3"
+}
+
+###
+
+# @name delete_organisation
+DELETE {{folio}}/organisations/{{organisation_id}}
+Authorization: Bearer {{token}}
+
+###
+
+# @name add_organisation_member
+POST {{folio}}/organisations/{{organisation_id}}/members
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "user_id": "3948dda5-f903-44eb-8d16-759fed3492a1",
+    "role": "org-owner"
+}
+
+###
+
+# @name organisation_users
+GET {{folio}}/organisations/{{organisation_id}}/members
+Authorization: Bearer {{token}}
+
+###
+# @name remove_organisation_users
+DELETE {{folio}}/organisations/members
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "user_id": "3948dda5-f903-44eb-8d16-759fed3492a1"
+}
+
+##########################
+### PATHOGENS
+##########################
+
+# @name list_pathogens
+GET {{folio}}/pathogens
+
+###
+
+# @name list_pathogens_deleted
+GET {{folio}}/pathogens?deleted=true
+
+###
+
+# @name create_pathogen
+POST {{folio}}/pathogens
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "name": "Cholera",
+    "description": "Cholera Virus",
+    "scientific_name": "Vibrio cholerae"
+}
+
+###
+
+@pathogen_id = 0392eece-ebfe-4a52-ae33-d400d556cd47
+
+# @name get_pathogen
+GET {{folio}}/pathogens/{{pathogen_id}}
+
+###
+
+# @name delete_pathogen
+DELETE {{folio}}/pathogens/{{pathogen_id}}
+Authorization: Bearer {{token}}
+
+###
+
+# @name delete_pathogen_hard
+DELETE {{folio}}/pathogens/{{pathogen_id}}?hard=true
+Authorization: Bearer {{token}}
+
+###
+
+# @update_pathogen
+PUT {{folio}}/pathogens/{{pathogen_id}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "name": "Cholera",
+    "description": "Cholera virus",
+    "scientific_name": "Vibrio cholerae"
+}
+
+###
+
+# @name restore_pathogen
+POST {{folio}}/pathogens/{{pathogen_id}}/restore
+Authorization: Bearer {{token}}
+
+
+###
+
+# @name register_schema
+POST {{song}}/schemas
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+< /home/dimee/Work/OpenUp/SANBI/agari-helm-2/metadata/schemas/cholera/cholera-v4.json
+
+###
+
+# @name list_schemas
+GET {{song}}/schemas
+Authorization: Bearer {{token}}
+
+
+###
+
+
+##########################
+### PROJECTS
+##########################
+
+# @name list_projects
+GET {{folio}}/projects
+Authorization: Bearer {{token}}
+
+###
+
+# @name create_project
+POST {{folio}}/projects
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "name": "Cholera",
+    "description": "Project description",
+    "pathogen_id": "{{pathogen_id}}",
+    "privacy": "public"
+}
+
+###
+
+@project_id = d4f48a1a-9e01-4e7f-9614-c19868770b28
+
+### @name get_project
+GET {{folio}}/projects/{{project_id}}
+Authorization: Bearer {{token}}
+
+###
+
+# @name update_project
+PUT {{folio}}/projects/{{project_id}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "privacy": "public"
+}
+
+###
+
+# @name delete_project
+DELETE {{folio}}/projects/{{project_id}}
+Authorization: Bearer {{token}}
+
+###
+
+# @name delete_project_hard
+DELETE {{folio}}/projects/{{project_id}}?hard=true
+Authorization: Bearer {{token}}
+
+###
+
+# @name restore_project
+POST {{folio}}/projects/{{project_id}}/restore
+Authorization: Bearer {{token}}
+
+##########################
+### PROJECT USERS
+##########################
+
+# @name list_project_users
+GET {{folio}}/projects/{{project_id}}/users
+Authorization: Bearer {{token}}
+
+###
+
+# @name add_project_users
+POST {{folio}}/projects/{{project_id}}/users
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "user_id": "282dd9ee-ad7e-4580-9677-fa37d7ba6435",
+    "role": "project-contributor"
+}
+
+###
+
+@user_id = 638e2410-c4cf-4854-8258-d600ac289bcc
+
+# @name delete_project_users
+DELETE {{folio}}/projects/{{project_id}}/users/{{user_id}}
+Authorization: Bearer {{token}}
+
+
+##########################
+### STUDIES
+##########################
+
+# @name list_studies
+GET {{folio}}/studies
+Authorization: Bearer {{token}}
+
+###
+
+@study_id = cholera3
+# @study_folio_id = 1d0a5aac-5055-41ed-8c16-d19dee8a9bd1
+
+# @name create_study
+POST {{folio}}/studies/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "studyId": "{{study_id}}",
+    "name": "AGARI Test Study", 
+    "description": "Test study for genomic data workflow",
+    "projectId": "{{project_id}}",
+    "info": {
+        "projectType": "genomics",
+        "region": "South Africa"
+    }
+}
+
+##########################
+### SONG
+##########################
+
+# @name get_studies_in_song
+GET {{song}}/studies/all
+Authorization: Bearer {{token}}
+
+
+###
+
+# @name get_study_in_song
+GET {{song}}/studies/{{study_id}}
+Authorization: Bearer {{token}}
+
+###
+
+
+##########################
+### SUBMISSIONS
+##########################
+
+# @name getProjectSubmissions
+GET {{folio}}/projects/{{project_id}}/submissions
+Authorization: Bearer {{token}}
+
+###
+
+
+# @name submitAnalysisFile
+POST {{folio}}/projects/{{project_id}}/submissions
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary123
+
+------WebKitFormBoundary123
+Content-Disposition: form-data; name="metadata"
+
+{
+  "studyId": "{{study_id}}",
+  "analysisType": {
+    "name": "cholera_schema",
+    "version": 2
+  },
+  "submissionName": "v4",
+  "files": [
+    {
+      "fileName": "cholera_example.fasta",
+      "fileType": "FASTA",
+      "fileSize": 767,
+      "fileMd5sum": "61c8ac66972d52b0ee88a48ae5cfb3a8",
+      "fileAccess": "open",
+      "dataType": "Cholera Genome"
+    }
+  ]
+}
+
+------WebKitFormBoundary123
+Content-Disposition: form-data; name="file"; filename="cholera_example.tsv"
+Content-Type: text/plain
+
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/cholera_example.tsv
+
+------WebKitFormBoundary123--
+
+###
+
+
+@project_id = d4f48a1a-9e01-4e7f-9614-c19868770b28
+@submission_id = 3df85d70-edb9-451b-aef9-625aaf4413bd
+
+# @name getSubmissionDetails
+GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}
+Authorization: Bearer {{token}}
+
+###
+
+@object_id = e353ee2a-4392-5928-9122-a4cd3fa0568a
+
+# @name upload_init
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/init
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "object_id": "{{object_id}}",
+    "overwrite": true,
+    "fileSize": 767,
+    "md5": "61c8ac66972d52b0ee88a48ae5cfb3a8"
+}
+
+###
+
+# @name upload_file_to_minio
+
+@url = http://minio:9000/object/data/e353ee2a-4392-5928-9122-a4cd3fa0568a?uploadId=YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmY4ZWVhNjdmLTgwYzktNGVlZS1hOTgyLTJiNWE5MTVkODgxNA&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251109T100244Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518400&X-Amz-Credential=admin%2F20251109%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=ff57798a397bbacfc1727112b68e8ff0ea89750b1ed1805ca981d5732b7fb91f
+
+PUT {{url}}
+Content-Type: application/octet-stream
+
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/cholera_example.fasta
+
+
+###
+
+@upload_id = YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmY4ZWVhNjdmLTgwYzktNGVlZS1hOTgyLTJiNWE5MTVkODgxNA
+
+# @name finalise_part
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/finalise-part
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "object_id": "{{object_id}}",
+  "upload_id": "{{upload_id}}",
+  "etag": "b53c0f4e5cea1f87f3093cd7b5aa2c83",
+  "part_number": 1,
+  "md5": "61c8ac66972d52b0ee88a48ae5cfb3a8"
+}
+
+###
+
+# @name finalize_upload
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/finalise
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "object_id": "{{object_id}}",
+  "upload_id": "{{upload_id}}",
+  "parts": [
+    {
+      "part_number": 1,
+      "etag": "b53c0f4e5cea1f87f3093cd7b5aa2c83"
+    }
+  ]
+}
+
+
+
+###
+
+
+
+# @name publish_analysis
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/publish
+Authorization: Bearer {{token}}
+
+###
+
+# @name unpublish_analysis
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/unpublish
+Authorization: Bearer {{token}}
+
+###
+
+# @name get_submission_file
+GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/files/{{object_id}}
+Authorization: Bearer {{token}}
+
+###
+
+# @name get_minio_presigned_url
+GET {{url}}
+
+
+###
+
+##########################
+### SONG
+##########################
+
+
+@analysis_id = 7bb4edfa-b7d6-4058-b4ed-fab7d620583c
+
+
+# @name list_study_analyses
+GET http://song.local/studies/{{study_id}}/analysis?analysisStates=PUBLISHED,UNPUBLISHED
+Authorization: Bearer {{token}}
+
+###
+
+# @name get_study_analyses
+GET http://song.local/{{study_id}}/analysis/{{analysis_id}}
+Authorization: Bearer {{token}}
+
+###
+
+### Get user by email
+# @name getUserByEmail
+GET {{keycloak}}/admin/realms/{{realm}}/users?email=michael@openup.org.za
+Authorization: Bearer {{token}}
+
+###
+@user_id = 9af85893-2402-4069-95ef-16045ab5a77f
+
+### Keycloak update user details
+PUT {{keycloak}}/admin/realms/{{realm}}/users/{{user_id}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "firstName": "Michael"
+}
+
+### Create new user in Keycloak
+# @name createUser
+POST {{keycloak}}/admin/realms/{{realm}}/users
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "username": "newuser@example.com",
+  "email": "newuser@example.com",
+  "enabled": false,
+  "attributes": {
+    "invite": ["sent"]
+  }
+}
+
+### Create new user in Folio magic link
+# @name createUserMagicLink
+POST {{folio}}/users/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "email": "michael@openup.org.za",
+  "redirect_uri": "https://agari.openup.org.za/",
+  "send_email": "false"
+}
+
+
+##########################
+### SCORE
+##########################
+
+# @object_id = 41e82afe-2e03-5f4c-8537-aa58a8d00e5e
+@length = 6643
+
+# @name download_score_file
+GET {{score}}/download/{{object_id}}?offset=0&length={{length}}
+Authorization: Bearer {{token}}
+User-Agent: RestClient/2.1.0 (darwin20 x86_64) ruby/2.7.6p219
+
+###
+
+
+##########################
+### ELASTICSEARCH
+##########################
+
+# @name list_all_indices
+GET http://localhost:9200/_cat/indices?v
+Content-Type: application/json
+
+###
+
+# @name get_all_indexed_samples
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "match_all": {}
+  }
+}
+
+###
+
+# @name search_by_study_id
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "term": {
+      "geo_loc_name_country.keyword": "South Africa"
+    }
+  }
+}
+
+###
+
+
+
+
+
+
+
+
+
+
+##########################
+### OLD
+##########################
+
+
+# @name upload_analysis_file_rest
+POST {{folio}}/studies/{{study_id}}/analysis/{{analysis_id}}/upload
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary123
+
+------WebKitFormBoundary123
+Content-Disposition: form-data; name="object_id"
+
+{{object_id_from_analysis}}
+------WebKitFormBoundary123
+Content-Disposition: form-data; name="overwrite"
+
+true
+------WebKitFormBoundary123
+Content-Disposition: form-data; name="file"; filename="test_data.fasta"
+Content-Type: text/plain
+
+< /media/dimee/Work/OpenUp/SANBI/agari-folio/test/LS997867.1 Vibrio cholerae strain NCTC 30 genome assembly, chromosome 1.fasta
+
+------WebKitFormBoundary123--
