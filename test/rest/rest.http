@@ -264,7 +264,7 @@ Content-Type: application/json
 
 ###
 
-@pathogen_id = 0392eece-ebfe-4a52-ae33-d400d556cd47
+@pathogen_id = 4b0cb65f-1665-4e52-9b0c-8ad8878aef2e
 
 # @name get_pathogen
 GET {{folio}}/pathogens/{{pathogen_id}}
@@ -291,7 +291,8 @@ Content-Type: application/json
 {
     "name": "Cholera",
     "description": "Cholera virus",
-    "scientific_name": "Vibrio cholerae"
+    "scientific_name": "Vibrio cholerae",
+    "version": 2
 }
 
 ###
@@ -325,26 +326,26 @@ Authorization: Bearer {{token}}
 ##########################
 
 # @name list_projects
-GET {{folio}}/projects
+GET {{folio}}/projects?search=Dirk
 Authorization: Bearer {{token}}
 
 ###
 
 # @name create_project
-POST {{folio}}/projects
+POST {{folio}}/projects/
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Cholera",
-    "description": "Project description",
+    "name": "Dirk Covid",
+    "description": "",
     "pathogen_id": "{{pathogen_id}}",
     "privacy": "public"
 }
 
 ###
 
-@project_id = d4f48a1a-9e01-4e7f-9614-c19868770b28
+@project_id = 0a6050a3-03b3-4c67-978e-91f1b308d692
 
 ### @name get_project
 GET {{folio}}/projects/{{project_id}}
@@ -418,8 +419,7 @@ Authorization: Bearer {{token}}
 
 ###
 
-@study_id = cholera3
-# @study_folio_id = 1d0a5aac-5055-41ed-8c16-d19dee8a9bd1
+# @study_id = dirk-mpox-1
 
 # @name create_study
 POST {{folio}}/studies/
@@ -428,8 +428,8 @@ Content-Type: application/json
 
 {
     "studyId": "{{study_id}}",
-    "name": "AGARI Test Study", 
-    "description": "Test study for genomic data workflow",
+    "name": "{{study_id}}", 
+    "description": "",
     "projectId": "{{project_id}}",
     "info": {
         "projectType": "genomics",
@@ -459,6 +459,11 @@ Authorization: Bearer {{token}}
 ### SUBMISSIONS
 ##########################
 
+@project_id = 0a6050a3-03b3-4c67-978e-91f1b308d692
+@submission_id = 3fa85f64-5717-4562-b3fc-2c963f66afa6
+@study_id = dirk-mpox-1
+
+
 # @name getProjectSubmissions
 GET {{folio}}/projects/{{project_id}}/submissions
 Authorization: Bearer {{token}}
@@ -477,35 +482,33 @@ Content-Disposition: form-data; name="metadata"
 {
   "studyId": "{{study_id}}",
   "analysisType": {
-    "name": "cholera_schema",
-    "version": 2
+    "name": "mpox_schema",
+    "version": 4
   },
   "submissionName": "v4",
   "files": [
     {
-      "fileName": "cholera_example.fasta",
+      "fileName": "sequence.fasta",
       "fileType": "FASTA",
-      "fileSize": 767,
-      "fileMd5sum": "61c8ac66972d52b0ee88a48ae5cfb3a8",
+      "fileSize": 1544,
+      "fileMd5sum": "70d264d6fcb968cae55c90902923413e",
       "fileAccess": "open",
-      "dataType": "Cholera Genome"
+      "dataType": "Genome"
     }
   ]
 }
 
 ------WebKitFormBoundary123
-Content-Disposition: form-data; name="file"; filename="cholera_example.tsv"
+Content-Disposition: form-data; name="file"; filename="mpox_1.tsv"
 Content-Type: text/plain
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/cholera_example.tsv
+/home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/mpox_1.tsv
 
 ------WebKitFormBoundary123--
 
 ###
 
 
-@project_id = d4f48a1a-9e01-4e7f-9614-c19868770b28
-@submission_id = 3df85d70-edb9-451b-aef9-625aaf4413bd
 
 # @name getSubmissionDetails
 GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}
@@ -716,9 +719,11 @@ Content-Type: application/json
   "query": {
     "term": {
       "geo_loc_name_country.keyword": "South Africa"
-    }
+    },
   }
 }
+
+
 
 ###
 
