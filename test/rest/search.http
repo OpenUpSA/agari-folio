@@ -1,0 +1,138 @@
+@folio = http://localhost:8000
+# @folio = https://folio-staging.openup.org.za
+# @folio = https://folio-ilifu.openup.org.za
+
+@keycloak = http://keycloak.local
+# @keycloak = https://keycloak-staging.openup.org.za
+# @keycloak = https://keycloak-ilifu.openup.org.za
+
+@song = http://song.local
+# @song = https://song-staging.openup.org.za
+# @song = https://song-ilifu.openup.org.za
+
+@score = http://score.local
+# @score = https://score-staging.openup.org.za
+# @score = https://score-ilifu.openup.org.za
+
+# @minio = http://minio.local
+# @minio = http://localhost:9000
+
+
+@realm = agari
+@client_id = dms
+@client_secret = VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc
+
+@username = system.admin@agari.tech
+# @username = owner@org1.ac.za
+# @username = owner@org2.ac.za
+# @username = org-admin@org1.ac.za
+# @username = org-admin@org2.ac.za
+# @username = test-user1@example.com
+# @username = test-user2@example.com
+# @username = test-user3@example.com
+# @username = dirk@openup.org.za
+
+@password = pass123
+
+@testuser1 = a056925c-4d53-417f-a9f6-45e4421654cc
+
+### 1. LOGIN to get access token
+# @name login
+POST {{keycloak}}/realms/{{realm}}/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+username={{username}}
+&password={{password}}
+&grant_type=password
+&client_id={{client_id}}
+&client_secret={{client_secret}}
+
+###
+@token = {{login.response.body.access_token}}
+
+
+###
+
+# @name whoami
+GET {{folio}}/info/whoami
+Authorization: Bearer {{token}}
+
+###
+
+
+##########################
+### PROJECTS
+##########################
+
+# @name list_projects
+GET {{folio}}/projects
+Authorization: Bearer {{token}}
+
+###
+
+##########################
+### SUBMISSIONS
+##########################
+
+# @name getProjectSubmissions
+GET {{folio}}/projects/{{project_id}}/submissions
+Authorization: Bearer {{token}}
+
+###
+
+# @name publish_analysis
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/publish
+Authorization: Bearer {{token}}
+
+###
+
+# @name unpublish_analysis
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/unpublish
+Authorization: Bearer {{token}}
+
+###
+
+##########################
+### ELASTICSEARCH
+##########################
+
+# @name list_all_indices
+GET http://localhost:9200/_cat/indices?v
+Content-Type: application/json
+
+###
+
+# @name get_all_indexed_samples
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "match_all": {}
+  }
+}
+
+###
+
+# @name search_by_study_id
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "term": {
+      "geo_loc_name_country.keyword": "South Africa"
+    }
+  }
+}
+
+###
+
+
+
+
+
+
+
