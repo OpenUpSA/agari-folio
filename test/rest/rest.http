@@ -504,8 +504,8 @@ Content-Type: text/plain
 ###
 
 
-# @project_id = 939ab4bd-d6cc-463b-987b-b54f71c6f834
-# @submission_id = 6c50ac94-7ab3-454f-b9b4-8679b2aef3ed
+@project_id = d4f48a1a-9e01-4e7f-9614-c19868770b28
+@submission_id = 3df85d70-edb9-451b-aef9-625aaf4413bd
 
 # @name getSubmissionDetails
 GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}
@@ -513,7 +513,7 @@ Authorization: Bearer {{token}}
 
 ###
 
-@object_id = a570a91b-9eed-53fa-a2a3-57efc0a089b8
+@object_id = e353ee2a-4392-5928-9122-a4cd3fa0568a
 
 # @name upload_init
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/init
@@ -523,25 +523,25 @@ Content-Type: application/json
 {
     "object_id": "{{object_id}}",
     "overwrite": true,
-    "fileSize": 6643,
-    "md5": "1dfd8800948e9f2bf44942003f9265f8"
+    "fileSize": 767,
+    "md5": "61c8ac66972d52b0ee88a48ae5cfb3a8"
 }
 
 ###
 
 # @name upload_file_to_minio
 
-@url = http://minio:9000/object/data/a570a91b-9eed-53fa-a2a3-57efc0a089b8?uploadId=YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLjQ0OWIwMjNkLTQ2YTEtNDA4NS1iMmU1LThiODAwMWUwY2M3Zg&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251109T082006Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518399&X-Amz-Credential=admin%2F20251109%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=4a57dce55223d3cbb8212ae58bfff6d1760870c12b5a56f3e0ba965f2236a5d7
+@url = http://minio:9000/object/data/e353ee2a-4392-5928-9122-a4cd3fa0568a?uploadId=YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmY4ZWVhNjdmLTgwYzktNGVlZS1hOTgyLTJiNWE5MTVkODgxNA&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251109T100244Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518400&X-Amz-Credential=admin%2F20251109%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=ff57798a397bbacfc1727112b68e8ff0ea89750b1ed1805ca981d5732b7fb91f
 
 PUT {{url}}
 Content-Type: application/octet-stream
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/cholera2.fasta
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/cholera_example.fasta
 
 
 ###
 
-@upload_id = YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLjQ0OWIwMjNkLTQ2YTEtNDA4NS1iMmU1LThiODAwMWUwY2M3Zg
+@upload_id = YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmY4ZWVhNjdmLTgwYzktNGVlZS1hOTgyLTJiNWE5MTVkODgxNA
 
 # @name finalise_part
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/finalise-part
@@ -551,9 +551,9 @@ Content-Type: application/json
 {
   "object_id": "{{object_id}}",
   "upload_id": "{{upload_id}}",
-  "etag": "bda8ea08a3e76e699a0248038737649d",
+  "etag": "b53c0f4e5cea1f87f3093cd7b5aa2c83",
   "part_number": 1,
-  "md5": "1dfd8800948e9f2bf44942003f9265f8"
+  "md5": "61c8ac66972d52b0ee88a48ae5cfb3a8"
 }
 
 ###
@@ -569,7 +569,7 @@ Content-Type: application/json
   "parts": [
     {
       "part_number": 1,
-      "etag": "bda8ea08a3e76e699a0248038737649d"
+      "etag": "b53c0f4e5cea1f87f3093cd7b5aa2c83"
     }
   ]
 }

@@ -2252,7 +2252,7 @@ class Search(Resource):
                     "should": [
                         {
                             "terms": {
-                                "project_id.keyword": user_project_ids
+                                "projectId.keyword": user_project_ids
                             }
                         },
                         {
