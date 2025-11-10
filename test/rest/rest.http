@@ -22,7 +22,7 @@
 @client_id = dms
 @client_secret = VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc
 
-# @username = system.admin@agari.tech
+@username = system.admin@agari.tech
 # @username = owner@org1.ac.za
 # @username = owner@org2.ac.za
 # @username = org-admin@org1.ac.za
@@ -30,7 +30,7 @@
 # @username = test-user1@example.com
 # @username = test-user2@example.com
 # @username = test-user3@example.com
-@username = dirk@openup.org.za
+# @username = dirk@openup.org.za
 
 @password = pass123
 
@@ -264,7 +264,7 @@ Content-Type: application/json
 
 ###
 
-@pathogen_id = 4b0cb65f-1665-4e52-9b0c-8ad8878aef2e
+@pathogen_id = 0392eece-ebfe-4a52-ae33-d400d556cd47
 
 # @name get_pathogen
 GET {{folio}}/pathogens/{{pathogen_id}}
@@ -337,7 +337,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Dirk Covid",
+    "name": "Dirk Mpox",
     "description": "",
     "pathogen_id": "{{pathogen_id}}",
     "privacy": "public"
@@ -345,7 +345,7 @@ Content-Type: application/json
 
 ###
 
-@project_id = 0a6050a3-03b3-4c67-978e-91f1b308d692
+@project_id = cf8ddc93-5062-424d-964a-54610bcb5c4d
 
 ### @name get_project
 GET {{folio}}/projects/{{project_id}}
@@ -454,14 +454,29 @@ Authorization: Bearer {{token}}
 
 ###
 
+##########################
+### SUBMISSIONS2
+##########################
+
+# @name submitAnalysisFile2
+POST {{folio}}/projects/{{project_id}}/submissions2
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "project_id": "{{project_id}}",
+  "submission_name": "mpox v4"
+}
+
+###
 
 ##########################
 ### SUBMISSIONS
 ##########################
 
-@project_id = 0a6050a3-03b3-4c67-978e-91f1b308d692
-@submission_id = 3fa85f64-5717-4562-b3fc-2c963f66afa6
-@study_id = dirk-mpox-1
+# @project_id = 0a6050a3-03b3-4c67-978e-91f1b308d692
+# @submission_id = 3fa85f64-5717-4562-b3fc-2c963f66afa6
+# @study_id = dirk-mpox-1
 
 
 # @name getProjectSubmissions
@@ -516,7 +531,7 @@ Authorization: Bearer {{token}}
 
 ###
 
-@object_id = e353ee2a-4392-5928-9122-a4cd3fa0568a
+# @object_id = e353ee2a-4392-5928-9122-a4cd3fa0568a
 
 # @name upload_init
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/init
@@ -534,7 +549,7 @@ Content-Type: application/json
 
 # @name upload_file_to_minio
 
-@url = http://minio:9000/object/data/e353ee2a-4392-5928-9122-a4cd3fa0568a?uploadId=YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmY4ZWVhNjdmLTgwYzktNGVlZS1hOTgyLTJiNWE5MTVkODgxNA&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251109T100244Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518400&X-Amz-Credential=admin%2F20251109%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=ff57798a397bbacfc1727112b68e8ff0ea89750b1ed1805ca981d5732b7fb91f
+# @url = http://minio:9000/object/data/e353ee2a-4392-5928-9122-a4cd3fa0568a?uploadId=YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmY4ZWVhNjdmLTgwYzktNGVlZS1hOTgyLTJiNWE5MTVkODgxNA&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251109T100244Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518400&X-Amz-Credential=admin%2F20251109%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=ff57798a397bbacfc1727112b68e8ff0ea89750b1ed1805ca981d5732b7fb91f
 
 PUT {{url}}
 Content-Type: application/octet-stream
@@ -544,7 +559,7 @@ Content-Type: application/octet-stream
 
 ###
 
-@upload_id = YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmY4ZWVhNjdmLTgwYzktNGVlZS1hOTgyLTJiNWE5MTVkODgxNA
+# @upload_id = YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmY4ZWVhNjdmLTgwYzktNGVlZS1hOTgyLTJiNWE5MTVkODgxNA
 
 # @name finalise_part
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/finalise-part
@@ -612,7 +627,7 @@ GET {{url}}
 ##########################
 
 
-@analysis_id = 7bb4edfa-b7d6-4058-b4ed-fab7d620583c
+# @analysis_id = 7bb4edfa-b7d6-4058-b4ed-fab7d620583c
 
 
 # @name list_study_analyses
@@ -633,7 +648,7 @@ GET {{keycloak}}/admin/realms/{{realm}}/users?email=michael@openup.org.za
 Authorization: Bearer {{token}}
 
 ###
-@user_id = 9af85893-2402-4069-95ef-16045ab5a77f
+# @user_id = 9af85893-2402-4069-95ef-16045ab5a77f
 
 ### Keycloak update user details
 PUT {{keycloak}}/admin/realms/{{realm}}/users/{{user_id}}
@@ -734,30 +749,3 @@ Content-Type: application/json
 
 
 
-
-
-##########################
-### OLD
-##########################
-
-
-# @name upload_analysis_file_rest
-POST {{folio}}/studies/{{study_id}}/analysis/{{analysis_id}}/upload
-Authorization: Bearer {{token}}
-Content-Type: multipart/form-data; boundary=----WebKitFormBoundary123
-
-------WebKitFormBoundary123
-Content-Disposition: form-data; name="object_id"
-
-{{object_id_from_analysis}}
-------WebKitFormBoundary123
-Content-Disposition: form-data; name="overwrite"
-
-true
-------WebKitFormBoundary123
-Content-Disposition: form-data; name="file"; filename="test_data.fasta"
-Content-Type: text/plain
-
-< /media/dimee/Work/OpenUp/SANBI/agari-folio/test/LS997867.1 Vibrio cholerae strain NCTC 30 genome assembly, chromosome 1.fasta
-
-------WebKitFormBoundary123--

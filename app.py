@@ -1532,6 +1532,155 @@ class DeleteProjectUsers(Resource):
             return {'error': f'Failed to remove user from project: {str(e)}'}, 500
 
 
+##########################
+### SUBMISSION REWORK
+##########################
+
+@project_ns.route('/<string:project_id>/submissions2/')
+class ProjectSubmissions(Resource):
+
+
+    @api.doc('upload_submissions2')
+    @require_auth(keycloak_auth)
+    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
+    def post(self, project_id):
+
+        """Create a new submission (Step 0 of new pipeline)"""
+        
+        try:
+            data = request.get_json()
+            if not data:
+                return {'error': 'No JSON data provided'}, 400
+
+            submission_name = data.get('submission_name')
+            
+            if not submission_name:
+                return {'error': 'submission_name is required'}, 400
+
+            # Create submission in 'uploading' status
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO submissions (project_id, submission_name, status)
+                    VALUES (%s, %s, 'uploading')
+                    RETURNING *
+                """, (project_id, submission_name))
+                
+                new_submission = cursor.fetchone()
+                
+                return {
+                    'message': 'Submission created successfully',
+                    'submission': new_submission
+                }, 201
+
+        except Exception as e:
+            logger.exception(f"Error creating submission for project {project_id}: {str(e)}")
+            return {'error': f'Failed to create submission: {str(e)}'}, 500
+
+
+
+
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/validate')
+class ProjectSubmissionValidate(Resource):
+
+    ### POST /projects/<project_id>/submissions/<submission_id>/validate ###
+
+    @api.doc('validate_submission')
+    @require_auth(keycloak_auth)
+    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
+    def post(self, project_id, submission_id):
+        """Trigger validation of uploaded files (Step 2 of new pipeline)"""
+        # TODO: Implement validation logic
+        # - Check exactly 1 TSV file
+        # - Parse FASTA headers 
+        # - Validate 1:1 match between isolates and sequences
+        # - Update submission status to 'validating' then 'ready' or 'error'
+        pass
+
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files')
+class ProjectSubmissionFiles(Resource):
+
+    ### GET /projects/<project_id>/submissions/<submission_id>/files ###
+
+    @api.doc('list_submission_files')
+    @require_auth(keycloak_auth)
+    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
+    def get(self, project_id, submission_id):
+        """List uploaded files for a submission"""
+        # TODO: Get file list from MinIO/database
+        pass
+
+    ### POST /projects/<project_id>/submissions/<submission_id>/files ###
+
+    @api.doc('upload_submission_file')
+    @require_auth(keycloak_auth)
+    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
+    def post(self, project_id, submission_id):
+        """Upload a file to submission (Step 1 of new pipeline)"""
+        # TODO: Upload file to MinIO, store metadata
+        # - Accept TSV and FASTA files
+        # - Store file info in database
+        # - Keep submission in 'uploading' status
+        pass
+
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/split')
+class ProjectSubmissionSplit(Resource):
+
+    ### POST /projects/<project_id>/submissions/<submission_id>/split ###
+
+    @api.doc('split_submission_files')
+    @require_auth(keycloak_auth)
+    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
+    def post(self, project_id, submission_id):
+        """Split multi-sample FASTA files into per-isolate files"""
+        # TODO: Implement file splitting logic
+        # - Download multi-sample FASTA files
+        # - Split into individual FASTA files per isolate
+        # - Upload split files to MinIO
+        # - Update file records
+        pass
+
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/finalize')
+class ProjectSubmissionFinalize(Resource):
+
+    ### POST /projects/<project_id>/submissions/<submission_id>/finalize ###
+
+    @api.doc('finalize_submission')
+    @require_auth(keycloak_auth)
+    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
+    def post(self, project_id, submission_id):
+        """Finalize submission and submit to SONG (Step 5 of new pipeline)"""
+        # TODO: Final submission to SONG
+        # - Build payload with split files
+        # - Submit to SONG
+        # - Update status to 'published' or 'error'
+        pass
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##########################
+### SUBMISSION
+##########################
+
+
 @project_ns.route('/<string:project_id>/submissions')
 class ProjectSubmissions(Resource):
 
