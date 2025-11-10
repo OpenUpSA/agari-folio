@@ -2102,6 +2102,7 @@ class PublishSubmission(Resource):
                                 "organisationId": project.get('organisation_id'),
                                 "submissionId": clean_submission_id,
                                 "studyId": study_id,
+                                "pathogenId": project.get('pathogen_id'),
                                 "analysisId": analysis_id,
                                 "privacy": privacy,
                                 "publishedAt": datetime.now().isoformat(),
