@@ -2,6 +2,7 @@
 
 DB_USER="${DB_USER:-admin}"
 DB_HOST="${DB_HOST:-localhost}"
+DB_PORT="${DB_PORT:-5434}"
 DB_NAME="${DB_NAME:-folio}"
 export PGPASSWORD="${DB_PASSWORD:-folio-db-pass-123}"
 
