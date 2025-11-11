@@ -294,9 +294,7 @@ def extract_invite_roles(users_list, invite_type):
         role = None
         for key, value in attributes.items():
             if key.startswith(f"invite_{invite_type}role_"):
-                #entity_id = key.replace("invite_role_", "")
                 role = value[0] if isinstance(value, list) and value else value
-                #invite_roles[entity_id] = role
 
         if role:
             result.append({"user_id": user_id, "invite_role": role})
