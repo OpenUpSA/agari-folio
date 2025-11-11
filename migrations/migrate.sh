@@ -1,0 +1,17 @@
+#!/bin/bash
+
+DB_USER="${DB_USER:-admin}"
+DB_HOST="${DB_HOST:-localhost}"
+DB_NAME="${DB_NAME:-folio}"
+export PGPASSWORD="${DB_PASSWORD:-folio-db-pass-123}"
+
+FILES=(
+    "migrations/06-11-25-add-schema-and-version-to-pathogens.sql"
+    # "07-11-25-next-migration.sql"
+    # "08-11-25-another-migration.sql"
+)
+
+for file in "${FILES[@]}"; do
+    echo "Running $file..."
+    psql -U "$DB_USER" -h "$DB_HOST" -d "$DB_NAME" < "$file"
+done
