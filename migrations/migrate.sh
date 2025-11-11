@@ -14,5 +14,5 @@ FILES=(
 
 for file in "${FILES[@]}"; do
     echo "Running $file..."
-    psql -U "$DB_USER" -h "$DB_HOST" -d "$DB_NAME" < "$file"
+    psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" < "$file"
 done
