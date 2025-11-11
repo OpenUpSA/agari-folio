@@ -1,0 +1,451 @@
+# @folio = http://localhost:8000
+@folio = https://folio-staging.openup.org.za
+# @folio = https://folio-ilifu.openup.org.za
+
+# @keycloak = http://keycloak.local
+@keycloak = https://keycloak-staging.openup.org.za
+# @keycloak = https://keycloak-ilifu.openup.org.za
+
+# @song = http://song.local
+@song = https://song-staging.openup.org.za
+# @song = https://song-ilifu.openup.org.za
+
+# @score = http://score.local
+@score = https://score-staging.openup.org.za
+# @score = https://score-ilifu.openup.org.za
+
+# @minio = http://minio.local
+# @minio = http://localhost:9000
+
+
+@realm = agari
+@client_id = dms
+@client_secret = VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc
+
+@username = system.admin@agari.tech
+# @username = owner@org1.ac.za
+# @username = owner@org2.ac.za
+# @username = org-admin@org1.ac.za
+# @username = org-admin@org2.ac.za
+# @username = test-user1@example.com
+# @username = test-user2@example.com
+# @username = test-user3@example.com
+# @username = dirk@openup.org.za
+
+@password = pass123
+
+@testuser1 = a056925c-4d53-417f-a9f6-45e4421654cc
+
+### 1. LOGIN to get access token
+# @name login
+POST {{keycloak}}/realms/{{realm}}/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+username={{username}}
+&password={{password}}
+&grant_type=password
+&client_id={{client_id}}
+&client_secret={{client_secret}}
+
+###
+@token = {{login.response.body.access_token}}
+
+
+###
+
+# @name whoami
+GET {{folio}}/info/whoami
+Authorization: Bearer {{token}}
+
+###
+
+
+##########################
+### PROJECTS
+##########################
+
+# @name list_projects
+GET {{folio}}/projects
+Authorization: Bearer {{token}}
+
+###
+
+##########################
+### SUBMISSIONS
+##########################
+
+# @name getProjectSubmissions
+GET {{folio}}/projects/{{project_id}}/submissions
+Authorization: Bearer {{token}}
+
+###
+
+# @name publish_analysis
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/publish
+Authorization: Bearer {{token}}
+
+###
+
+# @name unpublish_analysis
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/unpublish
+Authorization: Bearer {{token}}
+
+###
+
+##########################
+### ELASTICSEARCH
+##########################
+
+# @name list_all_indices
+GET http://localhost:9200/_cat/indices?v
+Content-Type: application/json
+
+###
+
+# @name get_all_indexed_samples
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "match_all": {}
+  }
+}
+
+###
+
+# @name search_by_study_id
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "term": {
+      "geo_loc_name_country.keyword": "South Africa"
+    }
+  }
+}
+
+###
+
+###
+
+# @name search_with_bool_must_and
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "term": {
+            "geo_loc_name_country.keyword": "South Africa"
+          }
+        },
+        {
+          "range": {
+            "sample_collection_date": {
+              "gte": "2023-01-01",
+              "lte": "2025-12-31"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+
+###
+
+# @name search_with_bool_should_or
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "bool": {
+      "should": [
+        {
+          "term": {
+            "organism.keyword": "Coronaviridae"
+          }
+        },
+        {
+          "term": {
+            "organism.keyword": "Klebsiella"
+          }
+        }
+      ],
+      "minimum_should_match": 1
+    }
+  }
+}
+
+###
+
+# @name search_complex_and_or_combination
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "term": {
+            "geo_loc_name_country.keyword": "South Africa"
+          }
+        }
+      ],
+      "should": [
+        {
+          "bool": {
+            "must": [
+              {
+                "term": {
+                  "organism.keyword": "Vibrio cholerae"
+                }
+              },
+              {
+                "term": {
+                  "specimen_collector_sample_id": "*cholera*"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "bool": {
+            "must": [
+              {
+                "term": {
+                  "organism.keyword": "SARS-CoV-2"
+                }
+              },
+              {
+                "range": {
+                  "sample_collection_date": {
+                    "gte": "2023-06-01"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "minimum_should_match": 1
+    }
+  }
+}
+
+###
+
+# @name search_with_must_not_filter
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "exists": {
+            "field": "organism"
+          }
+        }
+      ],
+      "must_not": [
+        {
+          "term": {
+            "organism.keyword": "Not applicable"
+          }
+        }
+      ],
+      "should": [
+        {
+          "term": {
+            "geo_loc_name_country.keyword": "South Africa"
+          }
+        },
+        {
+          "term": {
+            "geo_loc_name_country.keyword": "Kenya"
+          }
+        }
+      ],
+      "minimum_should_match": 1
+    }
+  }
+}
+
+###
+
+# @name search_with_nested_bool_queries
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "bool": {
+            "should": [
+              {
+                "term": {
+                  "geo_loc_name_country.keyword": "South Africa"
+                }
+              },
+              {
+                "term": {
+                  "geo_loc_name_country.keyword": "Botswana"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "bool": {
+            "should": [
+              {
+                "range": {
+                  "genome_size": {
+                    "gte": 1000000
+                  }
+                }
+              },
+              {
+                "range": {
+                  "n50": {
+                    "gte": 50000
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
+
+###
+
+# @name search_with_filter_context
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "match": {
+            "organism.text": "cholera"
+          }
+        }
+      ],
+      "filter": [
+        {
+          "term": {
+            "analysisState.keyword": "PUBLISHED"
+          }
+        },
+        {
+          "range": {
+            "createdAt": {
+              "gte": "2023-01-01"
+            }
+          }
+        },
+        {
+          "terms": {
+            "geo_loc_name_country.keyword": ["South Africa", "Kenya", "Nigeria"]
+          }
+        }
+      ]
+    }
+  }
+}
+
+###
+
+# @name search_by_multiple_ids_or
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "bool": {
+      "should": [
+        {
+          "terms": {
+            "all_ids": ["STUDY001", "STUDY002", "SAMPLE123"]
+          }
+        },
+        {
+          "wildcard": {
+            "specimen_collector_sample_id.keyword": "*CHO*"
+          }
+        }
+      ],
+      "minimum_should_match": 1
+    }
+  }
+}
+
+###
+
+# @name aggregation_by_country
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "size": 0,
+  "aggs": {
+    "countries": {
+      "terms": {
+        "field": "geo_loc_name_country.keyword",
+        "size": 20
+      }
+    }
+  }
+}
+
+###
+
+# @name aggregation_by_organism_and_country
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "size": 0,
+  "aggs": {
+    "organisms": {
+      "terms": {
+        "field": "organism.keyword",
+        "size": 10
+      },
+      "aggs": {
+        "by_country": {
+          "terms": {
+            "field": "geo_loc_name_country.keyword",
+            "size": 5
+          }
+        }
+      }
+    }
+  }
+}

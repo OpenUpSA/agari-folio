@@ -3,6 +3,7 @@ import subprocess
 import json
 import hashlib
 import requests
+import settings
 from flask import render_template_string
 from auth import KeycloakAuth
 from sendgrid import SendGridAPIClient
@@ -174,9 +175,9 @@ def invite_user_to_project(user, redirect_uri, project_id, role):
         # assign temp invite attributes to user
         keycloak_auth.add_attribute_value(user["id"], "invite_token", inv_token)
         keycloak_auth.add_attribute_value(user["id"], "invite_project_id", project_id)
-        keycloak_auth.add_attribute_value(user["id"], "invite_role", role)
+        keycloak_auth.add_attribute_value(user["id"], f"invite_role_{project_id}", role)
         if status_code == 204:
-            return f"Inivte send without email"
+            return f"Invite created without sending email"
         else:
             return f"Invitation email sent successfully"
     else:
@@ -191,8 +192,6 @@ def invite_user_to_org(user, redirect_uri, org_id, role):
     else:
         to_name = ""
     to_email = user["email"]
-
-    subject = "You've been invited to AGARI"
 
     with get_db_cursor() as cursor:
         cursor.execute(
@@ -209,11 +208,17 @@ def invite_user_to_org(user, redirect_uri, org_id, role):
 
     hash_string = f"{user['id']}{org_id}"
     inv_token = hashlib.md5(hash_string.encode()).hexdigest()
+
     accept_link = (
         f"{redirect_uri}/accept-invite-org?userid={user['id']}&token={inv_token}"
     )
 
-    html_template = mjml_to_html("new_user")
+    if role == "org-owner":
+        subject = f"Invitation: Become the Owner of {org['name']}"
+        html_template = mjml_to_html("org_ownership")
+    else:
+        subject = "You've been invited to AGARI"
+        html_template = mjml_to_html("new_user")
     html_content = render_template_string(
         html_template, org_name=org["name"], accept_link=accept_link
     )
@@ -223,7 +228,7 @@ def invite_user_to_org(user, redirect_uri, org_id, role):
         # assign temp invite attributes to user
         keycloak_auth.add_attribute_value(user["id"], "invite_org_token", inv_token)
         keycloak_auth.add_attribute_value(user["id"], "invite_org_id", org_id)
-        keycloak_auth.add_attribute_value(user["id"], "invite_org_role", role)
+        keycloak_auth.add_attribute_value(user["id"], f"invite_org_role_{org_id}", role)
         if status_code == 204:
             return f"Email not sent"
         else:
@@ -232,7 +237,7 @@ def invite_user_to_org(user, redirect_uri, org_id, role):
         return {"error": "Failed to send invitation email"}, 500
 
 
-def role_user(user_id, project_id, role):
+def role_project_member(user_id, project_id, role):
     # Remove user from all existing project roles first (role hierarchy enforcement)
     removed_roles = []
     for existing_role in ["project-admin", "project-contributor", "project-viewer"]:
@@ -253,6 +258,17 @@ def role_user(user_id, project_id, role):
     if not success:
         return {"error": f"Failed to add user to role {role}"}, 500
     return removed_roles
+
+
+def role_org_member(user_id, org_id, role):
+    # Prepare update data with proper structure
+    update_data = {
+        "attributes": {"organisation_id": [org_id]},
+        "realm_roles": [f"agari-{role}"],
+    }
+    keycloak_auth.remove_realm_roles(user_id)
+    result = keycloak_auth.update_user(user_id, update_data)
+    return result
 
 
 def access_revoked_notification(user_id):
@@ -284,6 +300,21 @@ def log_event(log_type, resource_id, log_entry):
         print(f"Error saving submission log: {e}")
         return False
 
+def check_user_id(data, param_id):
+    user_id = data.get(param_id)
+
+    if not user_id:
+        return {"error": "User ID is required"}, 400
+
+    # Check if user exists in Keycloak
+    user = keycloak_auth.get_user(user_id)
+    if not user:
+        return {"error": f"User {user_id} not found in Keycloak"}, 404
+    return user
+
+#############################
+### SUBMISSION HELPERS
+#############################
 
 def log_submission(submission_id, user_id, status, message):
     try:
@@ -313,3 +344,102 @@ def tsv_to_json(tsv_string):
         json_list.append(record)
 
     return json_list
+
+##############################
+### ELASTICSEARCH HELPERS
+##############################
+
+def send_to_elastic(index, document):
+    es_url = settings.ELASTICSEARCH_URL
+
+    # Extract document ID if provided
+    doc_id = document.pop("_id", None) if isinstance(document, dict) else None
+
+    if doc_id:
+        # Use PUT with specific document ID to avoid duplicates
+        es_index_url = f"{es_url}/{index}/_doc/{doc_id}"
+        method = requests.put
+    else:
+        # Use POST to auto-generate document ID
+        es_index_url = f"{es_url}/{index}/_doc"
+        method = requests.post
+
+    try:
+        response = method(es_index_url, json=document)
+        if response.status_code in [200, 201]:
+            print(f"Successfully indexed document to {index}")
+            return True
+        else:
+            print(f"Failed to index document: {response.text}")
+            return False
+    except Exception as e:
+        print(f"Error sending document to Elasticsearch: {e}")
+        return False
+
+
+def remove_from_elastic(index, doc_id):
+    es_url = settings.ELASTICSEARCH_URL
+    es_delete_url = f"{es_url}/{index}/_doc/{doc_id}"
+
+    try:
+        response = requests.delete(es_delete_url)
+        if response.status_code in [
+            200,
+            404,
+        ]:  # 404 means document doesn't exist, which is OK
+            print(f"Successfully removed document {doc_id} from {index}")
+            return True
+        else:
+            print(f"Failed to remove document: {response.text}")
+            return False
+    except Exception as e:
+        print(f"Error removing document from Elasticsearch: {e}")
+        return False
+
+
+def remove_samples_from_elastic(analysis_id):
+    """Remove all sample documents for a specific analysis from Elasticsearch"""
+    es_url = settings.ELASTICSEARCH_URL
+
+    # Use delete by query to remove all sample documents for this analysis
+    delete_query = {"query": {"term": {"analysisId.keyword": analysis_id}}}
+
+    es_delete_url = f"{es_url}/agari-samples/_delete_by_query"
+
+    try:
+        response = requests.post(
+            es_delete_url,
+            json=delete_query,
+            headers={"Content-Type": "application/json"},
+        )
+        if response.status_code in [200, 409]:  # 409 can happen if no documents found
+            result = response.json()
+            deleted_count = result.get("deleted", 0)
+            print(
+                f"Successfully removed {deleted_count} sample documents for analysis {analysis_id}"
+            )
+            return True
+        else:
+            print(f"Failed to remove sample documents: {response.text}")
+            return False
+    except Exception as e:
+        print(f"Error removing sample documents from Elasticsearch: {e}")
+        return False
+
+
+def query_elastic(query_body):
+    es_url = settings.ELASTICSEARCH_URL
+    es_query_url = f"{es_url}/agari-samples/_search"
+
+    try:
+        response = requests.post(
+            es_query_url, json=query_body, headers={"Content-Type": "application/json"}
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Failed to query Elasticsearch: {response.text}")
+            return None
+    except Exception as e:
+        print(f"Error querying Elasticsearch: {e}")
+        return None

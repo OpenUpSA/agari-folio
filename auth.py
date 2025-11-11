@@ -1,5 +1,6 @@
 import jwt
 import requests
+from database import get_db_cursor, test_connection
 from functools import wraps
 from flask import request, jsonify, current_app
 from jwt.exceptions import InvalidTokenError, ExpiredSignatureError
@@ -125,33 +126,57 @@ class KeycloakAuth:
                 return attribute_value.lower() in str(attr_values).lower()
         
         return False
-    
+
+
+    def get_realm_roles(self, user_id):
+        admin_token = self.get_admin_token()
+        if not admin_token:
+            return {'realm_roles': [], 'client_roles': []}
+
+        try:
+            headers = {
+                'Authorization': f'Bearer {admin_token}',
+                'Content-Type': 'application/json'
+            }
+
+            realm_roles_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users/{user_id}/role-mappings/realm"
+            realm_response = requests.get(realm_roles_url, headers=headers)
+            realm_response.raise_for_status()
+
+            realm_roles = realm_response.json()
+
+            return [role['name'] for role in realm_roles]
+        except requests.RequestException as e:
+            return(f"Error fetching realm roles: {e}")
+
+
     def _format_user_data(self, user):
-        
         """
         Format user data similar to whoami response
-        
+
         Args:
             user (dict): User object from Keycloak
-            
+
         Returns:
             dict: Formatted user data with user_id, username, organisation_id, roles, attributes
         """
-        
+
         # Extract custom attributes (excluding standard ones)
         user_attributes = {}
         attributes = user.get('attributes', {})
-        
+
         for key, value in attributes.items():
             if key != 'organisation_id':  # organisation_id is handled separately
                 user_attributes[key] = value
-        
+
+        realm_roles = self.get_realm_roles(user.get('id'))
+
         return {
             'user_id': user.get('id'),
             'username': user.get('username'),
             'email': user.get('email'),
             'organisation_id': attributes.get('organisation_id', [None])[0] if attributes.get('organisation_id') else None,
-            'roles': [],  # Roles would need to be fetched separately if needed
+            'roles': realm_roles,
             'attributes': user_attributes,
             'is_authenticated': True,
         }
@@ -238,6 +263,49 @@ class KeycloakAuth:
             print(f"No Authorization header found")
 
         return projects_ids
+    
+    ### GET USER ORGANISATION PROJECTS ###
+
+    def get_user_organisation_projects(self):
+
+        """Extract and verify JWT token from Authorization header"""
+
+        organisation_projects = []
+
+        auth_header = request.headers.get('Authorization')
+        if auth_header:
+            try:
+                token = auth_header.split(' ')[1]
+                user_info_raw = self.verify_token(token)
+
+                if user_info_raw and 'error' not in user_info_raw:
+                    user_info = extract_user_info(user_info_raw)
+                    organisation_id = user_info.get('organisation_id', None)
+                else:
+                    print(f"Token verification failed: {user_info_raw}")
+            except Exception as e:
+                print(f"Authentication failed: {str(e)}")
+                return []
+            
+            if organisation_id:
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        SELECT id FROM projects WHERE organisation_id = %s
+                    """, (organisation_id[0],))
+                    organisation_projects = cursor.fetchall()
+                    organisation_projects = [row['id'] for row in organisation_projects]
+
+                return organisation_projects
+            
+            else:
+                print("No organisation_id found for user")
+                return []
+
+        else:
+            print(f"No Authorization header found")
+            return []
+    
+
 
     ### GET USERS BY ATTRIBUTE ###
 
@@ -282,7 +350,6 @@ class KeycloakAuth:
                     # Format user data similar to whoami response
                     user_data = self._format_user_data(user)
                     filtered_users.append(user_data)
-            
             return filtered_users
             
         except requests.RequestException as e:
@@ -452,7 +519,43 @@ class KeycloakAuth:
         except requests.RequestException as e:
             print(f"Error removing attribute value: {e}")
             return False
-        
+
+
+    def remove_org_attribute(self, user_id, attribute_name="organisation_id"):
+        admin_token = self.get_admin_token()
+        if not admin_token:
+            return False
+
+        try:
+            # Get current user data
+            user_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users/{user_id}"
+
+            headers = {
+                'Authorization': f'Bearer {admin_token}',
+                'Content-Type': 'application/json'
+            }
+
+            response = requests.get(user_url, headers=headers)
+            response.raise_for_status()
+
+            user = response.json()
+            attributes = user.get('attributes', {})
+
+            if attribute_name in attributes:
+                del attributes[attribute_name]
+
+            user['attributes'] = attributes
+
+            update_response = requests.put(user_url, headers=headers, json=user)
+            update_response.raise_for_status()
+
+            return True
+
+        except requests.RequestException as e:
+            print(f"Error removing attribute value: {e}")
+            return False
+
+
     def update_realm_roles(self, user_id, role_names):
         """
         Update a user's realm roles
@@ -507,6 +610,39 @@ class KeycloakAuth:
         except requests.RequestException as e:
             print(f"Error updating realm roles: {e}")
             return False
+
+
+    def remove_realm_roles(self, user_id):
+        admin_token = self.get_admin_token()
+        if not admin_token:
+            return False
+
+        try:
+            headers = {
+                'Authorization': f'Bearer {admin_token}',
+                'Content-Type': 'application/json'
+            }
+            current_roles_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users/{user_id}/role-mappings/realm"
+
+            current_roles_response = requests.get(current_roles_url, headers=headers)
+            current_roles_response.raise_for_status()
+            current_roles = current_roles_response.json()
+
+            if not current_roles:
+                print(f"User {user_id} has no realm roles to remove")
+                return False
+
+            # Remove the roles using DELETE with the role objects
+            remove_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users/{user_id}/role-mappings/realm"
+            remove_response = requests.delete(remove_url, headers=headers, json=current_roles)
+            remove_response.raise_for_status()
+
+            print(f"Successfully removed {current_roles[0]['name']} realm roles from user {user_id}")
+            return current_roles[0]["name"]
+        except requests.RequestException as e:
+            print(f"Error updating realm roles: {e}")
+            return False
+
 
     ### GET USER INFO BY ID ###
 

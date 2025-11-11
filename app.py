@@ -21,7 +21,13 @@ from helpers import (
     log_event,
     log_submission,
     tsv_to_json,
-    role_user,
+    role_project_member,
+    role_org_member,
+    send_to_elastic,
+    remove_from_elastic,
+    remove_samples_from_elastic,
+    check_user_id,
+    query_elastic
 )
 import uuid
 import settings  # module import allows override via conftest.py
@@ -38,9 +44,9 @@ logger = getLogger(__name__)
 class CustomJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime):
-            return obj.strftime('%Y-%m-%d %H:%M:%S')
+            return obj.strftime("%Y-%m-%d %H:%M:%S")
         elif isinstance(obj, date):
-            return obj.strftime('%Y-%m-%d')
+            return obj.strftime("%Y-%m-%d")
         elif isinstance(obj, Decimal):
             return float(obj)
         return super().default(obj)
@@ -53,16 +59,16 @@ keycloak_auth = KeycloakAuth(
     keycloak_url=settings.KEYCLOAK_URL,
     realm=settings.KEYCLOAK_REALM,
     client_id=settings.KEYCLOAK_CLIENT_ID,
-    client_secret=settings.KEYCLOAK_CLIENT_SECRET
+    client_secret=settings.KEYCLOAK_CLIENT_SECRET,
 )
 
 app.keycloak_auth = keycloak_auth
 
 api = Api(app, 
-    version='1.0', 
-    title='Folio API',
-    description='API documentation for the Folio application',
-    doc='/docs/'
+    version="1.0",
+    title="Folio API",
+    description="API documentation for the Folio application",
+    doc="/docs/"
 )
 
 # Configure Flask-RESTX to use our custom JSON encoder
@@ -480,7 +486,7 @@ class UserList(Resource):
         data = request.get_json()
         if not data:
             return {'error': 'No JSON data provided'}, 400
-        
+
         email = data.get('email')
         redirect_uri = data.get('redirect_uri')
         expiration_seconds = data.get('expiration_seconds', 600)
@@ -868,37 +874,36 @@ class OrganisationUsers(Resource):
     @require_auth(keycloak_auth)
     @require_permission('add_org_members')
     def post(self, org_id):
-
         """Add a user to an organisation with role"""
 
         try:
             # Extract current user info to check organization access
             user_info = extract_user_info(request.user)
             user_org_id = user_info.get('organisation_id')
-            
+
             # Check if user is system-admin (can add to any org)
             if 'system-admin' not in user_info.get('roles', []):
                 # For non-system-admin users, check organization match
                 if not user_org_id:
                     return {'error': 'Permission denied. User not assigned to any organisation.'}, 403
-                
+
                 # Handle case where user_org_id might be a list or string
                 user_orgs = user_org_id if isinstance(user_org_id, list) else [user_org_id]
-                
+
                 if org_id not in user_orgs:
                     return {'error': 'Permission denied. You can only add members to your own organisation.'}, 403
 
             data = request.get_json()
             if not data:
                 return {'error': 'No JSON data provided'}, 400
-            
+
             user_id = data.get('user_id')
             role = data.get('role')
             redirect_uri = data.get('redirect_uri')
-            
+
             if not user_id:
                 return {'error': 'User ID is required'}, 400
-            if role not in {'org-viewer', 'org-admin', 'org-owner'}:
+            if role not in {'org-viewer', 'org-admin', 'org-contributor', 'org-owner'}:
                 return {'error': 'Invalid role specified'}, 400
 
             # Check if user exists in Keycloak
@@ -907,12 +912,82 @@ class OrganisationUsers(Resource):
                 return {'error': 'User not found in Keycloak'}, 404
 
             # Update user's organisation_id and org_role attributes in Keycloak
-            response = invite_user_to_org(user, redirect_uri, org_id, role)
+            if 'force_role' in data:
+                role_org_member(user["id"], org_id, role)
+                return f"User role updated for organisation {org_id}"
+            else:
+                response = invite_user_to_org(user, redirect_uri, org_id, role)
             return response
-            
+
         except Exception as e:
             logger.exception(f"Error adding user to organisation {org_id}: {str(e)}")
             return {'error': f'Failed to add user to organisation: {str(e)}'}, 500
+
+
+@organisation_ns.route('/members')
+class OrganisationRoles(Resource):
+    ### DELETE /organisations/members ###
+
+    @organisation_ns.doc('remove_organisation_member')
+    @require_auth(keycloak_auth)
+    @require_permission('remove_org_members')
+    def delete(self):
+        """Remove a user from an organisation"""
+        try:
+            data = request.get_json()
+            if not data:
+                return {'error': 'No JSON data provided'}, 400
+
+            user_id = data.get('user_id')
+            if not user_id:
+                return {'error': 'User ID is required'}, 400
+
+            # Check if user exists in Keycloak
+            user = keycloak_auth.get_user(user_id)
+            if not user:
+                return {'error': 'User not found in Keycloak'}, 404
+
+            removed_role = keycloak_auth.remove_realm_roles(user["id"])
+            keycloak_auth.remove_org_attribute(user_id)
+            if removed_role:
+                return f"Removed role {removed_role}"
+            else:
+                return f"User has no role"
+        except Exception as e:
+            logger.exception(f"Error removing user from organisation role: {str(e)}")
+            return {'error': f"Failed to remove user from organisation role: {str(e)}"}, 500
+
+@organisation_ns.route('/<string:org_id>/owner')
+class OrganisationOwner(Resource):
+    ### POST /organisations/owner ###
+
+    @organisation_ns.doc('change_organisation_owner')
+    @require_auth(keycloak_auth)
+    @require_permission('change_org_owner')
+    def post(self, org_id):
+        """Change an organisation's owner"""
+        try:
+            data = request.get_json()
+            if not data:
+                return {"error": "No JSON data provided"}, 400
+
+            current_owner = check_user_id(data, "current_owner_id")
+            new_owner = check_user_id(data, "new_owner_id")
+            redirect_uri = data.get("redirect_uri")
+
+            if isinstance(current_owner, tuple):
+                return current_owner
+            if isinstance(new_owner, tuple):
+                return new_owner
+
+            # Invite new owner and save old owner id
+            response = invite_user_to_org(new_owner, redirect_uri, org_id, "org-owner")
+            keycloak_auth.add_attribute_value(new_owner["id"], "invite_org_old_owner", current_owner["id"])
+            return response
+
+        except Exception as e:
+            logger.exception(f"Error changing organisation owner: {str(e)}")
+            return {'error': f"Error changing organisation owner: {str(e)}"}, 500
 
 
 ##########################
@@ -1096,7 +1171,7 @@ class ProjectList(Resource):
                 """, (name, description, pathogen_id, user_id, organisation_id, privacy))
 
                 new_project = cursor.fetchone()
-                role_user(user_id, new_project["id"], "project-admin")
+                role_project_member(user_id, new_project["id"], "project-admin")
 
                 return {
                     'message': 'Project created successfully',
@@ -1403,7 +1478,7 @@ class ProjectUsers(Resource):
                 return {'error': 'User not found in Keycloak'}, 404
 
             if 'force_role' in data:
-                role_user(user["id"], project_id, role)
+                role_project_member(user["id"], project_id, role)
                 return f"User role updated for project {project_id}"
             else:
                 response = invite_user_to_project(user, redirect_uri, project_id, role)
@@ -1534,8 +1609,6 @@ class ProjectSubmissions(Resource):
                     # Read and convert TSV to JSON
                     file_content = file.read().decode('utf-8')
                     
-                    samples_data = tsv_to_json(file_content)
-                    
                     metadata_json = request.form.get('metadata')
 
                     if not metadata_json:
@@ -1543,6 +1616,8 @@ class ProjectSubmissions(Resource):
 
                     try:
                         metadata = json.loads(metadata_json)
+                        
+                        samples_data = tsv_to_json(file_content)
 
                         if 'studyId' not in metadata:
                             return {'error': 'studyId is required in metadata'}, 400
@@ -1942,6 +2017,21 @@ class PublishSubmission(Resource):
                 clean_submission_id = str(uuid.UUID(submission_id.strip('"')))
             except ValueError as e:
                 return {'error': f'Invalid UUID format: {str(e)}'}, 400
+            
+            # Get the project privacy setting
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT *
+                    FROM projects
+                    WHERE id = %s
+                """, (clean_project_id,))
+                
+                project = cursor.fetchone()
+                
+                if not project:
+                    return {'error': 'Project not found'}, 404
+                
+                privacy = project.get('privacy', 'public')
 
             # get the study_id and analysis_id from the submission record
             with get_db_cursor() as cursor:
@@ -1985,7 +2075,60 @@ class PublishSubmission(Resource):
             if song_response.status_code != 200:
                 log_submission(clean_submission_id, request.user.get('user_id'), song_response.status_code, song_response.text)
             else:
-                log_submission(clean_submission_id, request.user.get('user_id'), song_response.status_code, 'Analysis published successfully')            
+                log_submission(clean_submission_id, request.user.get('user_id'), song_response.status_code, 'Analysis published successfully')
+                
+                # After successful publication, fetch the analysis data and index it to Elasticsearch
+                try:
+                    # Get the full analysis data from SONG
+                    song_analysis_url = f"{SONG_URL}/studies/{study_id}/analysis/{analysis_id}"
+                    analysis_response = requests.get(song_analysis_url, headers=song_headers)
+                    
+                    if analysis_response.status_code == 200:
+                        analysis_data = analysis_response.json()
+                        
+                        # Index each sample as a separate document in Elasticsearch
+                        samples = analysis_data.get('samples', [])
+                        indexed_samples = 0
+                        failed_samples = 0
+                        
+                        for i, sample in enumerate(samples):
+                            # Create a unique document ID for each sample
+                            sample_doc_id = f"{analysis_id}_sample_{i}"
+                            
+                            # Create the sample document with analysis metadata
+                            sample_doc = {
+                                "_id": sample_doc_id,
+                                "projectId": clean_project_id,
+                                "organisationId": project.get('organisation_id'),
+                                "submissionId": clean_submission_id,
+                                "studyId": study_id,
+                                "analysisId": analysis_id,
+                                "privacy": privacy,
+                                "publishedAt": datetime.now().isoformat(),
+                                "analysisType": analysis_data.get('analysisType', {}),
+                                "analysisState": analysis_data.get('analysisState'),
+                                "createdAt": analysis_data.get('createdAt'),
+                                "updatedAt": analysis_data.get('updatedAt'),
+                                "files": analysis_data.get('files', []),
+                                **sample  # Include all sample fields at the top level
+                            }
+                            
+                            # Index this sample document
+                            if send_to_elastic("agari-samples", sample_doc):
+                                indexed_samples += 1
+                            else:
+                                failed_samples += 1
+                        
+                        if indexed_samples > 0:
+                            logger.info(f"Successfully indexed {indexed_samples} samples from analysis {analysis_id} to Elasticsearch")
+                        if failed_samples > 0:
+                            logger.warning(f"Failed to index {failed_samples} samples from analysis {analysis_id} to Elasticsearch")
+                    else:
+                        logger.warning(f"Failed to fetch analysis data for indexing: {analysis_response.status_code}")
+                        
+                except Exception as es_error:
+                    logger.exception(f"Error indexing analysis to Elasticsearch: {str(es_error)}")
+                    # Don't fail the publish operation if Elasticsearch indexing fails            
                 
             return response_data, song_response.status_code
 
@@ -2057,6 +2200,17 @@ class UnpublishSubmission(Resource):
                 log_submission(clean_submission_id, request.user.get('user_id'), song_response.status_code, song_response.text)
             else:
                 log_submission(clean_submission_id, request.user.get('user_id'), song_response.status_code, 'Analysis unpublished successfully')
+                
+                # After successful unpublication, remove the sample documents from Elasticsearch
+                try:
+                    remove_success = remove_samples_from_elastic(analysis_id)
+                    if remove_success:
+                        logger.info(f"Successfully removed sample documents for analysis {analysis_id} from Elasticsearch")
+                    else:
+                        logger.warning(f"Failed to remove sample documents for analysis {analysis_id} from Elasticsearch")
+                except Exception as es_error:
+                    logger.exception(f"Error removing sample documents from Elasticsearch: {str(es_error)}")
+                    # Don't fail the unpublish operation if Elasticsearch removal fails
 
             return response_data, song_response.status_code
 
@@ -2065,6 +2219,86 @@ class UnpublishSubmission(Resource):
             log_submission(submission_id, request.user.get('user_id'), 500, f'{str(e)}')
             return {'error': f'Failed to unpublish analysis: {str(e)}'}, 500
         
+
+###########################
+### SEARCH
+###########################
+
+search_ns = api.namespace('search', description='Search endpoints')
+@search_ns.route('/')
+
+class Search(Resource):
+    
+    ### POST /search ###
+
+    @api.doc('search_samples')
+    @require_auth(keycloak_auth)
+    def post(self):
+
+        """Search published samples in Elasticsearch"""
+
+        try:
+            data = request.get_json()
+
+            print(data)
+
+            user_project_ids = keycloak_auth.get_user_projects()
+            organisation_project_ids = keycloak_auth.get_user_organisation_projects()
+
+            user_project_ids.extend(organisation_project_ids)
+
+            access_filter = {
+                "bool": {
+                    "should": [
+                        {
+                            "terms": {
+                                "projectId.keyword": user_project_ids
+                            }
+                        },
+                        {
+                            "terms": {
+                                "privacy.keyword": ["public", "semi-private"],
+                            }
+                        }
+                    ],
+                    "minimum_should_match": 1
+                }
+            }
+
+            print(f"Access filter: {access_filter}")
+
+            # Add access filter to the query
+            if 'query' in data and 'bool' in data['query']:
+                if 'must' not in data['query']['bool']:
+                    data['query']['bool']['must'] = []
+                elif not isinstance(data['query']['bool']['must'], list):
+                    data['query']['bool']['must'] = [data['query']['bool']['must']]
+                
+                data['query']['bool']['must'].append(access_filter)
+            elif 'query' in data:
+                existing_query = data['query']
+                data['query'] = {
+                    "bool": {
+                        "must": [
+                            existing_query,
+                            access_filter
+                        ]
+                    }
+                }
+            else:
+                data['query'] = access_filter
+
+            if not data:
+                return {'error': 'No JSON data provided'}, 400
+
+            results = query_elastic(data)
+
+            return results, 200
+
+        except Exception as e:
+            logger.exception(f"Error searching samples: {str(e)}")
+            return {'error': f'Search error: {str(e)}'}, 500
+
 
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files/<string:object_id>')
@@ -2525,16 +2759,16 @@ class ProjectInviteConfirm(Resource):
         user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
         user_id = user["user_id"]
 
-        invite_role = user["attributes"].get("invite_role", [""])[0]
         invite_project_id = user["attributes"].get("invite_project_id", [""])[0]
+        invite_role = user["attributes"].get(f"invite_role_{invite_project_id}", [""])[0]
 
-        removed_roles = role_user(user_id, invite_project_id, invite_role)
+        removed_roles = role_project_member(user_id, invite_project_id, invite_role)
         print(f"Added project_id {invite_project_id} to role {invite_role} for user {user_id}")
 
         # Remove temp attributes
         keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
         keycloak_auth.remove_attribute_value(user_id, 'invite_project_id', invite_project_id)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_role', invite_role)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_role_{invite_project_id}', invite_role)
 
         # Get access token for the user
         auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
@@ -2561,22 +2795,21 @@ class OrganisationInviteConfirm(Resource):
         user = keycloak_auth.get_users_by_attribute('invite_org_token', token)[0]
         user_id = user["user_id"]
 
-        invite_org_role = user["attributes"].get("invite_org_role", [""])[0]
         invite_org_id = user["attributes"].get("invite_org_id", [""])[0]
+        invite_org_role = user["attributes"].get(f"invite_org_role_{invite_org_id}", [""])[0]
 
-        # Prepare update data with proper structure
-        update_data = {
-            'attributes': {
-                'organisation_id': [invite_org_id]
-            },
-            'realm_roles': [f'agari-{invite_org_role}']
-        }
-        result = keycloak_auth.update_user(user_id, update_data)
+        result = role_org_member(user_id, invite_org_id, invite_org_role)
 
         # Remove temp attributes
         keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', token)
         keycloak_auth.remove_attribute_value(user_id, 'invite_org_id', invite_org_id)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_org_role', invite_org_role)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_org_role_{invite_org_id}', invite_org_role)
+
+        if invite_org_role == 'org-owner':
+            user_attr = keycloak_auth.get_user_attributes(user_id)
+            # Downgrade previous owner to org-admin
+            role_org_member(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
+            keycloak_auth.remove_attribute_value(user_id, "invite_org_old_owner", user_attr["invite_org_old_owner"][0])
 
         # Get access token for the user
         auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
@@ -2590,7 +2823,9 @@ class OrganisationInviteConfirm(Resource):
                 'organisation_id': invite_org_id,
                 'role': invite_org_role,
                 'realm_role_assigned': f'agari-{invite_org_role}',
-                'update_details': result.get('updates', {})
+                'update_details': result.get('updates', {}),
+                'access_token': auth_tokens["access_token"],
+                'refresh_token': auth_tokens["refresh_token"]
             }
         else:
             return {
