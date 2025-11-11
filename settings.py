@@ -21,6 +21,13 @@ KEYCLOAK_CLIENT_SECRET = os.getenv('KEYCLOAK_CLIENT_SECRET', 'VDyLEjGR3xDQvoQlrH
 OVERTURE_SONG = os.getenv('OVERTURE_SONG', 'http://song.local')
 OVERTURE_SCORE = os.getenv('OVERTURE_SCORE', 'http://score.local')
 
+# MinIO Configuration
+MINIO_ENDPOINT = os.getenv('MINIO_ENDPOINT', 'localhost:9000')
+MINIO_ACCESS_KEY = os.getenv('MINIO_ACCESS_KEY', 'admin')
+MINIO_SECRET_KEY = os.getenv('MINIO_SECRET_KEY', 'admin123')
+MINIO_BUCKET = os.getenv('MINIO_BUCKET', 'agari-data')
+MINIO_SECURE = os.getenv('MINIO_SECURE', 'false').lower() == 'true'
+
 # Elasticsearch Configuration
 ELASTICSEARCH_URL = os.getenv('ELASTICSEARCH_URL', 'http://localhost:9200')
 

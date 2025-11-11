@@ -1,3 +1,4 @@
+from os import truncate
 from flask import Flask, request
 from flask_restx import Api, Resource
 from auth import (
@@ -23,6 +24,8 @@ from helpers import (
     tsv_to_json,
     role_project_member,
     role_org_member,
+    validate_against_schema,
+    split_submission,
     send_to_elastic,
     remove_from_elastic,
     remove_samples_from_elastic,
@@ -30,6 +33,7 @@ from helpers import (
     query_elastic
 )
 import uuid
+import hashlib
 import settings  # module import allows override via conftest.py
 from logging import getLogger
 
@@ -1536,16 +1540,51 @@ class DeleteProjectUsers(Resource):
 ### SUBMISSION REWORK
 ##########################
 
-@project_ns.route('/<string:project_id>/submissions2/')
-class ProjectSubmissions(Resource):
+@project_ns.route('/<string:project_id>/submissions2')
+class ProjectSubmissions2(Resource):
 
+    # GET /projects/<project_id>/submissions2
 
-    @api.doc('upload_submissions2')
+    @api.doc('list_submissions_v2')
+    @require_auth(keycloak_auth) 
+    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
+    def get(self, project_id):
+
+        """List all submissions including drafts"""
+
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT s.*, 
+                           COUNT(sf.id) as file_count,
+                           ARRAY_AGG(sf.filename) FILTER (WHERE sf.id IS NOT NULL) as filenames
+                    FROM submissions s
+                    LEFT JOIN submission_files sf ON s.id = sf.submission_id
+                    WHERE s.project_id = %s
+                    GROUP BY s.id
+                    ORDER BY s.created_at DESC
+                """, (project_id,))
+                
+                submissions = cursor.fetchall()
+                
+                return {
+                    'project_id': project_id,
+                    'submissions': submissions,
+                    'total': len(submissions)
+                }
+                
+        except Exception as e:
+            logger.exception(f"Error listing submissions: {str(e)}")
+            return {'error': f'Failed to list submissions: {str(e)}'}, 500
+        
+    # POST /projects/<project_id>/submissions2
+
+    @api.doc('create_submission_v2')
     @require_auth(keycloak_auth)
     @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
     def post(self, project_id):
 
-        """Create a new submission (Step 0 of new pipeline)"""
+        """Create a new submission (simple pipeline)"""
         
         try:
             data = request.get_json()
@@ -1556,8 +1595,8 @@ class ProjectSubmissions(Resource):
             
             if not submission_name:
                 return {'error': 'submission_name is required'}, 400
+            
 
-            # Create submission in 'uploading' status
             with get_db_cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO submissions (project_id, submission_name, status)
@@ -1576,104 +1615,500 @@ class ProjectSubmissions(Resource):
             logger.exception(f"Error creating submission for project {project_id}: {str(e)}")
             return {'error': f'Failed to create submission: {str(e)}'}, 500
 
+@project_ns.route('/<string:project_id>/submissions2/<string:submission_id>')
+class ProjectSubmission2(Resource):
 
+    # GET /projects/<project_id>/submissions2/<submission_id>
 
-
-@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/validate')
-class ProjectSubmissionValidate(Resource):
-
-    ### POST /projects/<project_id>/submissions/<submission_id>/validate ###
-
-    @api.doc('validate_submission')
-    @require_auth(keycloak_auth)
-    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
-    def post(self, project_id, submission_id):
-        """Trigger validation of uploaded files (Step 2 of new pipeline)"""
-        # TODO: Implement validation logic
-        # - Check exactly 1 TSV file
-        # - Parse FASTA headers 
-        # - Validate 1:1 match between isolates and sequences
-        # - Update submission status to 'validating' then 'ready' or 'error'
-        pass
-
-@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files')
-class ProjectSubmissionFiles(Resource):
-
-    ### GET /projects/<project_id>/submissions/<submission_id>/files ###
-
-    @api.doc('list_submission_files')
+    @api.doc('get_submission_v2')
     @require_auth(keycloak_auth)
     @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
     def get(self, project_id, submission_id):
-        """List uploaded files for a submission"""
-        # TODO: Get file list from MinIO/database
-        pass
 
-    ### POST /projects/<project_id>/submissions/<submission_id>/files ###
+        """Get submission details including associated files"""
 
-    @api.doc('upload_submission_file')
+        try:
+            with get_db_cursor() as cursor:
+                # Get submission details only
+                cursor.execute("""
+                    SELECT s.*, p.id, p.name, pat.id, pat.name, COUNT(sf.id) as file_count
+                    FROM submissions s
+                    LEFT JOIN submission_files sf ON s.id = sf.submission_id
+                    LEFT JOIN projects p ON s.project_id = p.id
+                    LEFT JOIN pathogens pat ON p.pathogen_id::uuid = pat.id::uuid
+                    WHERE s.id = %s AND s.project_id = %s
+                    GROUP BY s.id, p.id, pat.id
+                """, (submission_id, project_id))
+                
+                submission = cursor.fetchone()
+                
+                if not submission:
+                    return {'error': 'Submission not found'}, 404
+                
+
+                cursor.execute("""
+                    SELECT * FROM submission_files
+                    WHERE submission_id = %s
+                """, (submission_id,))
+                
+                files = cursor.fetchall()
+                
+                return {
+                    'submission': submission,
+                    'files': files
+                }
+        except Exception as e:
+            logger.exception(f"Error retrieving submission {submission_id}: {str(e)}")
+            return {'error': f'Failed to retrieve submission: {str(e)}'}, 500
+
+
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files2')
+class ProjectSubmissionFiles2(Resource):
+
+    # POST /projects/<project_id>/submissions2/<submission_id>/files2
+
+    @api.doc('upload_file_v2')
     @require_auth(keycloak_auth)
     @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
     def post(self, project_id, submission_id):
-        """Upload a file to submission (Step 1 of new pipeline)"""
-        # TODO: Upload file to MinIO, store metadata
-        # - Accept TSV and FASTA files
-        # - Store file info in database
-        # - Keep submission in 'uploading' status
-        pass
 
-@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/split')
-class ProjectSubmissionSplit(Resource):
+        """Upload a file to submission with streaming to MinIO"""
 
-    ### POST /projects/<project_id>/submissions/<submission_id>/split ###
+        try:
+            # Verify submission exists and is in 'uploading' status
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM submissions 
+                    WHERE id = %s AND project_id = %s
+                """, (submission_id, project_id))
+                
+                submission = cursor.fetchone()
+                if not submission:
+                    return {'error': 'Submission not found'}, 404
+                
+                if submission['status'] not in ['uploading']:
+                    return {'error': f'Cannot upload files to submission in status: {submission["status"]}'}, 400
 
-    @api.doc('split_submission_files')
+            # Check file upload
+            if 'file' not in request.files:
+                return {'error': 'No file provided'}, 400
+            
+            file = request.files['file']
+            if not file or not file.filename:
+                return {'error': 'Invalid file'}, 400
+
+            # Determine file type
+            filename = file.filename.lower()
+            if filename.endswith('.tsv') or filename.endswith('.txt'):
+                file_type = 'tsv'
+            elif filename.endswith(('.fasta', '.fa', '.fas')):
+                file_type = 'fasta'
+            else:
+                return {'error': 'File must be TSV or FASTA format'}, 400
+
+            # Stream process file and calculate metadata
+            file_data = []
+            file_size = 0
+            md5_hash = hashlib.md5()
+            
+            # Read file in chunks for streaming
+            while True:
+                chunk = file.stream.read(8192)  # 8KB chunks
+                if not chunk:
+                    break
+                file_data.append(chunk)
+                file_size += len(chunk)
+                md5_hash.update(chunk)
+            
+            file_md5 = md5_hash.hexdigest()
+            
+            # Generate object_id for MinIO
+            object_id = str(uuid.uuid4())
+            
+            # Upload directly to MinIO
+            file_content = b''.join(file_data)
+            
+            try:
+                # Get MinIO credentials and upload
+                minio_bucket = settings.MINIO_BUCKET or 'agari-data'
+                minio_client = self._get_minio_client()
+                
+                # Upload to MinIO with object_id as the key
+                from io import BytesIO
+                file_stream = BytesIO(file_content)
+                
+                result = minio_client.put_object(
+                    bucket_name=minio_bucket,
+                    object_name=object_id,
+                    data=file_stream,
+                    length=file_size,
+                    content_type='application/octet-stream'
+                )
+                
+                logger.info(f"Uploaded {file.filename} ({file_size} bytes) to MinIO bucket '{minio_bucket}' with object_id {object_id}")
+                
+            except Exception as upload_error:
+                logger.exception(f"Failed to upload file to MinIO: {str(upload_error)}")
+                return {'error': f'MinIO upload failed: {str(upload_error)}'}, 500
+            
+            # Store file record in database
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO submission_files 
+                    (submission_id, filename, file_type, object_id, file_size, md5_hash)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING *
+                """, (submission_id, file.filename, file_type, object_id, file_size, file_md5))
+                
+                file_record = cursor.fetchone()
+            
+            return {
+                'message': 'File uploaded successfully',
+                'file': {
+                    'id': file_record['id'],
+                    'filename': file_record['filename'],
+                    'file_type': file_record['file_type'],
+                    'file_size': file_record['file_size'],
+                    'object_id': file_record['object_id']
+                }
+            }, 201
+            
+        except Exception as e:
+            logger.exception(f"Error uploading file to submission {submission_id}")
+            return {'error': f'Upload failed: {str(e)}'}, 500
+
+    def _get_minio_client(self):
+        """Get MinIO client instance"""
+        try:
+            from minio import Minio
+            
+            # Get MinIO settings
+            minio_endpoint = settings.MINIO_ENDPOINT
+            minio_access_key = settings.MINIO_ACCESS_KEY
+            minio_secret_key = settings.MINIO_SECRET_KEY
+            minio_secure = getattr(settings, 'MINIO_SECURE', False)
+            
+            client = Minio(
+                endpoint=minio_endpoint,
+                access_key=minio_access_key,
+                secret_key=minio_secret_key,
+                secure=minio_secure
+            )
+            
+            # Ensure bucket exists
+            bucket_name = settings.MINIO_BUCKET or 'agari-data'
+            if not client.bucket_exists(bucket_name):
+                client.make_bucket(bucket_name)
+                logger.info(f"Created MinIO bucket: {bucket_name}")
+            
+            return client
+            
+        except Exception as e:
+            logger.exception(f"Failed to create MinIO client: {str(e)}")
+            raise e
+
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files2/<string:file_id>')
+class ReplaceProjectSubmissionFile2(Resource):
+
+    # PUT /projects/<project_id>/submissions2/<submission_id>/files2/<file_id>
+
+    @api.doc('replace_file_v2')
+    @require_auth(keycloak_auth)
+    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
+    def put(self, project_id, submission_id, file_id):
+        """Replace an existing submission file with a new upload (streaming to MinIO)"""
+        # Similar to upload but replaces existing file record
+        pass  # Implementation would be similar to the upload_file_v2 method
+
+    
+    # DELETE /projects/<project_id>/submissions2/<submission_id>/files2/<file_id>
+
+    
+    @api.doc('delete_file_v2')
+    @require_auth(keycloak_auth)
+    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
+    def delete(self, project_id, submission_id, file_id):
+
+        """Delete a submission file both from MinIO and database"""
+        
+        try:
+            # Verify submission exists and is in 'uploading' status
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM submissions 
+                    WHERE id = %s AND project_id = %s
+                """, (submission_id, project_id))
+                
+                submission = cursor.fetchone()
+                if not submission:
+                    return {'error': 'Submission not found'}, 404
+                
+                if submission['status'] not in ['uploading']:
+                    return {'error': f'Cannot delete files from submission in status: {submission["status"]}'}, 400
+
+                # Verify file exists in this submission
+                cursor.execute("""
+                    SELECT * FROM submission_files 
+                    WHERE id = %s AND submission_id = %s
+                """, (file_id, submission_id))
+                
+                file_record = cursor.fetchone()
+                if not file_record:
+                    return {'error': 'File not found'}, 404
+
+            # Delete from MinIO
+            try:
+                minio_bucket = settings.MINIO_BUCKET or 'agari-data'
+                minio_client = ProjectSubmissionFiles2._get_minio_client(self)
+                
+                minio_client.remove_object(
+                    bucket_name=minio_bucket,
+                    object_name=file_record['object_id']
+                )
+                
+                logger.info(f"Deleted file {file_record['filename']} from MinIO bucket '{minio_bucket}'")
+                
+            except Exception as delete_error:
+                logger.exception(f"Failed to delete file from MinIO: {str(delete_error)}")
+                return {'error': f'MinIO deletion failed: {str(delete_error)}'}, 500
+
+            # Delete from database
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    DELETE FROM submission_files 
+                    WHERE id = %s
+                """, (file_id,))
+            
+            return {
+                'message': 'File deleted successfully',
+                'file_id': file_id
+            }, 200
+            
+        except Exception as e:
+            logger.exception(f"Error deleting file {file_id} from submission {submission_id}: {str(e)}")
+            return {'error': f'Deletion failed: {str(e)}'}, 500
+
+
+
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/validate2')
+class ProjectSubmissionValidate2(Resource):
+
+    # POST /projects/<project_id>/submissions2/<submission_id>/validate2
+
+    @api.doc('validate_submission_v2')
     @require_auth(keycloak_auth)
     @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
     def post(self, project_id, submission_id):
-        """Split multi-sample FASTA files into per-isolate files"""
-        # TODO: Implement file splitting logic
-        # - Download multi-sample FASTA files
-        # - Split into individual FASTA files per isolate
-        # - Upload split files to MinIO
-        # - Update file records
-        pass
 
-@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/finalize')
-class ProjectSubmissionFinalize(Resource):
+        """Validate submission files (simple pass-through for now)"""
+        
+        try:
+            # Update submission status to 'validating'
+            # with get_db_cursor() as cursor:
+            #     cursor.execute("""
+            #         UPDATE submissions 
+            #         SET status = 'validating'
+            #         WHERE id = %s AND project_id = %s
+            #         RETURNING *
+            #     """, (submission_id, project_id))
+                
+            #     submission = cursor.fetchone()
+            #     if not submission:
+            #         return {'error': 'Submission not found'}, 404
 
-    ### POST /projects/<project_id>/submissions/<submission_id>/finalize ###
+            # Get uploaded files for basic validation
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM submission_files 
+                    WHERE submission_id = %s
+                """, (submission_id,))
+                files = cursor.fetchall()
 
-    @api.doc('finalize_submission')
+            tsv_files = [f for f in files if f['file_type'] == 'tsv']
+            fasta_files = [f for f in files if f['file_type'] == 'fasta']
+
+            # Basic validation: check file counts
+            if len(tsv_files) != 1:
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE submissions 
+                        SET status = 'error'
+                        WHERE id = %s
+                    """, (submission_id,))
+                
+                return {
+                    'status': 'error',
+                    'validation_errors': [f'Exactly 1 TSV file required, found {len(tsv_files)}']
+                }, 400
+            
+            if len(fasta_files) == 0:
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE submissions 
+                        SET status = 'error'
+                        WHERE id = %s
+                    """, (submission_id,))
+                
+                return {
+                    'status': 'error',
+                    'validation_errors': ['At least 1 FASTA file required']
+                }, 400
+            
+            tsv_file_record = tsv_files[0]
+            
+            minio_bucket = settings.MINIO_BUCKET
+            minio_client = ProjectSubmissionFiles2._get_minio_client(self)
+            
+            try:
+                tsv_object = minio_client.get_object(
+                    bucket_name=minio_bucket,
+                    object_name=tsv_file_record['object_id']
+                )
+                tsv_content = tsv_object.read().decode('utf-8')
+                
+                tsv_json = tsv_to_json(tsv_content)
+
+                print("TSV converted to JSON:")
+                
+                # print truncated tsv
+                print(json.dumps(tsv_json)[:500] + '...')
+
+                data = {
+                    "studyId": "test",
+                    "analysisType": {
+                        "name": "cholera_schema",
+                        "version": 4
+                    },
+                    "files": [
+                        {
+                        "fileName": "sequence.fasta",
+                        "fileType": "FASTA",
+                        "fileSize": 1544,
+                        "fileMd5sum": "70d264d6fcb968cae55c90902923413e",
+                        "fileAccess": "open",
+                        "dataType": "Genome"
+                        }
+                    ],
+                    "samples": tsv_json
+                }
+
+                validation = validate_against_schema(data, {"schema": 'cholera_schema', "version": 4})
+
+                return {
+                    'status': 'validated',
+                    'validation_results': validation
+                }, 200
+
+            except Exception as minio_error:
+                
+                return {
+                    'status': 'error',
+                    'validation_errors': [f'Failed to retrieve TSV file']
+                }, 500
+
+            # except Exception as tsv_error:
+            #     logger.exception(f"Failed to retrieve or parse TSV file from MinIO: {str(tsv_error)}")
+                
+            #     return {
+            #         'status': 'error',
+            #         'validation_errors': [f'Failed to process TSV file: {str(tsv_error)}']
+            #     }, 500
+
+           
+         
+            
+        except Exception as e:
+            # Update to error status
+            logger.exception(f"Error validating submission {submission_id}: {str(e)}")
+            return {'error': f'Validation failed: {str(e)}'}, 500
+
+
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/finalise')
+class ProjectSubmissionFinalise(Resource):
+
+    # POST /projects/<project_id>/submissions/<submission_id>/finalise
+
+    @api.doc('finalise_submission')
     @require_auth(keycloak_auth)
     @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
     def post(self, project_id, submission_id):
-        """Finalize submission and submit to SONG (Step 5 of new pipeline)"""
-        # TODO: Final submission to SONG
-        # - Build payload with split files
-        # - Submit to SONG
-        # - Update status to 'published' or 'error'
-        pass
+
+        """Finalise submission after validation - splits TSV data into isolates"""
+        
+        try:
+            # user_id = extract_user_info(request)['id']
+            
+            # Get submission details and verify it exists and belongs to the project
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM submissions 
+                    WHERE id = %s AND project_id = %s
+                """, (submission_id, project_id))
+                
+                submission = cursor.fetchone()
+                if not submission:
+                    return {'error': 'Submission not found'}, 404
+                
+                # Check if submission is in a valid state for finalisation
+                if submission['status'] != 'ready':
+                    return {
+                        'error': f"Cannot finalise submission with status '{submission['status']}'. Must be 'ready'."
+                    }, 400
+            
+            # Call the split_submission function
+            success, message = split_submission(submission_id)
+            
+            if success:
+                return {
+                    'message': 'Submission finalised successfully',
+                    'submission_id': submission_id,
+                    'result': message
+                }, 200
+            else:
+                return {
+                    'error': 'Failed to finalise submission',
+                    'details': message
+                }, 500
+                
+        except Exception as e:
+          
+            
+            logger.exception(f"Error finalising submission {submission_id}: {str(e)}")
+            return {'error': f'Finalisation failed: {str(e)}'}, 500
 
 
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/isolates')
+class ProjectSubmissionIsolates(Resource):
 
+    ### GET /projects/<project_id>/submissions/<submission_id>/isolates ###
 
+    @api.doc('list_submission_isolates')
+    @require_auth(keycloak_auth)
+    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
+    def get(self, project_id, submission_id):
 
+        """List all isolates for a specific submission"""
 
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT *
+                    FROM isolates
+                    WHERE submission_id = %s
+                    ORDER BY created_at DESC
+                """, (submission_id,))
 
+                isolates = cursor.fetchall()
 
-
-
-
-
-
-
-
-
-
-
-
-
+                return {
+                    'project_id': project_id,
+                    'submission_id': submission_id,
+                    'total_isolates': len(isolates),
+                    'isolates': isolates
+                }
+        except Exception as e:
+            logger.exception(f"Error retrieving isolates for submission {submission_id}: {str(e)}")
+            return {'error': f'Database error: {str(e)}'}, 500
 
 
 ##########################

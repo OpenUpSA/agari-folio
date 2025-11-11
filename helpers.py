@@ -2,8 +2,10 @@ from email import message
 import subprocess
 import json
 import hashlib
+import uuid
 import requests
 import settings
+from jsonschema import validate, ValidationError
 from flask import render_template_string
 from auth import KeycloakAuth
 from sendgrid import SendGridAPIClient
@@ -19,8 +21,33 @@ from sendgrid.helpers.mail import (
     ContentId,
 )
 import base64
+from minio import Minio
 
 from database import get_db_cursor
+import os
+from typing import Any, Dict
+
+SCHEMAS_DIR = os.path.join(os.path.dirname(__file__), "test", "data")
+
+def load_json_schema(filename: str) -> Dict[str, Any]:
+    
+    """
+    Load a JSON Schema from the helpers/schemas directory (or absolute path).
+    Usage: schema = load_json_schema("my_schema.json") or load_json_schema("my_schema")
+    """
+
+    # allow passing either "name.json" or "name"
+    if not filename.endswith(".json"):
+        filename = f"{filename}.json"
+
+    path = filename if os.path.isabs(filename) else os.path.join(SCHEMAS_DIR, filename)
+
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+
+
 from settings import (
     SENDGRID_API_KEY,
     SENDGRID_FROM_EMAIL,
@@ -344,6 +371,145 @@ def tsv_to_json(tsv_string):
         json_list.append(record)
 
     return json_list
+
+##############################
+### VALIDATION HELPERS
+##############################
+
+def validate_against_schema(data, schema):
+    # load json schema file
+    schemas = load_json_schema("schemas.json")
+
+    resultset_schema = [
+        s for s in schemas["resultSet"] if s["name"] == schema["schema"] and s["version"] == schema["version"]
+    ]
+    
+    if not resultset_schema:
+        return False, f"Schema '{schema['schema']}' version {schema['version']} not found"
+    
+    schema_obj = resultset_schema[0]["schema"]
+    
+    # Handle both single objects and arrays (TSV rows)
+    if isinstance(data, list):
+        # Validate each row in the TSV
+        errors = []
+        for row_index, row_data in enumerate(data):
+            try:
+                validate(instance=row_data, schema=schema_obj)
+            except ValidationError as e:
+                errors.append(f"Row {row_index + 1}: {str(e)}")
+        
+        if errors:
+            return False, "; ".join(errors)
+        return True, None
+    else:
+        # Single object validation
+        try:
+            validate(instance=data, schema=schema_obj)
+            return True, None
+        except ValidationError as e:
+            return False, str(e)
+
+##############################
+### SPLIT WORK
+##############################
+
+def split_submission(submission_id):
+    """
+    Split a validated submission by reading TSV from MinIO and inserting samples into isolates table.
+    Only processes submissions with status = 'ready'.
+    """
+    try:
+        with get_db_cursor() as cursor:
+            # Get the submission details and verify status
+            cursor.execute("""
+                SELECT s.*, p.id as project_id, p.name as project_name
+                FROM submissions s
+                LEFT JOIN projects p ON s.project_id = p.id
+                WHERE s.id = %s AND s.status = 'ready'
+            """, (submission_id,))
+            
+            submission = cursor.fetchone()
+            if not submission:
+                return False, "Submission not found or not ready"
+            
+            # Get TSV files for this submission
+            cursor.execute("""
+                SELECT * FROM submission_files
+                WHERE submission_id = %s AND file_type = 'tsv'
+            """, (submission_id,))
+            
+            tsv_files = cursor.fetchall()
+            if not tsv_files:
+                return False, "No TSV files found for submission"
+        
+        
+        
+        minio_endpoint = settings.MINIO_ENDPOINT
+        minio_access_key = settings.MINIO_ACCESS_KEY
+        minio_secret_key = settings.MINIO_SECRET_KEY
+        minio_secure = settings.MINIO_SECURE
+        
+        minio_client = Minio(
+            endpoint=minio_endpoint,
+            access_key=minio_access_key,
+            secret_key=minio_secret_key,
+            secure=minio_secure
+        )
+        
+        bucket_name = settings.MINIO_BUCKET or 'agari-data'
+        total_samples_processed = 0
+        
+        # Process each TSV file
+        for tsv_file in tsv_files:
+            try:
+                # Get file from MinIO using object_id
+                response = minio_client.get_object(bucket_name, tsv_file['object_id'])
+                tsv_content = response.read().decode('utf-8')
+                response.close()
+                response.release_conn()
+                
+                # Convert TSV to JSON array
+                samples_data = tsv_to_json(tsv_content)
+                
+                # Insert each sample as an isolate
+                with get_db_cursor() as cursor:
+                    for sample in samples_data:
+                        cursor.execute("""
+                            INSERT INTO isolates (
+                                submission_id, isolate_id, object_id, isolate_data, created_at
+                            ) VALUES (%s, %s, %s, %s, NOW())
+                        """, (
+                            submission_id,
+                            sample.get('isolate_id'),
+                            'bleh',
+                            json.dumps(sample),
+                        ))
+                        total_samples_processed += 1
+                
+            except Exception as file_error:
+                return False, f"Failed to process TSV file: {tsv_file['filename']} - {str(file_error)}"
+        
+        # Update submission status to 'ready' after successful split
+        # with get_db_cursor() as cursor:
+        #     cursor.execute("""
+        #         UPDATE submissions 
+        #         SET status = 'finalizing', updated_at = NOW()
+        #         WHERE id = %s
+        #     """, (submission_id,))
+        
+        return True, f"Successfully processed {total_samples_processed} samples"
+        
+    except Exception as e:
+        print(f"Error splitting submission {submission_id}: {str(e)}")
+        
+      
+            
+        return False, f"Failed to split submission: {str(e)}"
+
+
+
+
 
 ##############################
 ### ELASTICSEARCH HELPERS

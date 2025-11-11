@@ -345,7 +345,7 @@ Content-Type: application/json
 
 ###
 
-@project_id = cf8ddc93-5062-424d-964a-54610bcb5c4d
+# @project_id = cf8ddc93-5062-424d-964a-54610bcb5c4d
 
 ### @name get_project
 GET {{folio}}/projects/{{project_id}}
@@ -458,15 +458,98 @@ Authorization: Bearer {{token}}
 ### SUBMISSIONS2
 ##########################
 
-# @name submitAnalysisFile2
+@project_id = cf8ddc93-5062-424d-964a-54610bcb5c4d
+@submission_id = 635d7838-950e-4210-9469-4e4aa66f7385
+
+### Step 1: Get all submission
+# @name getSubmission2
+GET {{folio}}/projects/{{project_id}}/submissions2
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+###
+
+
+### Step 1: Create new submission
+# @name createSubmission2
 POST {{folio}}/projects/{{project_id}}/submissions2
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "project_id": "{{project_id}}",
-  "submission_name": "mpox v4"
+    "submission_name": "test"
 }
+
+###
+
+### Step 2: Get the submission details
+# @name getSubmission2
+GET {{folio}}/projects/{{project_id}}/submissions2/{{submission_id}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+###
+
+
+### Step 3a: Upload TSV file 
+# @name uploadTSV2
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/files2
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=boundary123
+
+--boundary123
+Content-Disposition: form-data; name="file"; filename="multiple_cholera.tsv"
+Content-Type: text/tab-separated-values
+
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/cholera/multiple_cholera.tsv
+
+--boundary123--
+
+###
+
+### Step 2b: Upload FASTA file
+# @name uploadFASTA2
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/files2
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=boundary456
+
+--boundary456
+Content-Disposition: form-data; name="file"; filename="DBJUQB01.1.fasta"
+Content-Type: text/plain
+
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/cholera/DBJUQB01.1.fasta
+
+--boundary456--
+
+###
+
+@file_id = db337624-6b48-44a7-91bd-518e79c4530d
+
+### Step 2c: Delete uploaded file
+# @name deleteUploadedFile2
+DELETE {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/files2/{{file_id}}
+Authorization: Bearer {{token}}
+
+###
+
+### Step 3: Validate submission
+# @name validateSubmission2
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/validate2
+Authorization: Bearer {{token}}
+
+###
+
+### Step 4: Finalise submission
+# @name finalizeSubmission2
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/finalise
+Authorization: Bearer {{token}}
+
+###
+
+### Step 5: View isolates
+# @name getIsolatesSubmission2
+GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/isolates
+Authorization: Bearer {{token}}
 
 ###
 
@@ -474,6 +557,7 @@ Content-Type: application/json
 ### SUBMISSIONS
 ##########################
 
+# Test variables - uncomment and set your values
 # @project_id = 0a6050a3-03b3-4c67-978e-91f1b308d692
 # @submission_id = 3fa85f64-5717-4562-b3fc-2c963f66afa6
 # @study_id = dirk-mpox-1
