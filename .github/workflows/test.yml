@@ -57,12 +57,12 @@ jobs:
       run: npm install -g mjml
 
     - name: Run migrations
-      run:
+      run: |
         ./migrations/migrate.sh
 
     - name: Run tests
-      run:
-        pytest -v|
+      run: |
+        pytest -v
 
     - name: Print service logs on failure
       if: failure()
