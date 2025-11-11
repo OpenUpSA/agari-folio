@@ -237,6 +237,42 @@ def invite_user_to_org(user, redirect_uri, org_id, role):
         return {"error": "Failed to send invitation email"}, 500
 
 
+def invite_email_change(user, redirect_uri, new_email):
+    if user.get("attributes"):
+        name = user["attributes"].get("name", [""])[0]
+        surname = user["attributes"].get("surname", [""])[0]
+        to_name = f"{name} {surname}".strip()
+    else:
+        to_name = ""
+    to_email = new_email
+    subject = "Confirm your new email for AGARI"
+
+    hash_string = f"{user['user_id']}"
+    inv_token = hashlib.md5(hash_string.encode()).hexdigest()
+    accept_link = (
+        f"{redirect_uri}/confirm-email-change?userid={user['user_id']}&token={inv_token}"
+    )
+
+    html_template = mjml_to_html("change_email")
+    html_content = render_template_string(
+        html_template, accept_link=accept_link
+    )
+
+    result, status_code = sendgrid_email(to_email, to_name, subject, html_content)
+
+    user_id = "af52b5d2-29bc-4b5d-ac65-2c1bc5583368" # user["user_id"]
+    if status_code in [200, 201, 202, 204]:
+        # assign temp invite attributes to user
+        keycloak_auth.add_attribute_value(user_id, "invite_token", inv_token)
+        keycloak_auth.add_attribute_value(user_id, "invite_new_email", new_email)
+        if status_code == 204:
+            return f"Email confirmation created without sending notification"
+        else:
+            return f"Confirmation email sent successfully"
+    else:
+        return {"error": "Failed to send confirmation email"}, 500
+
+
 def role_project_member(user_id, project_id, role):
     # Remove user from all existing project roles first (role hierarchy enforcement)
     removed_roles = []
