@@ -17,6 +17,7 @@ from helpers import (
     magic_link,
     invite_user_to_project,
     invite_user_to_org,
+    invite_email_change,
     access_revoked_notification,
     log_event,
     log_submission,
@@ -630,6 +631,36 @@ class User(Resource):
         except Exception as e:
             logger.exception(f"Error updating user {user_id}: {str(e)}")
             return {'error': f'Failed to update user: {str(e)}'}, 500
+
+
+@user_ns.route('/email')
+class UserEmail(Resource):
+    ### PUT /users/<user_id> ###
+    @user_ns.doc('changer_user_email')
+    @require_auth(keycloak_auth)
+    def put(self):
+        try:
+            data = request.get_json()
+            if not data:
+                return {"error": "No JSON data provided"}, 400
+
+            user_info = extract_user_info(request.user)
+            current_user_id = user_info.get("user_id")
+            redirect_uri = data.get("redirect_uri")
+            new_email = data.get("new_email")
+
+            if not redirect_uri:
+                return {"error": "redirect_uri is required for confirmation link"}, 400
+            if not new_email:
+                return {"error": "new_email is required for confirmation link"}, 400
+
+            # Check if user is trying to edit their own profile
+            print(user_info)
+            return invite_email_change(user_info, redirect_uri, new_email)
+        except Exception as e:
+            logger.exception(f"Changing user email failed: {str(e)}")
+            return {"error": f"Changing user email failed: {str(e)}"}, 500
+
 
 ##########################
 ### ORGANISATIONS
@@ -2752,7 +2783,7 @@ class ProjectInviteStatus(Resource):
 
 @invite_ns.route('/project/<string:token>/accept')
 class ProjectInviteConfirm(Resource):
-    ### POST /invites/<token>/accept ###
+    ### POST /invites/project/<token>/accept ###
 
     @api.doc('accept_project_invite')
     def post(self, token):
@@ -2788,7 +2819,7 @@ class ProjectInviteConfirm(Resource):
 
 @invite_ns.route('/organisation/<string:token>/accept')
 class OrganisationInviteConfirm(Resource):
-    ### POST /invites/<token>/accept ###
+    ### POST /invites/organisation/<token>/accept ###
 
     @api.doc('accept_organisation_invite')
     def post(self, token):
@@ -2833,6 +2864,40 @@ class OrganisationInviteConfirm(Resource):
                 'details': result.get('error'),
                 'errors': result.get('errors', {})
             }, 500
+
+
+@invite_ns.route('/email/<string:token>/confirm')
+class EmailChangeConfirm(Resource):
+    ### POST /invites/email/<token>/confirm ###
+
+    @api.doc('accept_project_invite')
+    def post(self, token):
+        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
+        user_id = user["user_id"]
+
+        invite_email = user["attributes"].get("invite_new_email", [""])[0]
+
+        success = keycloak_auth.change_username(user_id, invite_email)
+        if not success:
+            return success
+
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_new_email', invite_email)
+
+        # Get access token for the user
+        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
+        if not auth_tokens:
+            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
+
+        return {
+            'message': 'User changed email successfully',
+            'user_id': user_id,
+            'new_email': invite_email,
+            'previous_email': user["username"],
+            'access_token': auth_tokens["access_token"],
+            'refresh_token': auth_tokens["refresh_token"]
+        }, 200
 
 
 if __name__ == '__main__':
