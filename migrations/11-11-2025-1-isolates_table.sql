@@ -6,8 +6,8 @@ CREATE TABLE IF NOT EXISTS isolates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     submission_id UUID NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
     isolate_id VARCHAR(255) NOT NULL,
-    object_id UUID NOT NULL, -- Reference to the FASTA file in MinIO/submission_files
-    isolate_data JSONB NOT NULL, -- Actual isolate data/metadata
+    object_id UUID,
+    isolate_data JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP WITH TIME ZONE NULL

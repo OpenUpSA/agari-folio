@@ -372,6 +372,36 @@ def tsv_to_json(tsv_string):
 
     return json_list
 
+def get_minio_client(self):
+        """Get MinIO client instance"""
+        try:
+            from minio import Minio
+            
+            # Get MinIO settings
+            minio_endpoint = settings.MINIO_ENDPOINT
+            minio_access_key = settings.MINIO_ACCESS_KEY
+            minio_secret_key = settings.MINIO_SECRET_KEY
+            minio_secure = getattr(settings, 'MINIO_SECURE', False)
+            
+            client = Minio(
+                endpoint=minio_endpoint,
+                access_key=minio_access_key,
+                secret_key=minio_secret_key,
+                secure=minio_secure
+            )
+            
+            # Ensure bucket exists
+            bucket_name = settings.MINIO_BUCKET or 'agari-data'
+            if not client.bucket_exists(bucket_name):
+                client.make_bucket(bucket_name)
+                logger.info(f"Created MinIO bucket: {bucket_name}")
+            
+            return client
+            
+        except Exception as e:
+            logger.exception(f"Failed to create MinIO client: {str(e)}")
+            raise e
+
 ##############################
 ### VALIDATION HELPERS
 ##############################
@@ -482,7 +512,7 @@ def split_submission(submission_id):
                         """, (
                             submission_id,
                             sample.get('isolate_id'),
-                            'bleh',
+                            'b4908338-a477-497e-b16c-05a6630d7c12',
                             json.dumps(sample),
                         ))
                         total_samples_processed += 1
@@ -507,6 +537,100 @@ def split_submission(submission_id):
             
         return False, f"Failed to split submission: {str(e)}"
 
+
+def get_isolate_fasta(id):
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT isolate_data
+            FROM isolates
+            WHERE id = %s AND deleted_at IS NULL
+        """,
+            (id,),
+        )
+        isolate = cursor.fetchone()
+        if not isolate:
+            return None
+
+    isolate_data = isolate["isolate_data"]
+    if isinstance(isolate_data, str):
+        isolate_data = json.loads(isolate_data)
+
+    fasta_file = isolate_data.get("fasta_file_name", "")
+    fasta_header = isolate_data.get("fasta_header_name", "")
+    isolate_sample_id = isolate_data.get("isolate_id", "")
+    isolate_sample_id = isolate_sample_id.replace("ISO_", "")
+
+    print(f"FASTA File: {fasta_file}")
+    print(f"FASTA Header: {fasta_header}")
+    print(f"Isolate Sample ID: {isolate_sample_id}")
+
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT object_id 
+            FROM submission_files 
+            WHERE filename = %s AND file_type = 'fasta'
+            ORDER BY created_at DESC 
+            LIMIT 1
+            """,
+            (fasta_file,),
+        )
+        file_record = cursor.fetchone()
+        
+        if not file_record:
+            return None
+
+    object_id = file_record["object_id"]
+
+    # Load the FASTA file from MinIO
+    minio_endpoint = settings.MINIO_ENDPOINT
+    minio_access_key = settings.MINIO_ACCESS_KEY
+    minio_secret_key = settings.MINIO_SECRET_KEY
+    minio_secure = settings.MINIO_SECURE
+
+    minio_client = Minio(
+        endpoint=minio_endpoint,
+        access_key=minio_access_key,
+        secret_key=minio_secret_key,
+        secure=minio_secure
+    )
+
+    bucket_name = settings.MINIO_BUCKET 
+
+    try:
+        response = minio_client.get_object(bucket_name, object_id)
+        fasta_content = response.read().decode('utf-8')
+        response.close()
+        response.release_conn()
+
+        print("=========================")
+        print(fasta_content)
+        print("=========================")
+
+        # Extract the specific sequence by header
+        fasta_lines = fasta_content.splitlines()
+        sequence_lines = []
+        recording = False
+
+        for line in fasta_lines:
+            if line.startswith('>'):
+                if isolate_sample_id in line[1:].strip():
+                    recording = True
+                    sequence_lines.append(line)
+                else:
+                    if recording:
+                        break  
+            else:
+                if recording:
+                    sequence_lines.append(line)
+
+        return '\n'.join(sequence_lines)
+
+
+    except Exception as e:
+        print(f"Error loading FASTA file from MinIO: {e}")
+        return None
 
 
 

@@ -459,7 +459,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 @project_id = cf8ddc93-5062-424d-964a-54610bcb5c4d
-@submission_id = 635d7838-950e-4210-9469-4e4aa66f7385
+@submission_id = 69ba688f-52dc-476c-8be2-a158ebd0ca93
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -493,7 +493,7 @@ Content-Type: application/json
 
 ### Step 3a: Upload TSV file 
 # @name uploadTSV2
-POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/files2
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload2
 Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=boundary123
 
@@ -509,21 +509,21 @@ Content-Type: text/tab-separated-values
 
 ### Step 2b: Upload FASTA file
 # @name uploadFASTA2
-POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/files2
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload2
 Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=boundary456
 
 --boundary456
-Content-Disposition: form-data; name="file"; filename="DBJUQB01.1.fasta"
+Content-Disposition: form-data; name="file"; filename="JBMGAC01.1.fasta"
 Content-Type: text/plain
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/cholera/DBJUQB01.1.fasta
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/cholera/JBMGAC01.1.fasta
 
 --boundary456--
 
 ###
 
-@file_id = db337624-6b48-44a7-91bd-518e79c4530d
+@file_id = b4908338-a477-497e-b16c-05a6630d7c12
 
 ### Step 2c: Delete uploaded file
 # @name deleteUploadedFile2
@@ -549,6 +549,14 @@ Authorization: Bearer {{token}}
 ### Step 5: View isolates
 # @name getIsolatesSubmission2
 GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/isolates
+Authorization: Bearer {{token}}
+
+###
+
+### Step 6: Get Isolate Squence
+@isolate_id = c1e76f05-7614-425e-b46c-ee78ce805772
+# @name getIsolateSequence2
+GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/isolates/{{isolate_id}}/sequence
 Authorization: Bearer {{token}}
 
 ###

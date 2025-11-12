@@ -21,11 +21,13 @@ from helpers import (
     access_revoked_notification,
     log_event,
     log_submission,
+    get_minio_client,
     tsv_to_json,
     role_project_member,
     role_org_member,
     validate_against_schema,
     split_submission,
+    get_isolate_fasta,
     send_to_elastic,
     remove_from_elastic,
     remove_samples_from_elastic,
@@ -34,6 +36,7 @@ from helpers import (
 )
 import uuid
 import hashlib
+from io import BytesIO
 import settings  # module import allows override via conftest.py
 from logging import getLogger
 
@@ -1537,13 +1540,13 @@ class DeleteProjectUsers(Resource):
 
 
 ##########################
-### SUBMISSION REWORK
+### SUBMISSIONS 
 ##########################
 
 @project_ns.route('/<string:project_id>/submissions2')
 class ProjectSubmissions2(Resource):
 
-    # GET /projects/<project_id>/submissions2
+    ### GET /projects/<project_id>/submissions2
 
     @api.doc('list_submissions_v2')
     @require_auth(keycloak_auth) 
@@ -1577,14 +1580,14 @@ class ProjectSubmissions2(Resource):
             logger.exception(f"Error listing submissions: {str(e)}")
             return {'error': f'Failed to list submissions: {str(e)}'}, 500
         
-    # POST /projects/<project_id>/submissions2
+    ### POST /projects/<project_id>/submissions2
 
     @api.doc('create_submission_v2')
     @require_auth(keycloak_auth)
     @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
     def post(self, project_id):
 
-        """Create a new submission (simple pipeline)"""
+        """Create a new submission"""
         
         try:
             data = request.get_json()
@@ -1600,7 +1603,7 @@ class ProjectSubmissions2(Resource):
             with get_db_cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO submissions (project_id, submission_name, status)
-                    VALUES (%s, %s, 'uploading')
+                    VALUES (%s, %s, 'draft')
                     RETURNING *
                 """, (project_id, submission_name))
                 
@@ -1618,7 +1621,7 @@ class ProjectSubmissions2(Resource):
 @project_ns.route('/<string:project_id>/submissions2/<string:submission_id>')
 class ProjectSubmission2(Resource):
 
-    # GET /projects/<project_id>/submissions2/<submission_id>
+    ### GET /projects/<project_id>/submissions2/<submission_id>
 
     @api.doc('get_submission_v2')
     @require_auth(keycloak_auth)
@@ -1631,7 +1634,7 @@ class ProjectSubmission2(Resource):
             with get_db_cursor() as cursor:
                 # Get submission details only
                 cursor.execute("""
-                    SELECT s.*, p.id, p.name, pat.id, pat.name, COUNT(sf.id) as file_count
+                    SELECT s.*, p.id, p.name as project_name, pat.id as pathogend_id, pat.name as pathogen_name, COUNT(sf.id) as file_count
                     FROM submissions s
                     LEFT JOIN submission_files sf ON s.id = sf.submission_id
                     LEFT JOIN projects p ON s.project_id = p.id
@@ -1662,10 +1665,10 @@ class ProjectSubmission2(Resource):
             return {'error': f'Failed to retrieve submission: {str(e)}'}, 500
 
 
-@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files2')
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/upload2')
 class ProjectSubmissionFiles2(Resource):
 
-    # POST /projects/<project_id>/submissions2/<submission_id>/files2
+    ### POST /projects/<project_id>/submissions2/<submission_id>/upload2
 
     @api.doc('upload_file_v2')
     @require_auth(keycloak_auth)
@@ -1675,7 +1678,7 @@ class ProjectSubmissionFiles2(Resource):
         """Upload a file to submission with streaming to MinIO"""
 
         try:
-            # Verify submission exists and is in 'uploading' status
+            
             with get_db_cursor() as cursor:
                 cursor.execute("""
                     SELECT * FROM submissions 
@@ -1685,9 +1688,9 @@ class ProjectSubmissionFiles2(Resource):
                 submission = cursor.fetchone()
                 if not submission:
                     return {'error': 'Submission not found'}, 404
-                
-                if submission['status'] not in ['uploading']:
-                    return {'error': f'Cannot upload files to submission in status: {submission["status"]}'}, 400
+
+                if submission['status'] not in ['draft', 'error']:
+                    return {'error': f'Cannot upload files to submission in status: {submission["status"]}.'}, 400
 
             # Check file upload
             if 'file' not in request.files:
@@ -1713,7 +1716,7 @@ class ProjectSubmissionFiles2(Resource):
             
             # Read file in chunks for streaming
             while True:
-                chunk = file.stream.read(8192)  # 8KB chunks
+                chunk = file.stream.read(8192)  
                 if not chunk:
                     break
                 file_data.append(chunk)
@@ -1730,8 +1733,8 @@ class ProjectSubmissionFiles2(Resource):
             
             try:
                 # Get MinIO credentials and upload
-                minio_bucket = settings.MINIO_BUCKET or 'agari-data'
-                minio_client = self._get_minio_client()
+                minio_bucket = settings.MINIO_BUCKET 
+                minio_client = get_minio_client()
                 
                 # Upload to MinIO with object_id as the key
                 from io import BytesIO
@@ -1764,6 +1767,7 @@ class ProjectSubmissionFiles2(Resource):
             
             return {
                 'message': 'File uploaded successfully',
+                'submission_id': file_record['submission_id'],
                 'file': {
                     'id': file_record['id'],
                     'filename': file_record['filename'],
@@ -1777,40 +1781,12 @@ class ProjectSubmissionFiles2(Resource):
             logger.exception(f"Error uploading file to submission {submission_id}")
             return {'error': f'Upload failed: {str(e)}'}, 500
 
-    def _get_minio_client(self):
-        """Get MinIO client instance"""
-        try:
-            from minio import Minio
-            
-            # Get MinIO settings
-            minio_endpoint = settings.MINIO_ENDPOINT
-            minio_access_key = settings.MINIO_ACCESS_KEY
-            minio_secret_key = settings.MINIO_SECRET_KEY
-            minio_secure = getattr(settings, 'MINIO_SECURE', False)
-            
-            client = Minio(
-                endpoint=minio_endpoint,
-                access_key=minio_access_key,
-                secret_key=minio_secret_key,
-                secure=minio_secure
-            )
-            
-            # Ensure bucket exists
-            bucket_name = settings.MINIO_BUCKET or 'agari-data'
-            if not client.bucket_exists(bucket_name):
-                client.make_bucket(bucket_name)
-                logger.info(f"Created MinIO bucket: {bucket_name}")
-            
-            return client
-            
-        except Exception as e:
-            logger.exception(f"Failed to create MinIO client: {str(e)}")
-            raise e
+    
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files2/<string:file_id>')
 class ReplaceProjectSubmissionFile2(Resource):
 
-    # PUT /projects/<project_id>/submissions2/<submission_id>/files2/<file_id>
+    ### PUT /projects/<project_id>/submissions2/<submission_id>/files2/<file_id>
 
     @api.doc('replace_file_v2')
     @require_auth(keycloak_auth)
@@ -1821,8 +1797,7 @@ class ReplaceProjectSubmissionFile2(Resource):
         pass  # Implementation would be similar to the upload_file_v2 method
 
     
-    # DELETE /projects/<project_id>/submissions2/<submission_id>/files2/<file_id>
-
+    ### DELETE /projects/<project_id>/submissions2/<submission_id>/files2/<file_id>
     
     @api.doc('delete_file_v2')
     @require_auth(keycloak_auth)
@@ -1842,9 +1817,9 @@ class ReplaceProjectSubmissionFile2(Resource):
                 submission = cursor.fetchone()
                 if not submission:
                     return {'error': 'Submission not found'}, 404
-                
-                if submission['status'] not in ['uploading']:
-                    return {'error': f'Cannot delete files from submission in status: {submission["status"]}'}, 400
+
+                if submission['status'] not in ['draft', 'error']:
+                    return {'error': f'Cannot delete files from submission in status: {submission["status"]}.'}, 400
 
                 # Verify file exists in this submission
                 cursor.execute("""
@@ -1858,8 +1833,8 @@ class ReplaceProjectSubmissionFile2(Resource):
 
             # Delete from MinIO
             try:
-                minio_bucket = settings.MINIO_BUCKET or 'agari-data'
-                minio_client = ProjectSubmissionFiles2._get_minio_client(self)
+                minio_bucket = settings.MINIO_BUCKET
+                minio_client = get_minio_client(self)
                 
                 minio_client.remove_object(
                     bucket_name=minio_bucket,
@@ -1893,7 +1868,7 @@ class ReplaceProjectSubmissionFile2(Resource):
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/validate2')
 class ProjectSubmissionValidate2(Resource):
 
-    # POST /projects/<project_id>/submissions2/<submission_id>/validate2
+    ### POST /projects/<project_id>/submissions2/<submission_id>/validate2
 
     @api.doc('validate_submission_v2')
     @require_auth(keycloak_auth)
@@ -1957,8 +1932,8 @@ class ProjectSubmissionValidate2(Resource):
             tsv_file_record = tsv_files[0]
             
             minio_bucket = settings.MINIO_BUCKET
-            minio_client = ProjectSubmissionFiles2._get_minio_client(self)
-            
+            minio_client = get_minio_client(self)
+
             try:
                 tsv_object = minio_client.get_object(
                     bucket_name=minio_bucket,
@@ -2006,16 +1981,6 @@ class ProjectSubmissionValidate2(Resource):
                     'validation_errors': [f'Failed to retrieve TSV file']
                 }, 500
 
-            # except Exception as tsv_error:
-            #     logger.exception(f"Failed to retrieve or parse TSV file from MinIO: {str(tsv_error)}")
-                
-            #     return {
-            #         'status': 'error',
-            #         'validation_errors': [f'Failed to process TSV file: {str(tsv_error)}']
-            #     }, 500
-
-           
-         
             
         except Exception as e:
             # Update to error status
@@ -2026,7 +1991,7 @@ class ProjectSubmissionValidate2(Resource):
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/finalise')
 class ProjectSubmissionFinalise(Resource):
 
-    # POST /projects/<project_id>/submissions/<submission_id>/finalise
+    ### POST /projects/<project_id>/submissions/<submission_id>/finalise
 
     @api.doc('finalise_submission')
     @require_auth(keycloak_auth)
@@ -2036,8 +2001,6 @@ class ProjectSubmissionFinalise(Resource):
         """Finalise submission after validation - splits TSV data into isolates"""
         
         try:
-            # user_id = extract_user_info(request)['id']
-            
             # Get submission details and verify it exists and belongs to the project
             with get_db_cursor() as cursor:
                 cursor.execute("""
@@ -2059,19 +2022,123 @@ class ProjectSubmissionFinalise(Resource):
             success, message = split_submission(submission_id)
             
             if success:
+                # Get all isolates for this submission - NEW CURSOR CONTEXT
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        SELECT * FROM isolates 
+                        WHERE submission_id = %s
+                    """, (submission_id,))
+
+                    isolates = cursor.fetchall()
+
+                    if not isolates:
+                        return {
+                            'error': 'No isolates found for submission',
+                            'submission_id': submission_id
+                        }, 400
+
+                    # Process each isolate and save FASTA to MinIO
+                    minio_client = get_minio_client(self)
+                    minio_bucket = settings.MINIO_BUCKET
+                    saved_fastas = []
+                    failed_fastas = []
+
+                    for isolate in isolates:
+                        
+                        try:
+                            # Get FASTA data for this isolate
+                            fasta_data = get_isolate_fasta(isolate['id'])
+                            
+                            if not fasta_data:
+                                failed_fastas.append({
+                                    'isolate_id': isolate['id'],
+                                    'isolate_sample_id': isolate['isolate_data'].get('isolate_id'),
+                                    'fasta_file_name': isolate['isolate_data'].get('fasta_file_name'),
+                                    'fasta_header_name': isolate['isolate_data'].get('fasta_header_name'),
+                                    'error': 'No FASTA data found'
+                                })
+                                continue
+                                
+                            # Generate object_id for MinIO storage
+                            fasta_object_id = str(uuid.uuid4())
+                            
+                            # Calculate file size and MD5
+                            fasta_bytes = fasta_data.encode('utf-8')
+                            fasta_size = len(fasta_bytes)
+                            fasta_md5 = hashlib.md5(fasta_bytes).hexdigest()
+                            
+                            # Upload FASTA to MinIO
+                            fasta_stream = BytesIO(fasta_bytes)
+                            
+                            minio_client.put_object(
+                                bucket_name=minio_bucket,
+                                object_name=fasta_object_id,
+                                data=fasta_stream,
+                                length=fasta_size,
+                                content_type='text/plain'
+                            )
+                            
+                            # Update isolate record with object_id and file details
+                            cursor.execute("""
+                                UPDATE isolates 
+                                SET object_id = %s, updated_at = NOW()
+                                WHERE id = %s
+                            """, (fasta_object_id, isolate['id']))
+                            
+                            # Save FASTA file record to submission_files table with isolate_id
+                            cursor.execute("""
+                                INSERT INTO submission_files 
+                                (submission_id, filename, file_type, object_id, file_size, md5_hash, isolate_id)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                            """, (submission_id, f"{isolate.get('sample_id', isolate['id'])}.fasta", 
+                                    'fasta', fasta_object_id, fasta_size, fasta_md5, isolate['id']))
+                            
+                            saved_fastas.append({
+                                'isolate_id': isolate['id'],
+                                'sample_id': isolate.get('sample_id'),
+                                'object_id': fasta_object_id,
+                                'file_size': fasta_size
+                            })
+                            
+                            logger.info(f"Saved FASTA for isolate {isolate['id']} to MinIO with object_id {fasta_object_id}")
+                            
+                        except Exception as fasta_error:
+                            logger.exception(f"Failed to process FASTA for isolate {isolate['id']}: {str(fasta_error)}")
+                            failed_fastas.append({
+                                'isolate_id': isolate['id'],
+                                'sample_id': isolate.get('sample_id'),
+                                'error': str(fasta_error)
+                            })
+
+                    # Update submission status
+                    cursor.execute("""
+                        UPDATE submissions 
+                        SET status = 'finalised', updated_at = NOW()
+                        WHERE id = %s
+                    """, (submission_id,))
+
                 return {
                     'message': 'Submission finalised successfully',
                     'submission_id': submission_id,
-                    'result': message
+                    'status': 'finalised',
+                    'details': message,
+                    'isolates_processed': len(isolates),
+                    'fastas_saved': len(saved_fastas),
+                    'fastas_failed': len(failed_fastas),
+                    'saved_fastas': saved_fastas,
+                    'failed_fastas': failed_fastas if failed_fastas else None
                 }, 200
             else:
-                return {
-                    'error': 'Failed to finalise submission',
-                    'details': message
-                }, 500
-                
+                return {'error': message}, 400
+            
         except Exception as e:
-          
+            # Update submission status to error
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    UPDATE submissions 
+                    SET status = 'error', updated_at = NOW()
+                    WHERE id = %s
+                """, (submission_id,))
             
             logger.exception(f"Error finalising submission {submission_id}: {str(e)}")
             return {'error': f'Finalisation failed: {str(e)}'}, 500
@@ -2111,8 +2178,408 @@ class ProjectSubmissionIsolates(Resource):
             return {'error': f'Database error: {str(e)}'}, 500
 
 
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/isolates/<string:isolate_id>/sequence')
+class ProjectSubmissionIsolate(Resource):
+
+    ### GET /projects/<project_id>/submissions/<submission_id>/isolates/<isolate_id>/sequence ###
+
+    @api.doc('get_isolate_sequence')
+    @require_auth(keycloak_auth)
+    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
+    def get(self, project_id, submission_id, isolate_id):
+
+        """Retrieve a download link for the FASTA file of a specific isolate"""
+
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT sf.*
+                    FROM submission_files sf
+                    JOIN isolates i ON sf.isolate_id = i.id
+                    WHERE i.id = %s AND i.submission_id = %s
+                """, (isolate_id, submission_id))
+
+                file_record = cursor.fetchone()
+
+                if not file_record:
+                    return {'error': 'FASTA file for isolate not found'}, 404
+
+                # Get file details from the record
+                file_size = file_record.get('file_size', 0)
+                object_id = file_record['object_id']
+                filename = file_record['filename']
+
+                # Get MinIO client and generate presigned download URL
+                try:
+                    minio_client = get_minio_client(self)
+                    minio_bucket = settings.MINIO_BUCKET
+                    
+                    # Generate presigned download URL (valid for 1 hour)
+                    from datetime import timedelta
+                    file_url = minio_client.presigned_get_object(
+                        bucket_name=minio_bucket,
+                        object_name=object_id,
+                        expires=timedelta(hours=1)
+                    )
+                    
+                    return {
+                        'isolate_id': isolate_id,
+                        'file_url': file_url,
+                        'object_id': object_id,
+                        'filename': filename,
+                        'file_size': file_size
+                    }
+                    
+                except Exception as minio_error:
+                    logger.exception(f"Failed to generate MinIO presigned URL: {str(minio_error)}")
+                    return {'error': f'Failed to generate download link: {str(minio_error)}'}, 500
+
+        except Exception as e:
+            logger.exception(f"Error retrieving download URL for isolate {isolate_id}: {str(e)}")
+            return {'error': f'Failed to get download URL: {str(e)}'}, 500
+
+
+###########################
+### SEARCH
+###########################
+
+search_ns = api.namespace('search', description='Search endpoints')
+@search_ns.route('/')
+
+class Search(Resource):
+    
+    ### POST /search ###
+
+    @api.doc('search_samples')
+    @require_auth(keycloak_auth)
+    def post(self):
+
+        """Search published samples in Elasticsearch"""
+
+        try:
+            data = request.get_json()
+
+            print(data)
+
+            user_project_ids = keycloak_auth.get_user_projects()
+            organisation_project_ids = keycloak_auth.get_user_organisation_projects()
+
+            user_project_ids.extend(organisation_project_ids)
+
+            access_filter = {
+                "bool": {
+                    "should": [
+                        {
+                            "terms": {
+                                "projectId.keyword": user_project_ids
+                            }
+                        },
+                        {
+                            "terms": {
+                                "privacy.keyword": ["public", "semi-private"],
+                            }
+                        }
+                    ],
+                    "minimum_should_match": 1
+                }
+            }
+
+            print(f"Access filter: {access_filter}")
+
+            # Add access filter to the query
+            if 'query' in data and 'bool' in data['query']:
+                if 'must' not in data['query']['bool']:
+                    data['query']['bool']['must'] = []
+                elif not isinstance(data['query']['bool']['must'], list):
+                    data['query']['bool']['must'] = [data['query']['bool']['must']]
+                
+                data['query']['bool']['must'].append(access_filter)
+            elif 'query' in data:
+                existing_query = data['query']
+                data['query'] = {
+                    "bool": {
+                        "must": [
+                            existing_query,
+                            access_filter
+                        ]
+                    }
+                }
+            else:
+                data['query'] = access_filter
+
+            if not data:
+                return {'error': 'No JSON data provided'}, 400
+
+            results = query_elastic(data)
+
+            return results, 200
+
+        except Exception as e:
+            logger.exception(f"Error searching samples: {str(e)}")
+            return {'error': f'Search error: {str(e)}'}, 500
+
+
+
+
+
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files/<string:object_id>')
+class ProjectSubmissionFileDetails(Resource):
+    ### GET /projects/<project_id>/submissions/<submission_id>/files/<object_id> ###
+
+    @api.doc('get_submission_file_details')
+    @require_auth(keycloak_auth)
+    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
+    def get(self, project_id, submission_id, object_id):
+
+        """Get details for a submission file from SCORE (proxy endpoint)"""
+
+        try:
+            # Clean and validate UUIDs
+            try:
+                clean_project_id = str(uuid.UUID(project_id.strip('"')))
+                clean_submission_id = str(uuid.UUID(submission_id.strip('"')))
+            except ValueError as e:
+                return {'error': f'Invalid UUID format: {str(e)}'}, 400
+
+            # Get submission details to find the analysis_id and study_id
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT study_id, analysis_id
+                    FROM submissions
+                    WHERE id = %s AND project_id = %s
+                """, (clean_submission_id, clean_project_id))
+                
+                submission = cursor.fetchone()
+                
+                if not submission:
+                    return {'error': 'Submission not found for this project'}, 404
+                
+                study_id = submission.get('study_id')
+                analysis_id = submission.get('analysis_id')
+
+            if not analysis_id or not study_id:
+                return {'error': 'Submission does not have associated analysis'}, 400
+
+            # Get client token for SONG API
+            song_token = keycloak_auth.get_client_token()
+            if not song_token:
+                return {'error': 'Failed to authenticate with SONG service'}, 500
+
+            song_headers = {
+                'Authorization': f'Bearer {song_token}',
+                'Content-Type': 'application/json'
+            }
+
+            # Get analysis details from SONG to find file size
+            song_analysis_url = f"{SONG_URL}/studies/{study_id}/analysis/{analysis_id}"
+            song_response = requests.get(song_analysis_url, headers=song_headers)
+
+           
+
+            if song_response.status_code != 200:
+                return {'error': f'Failed to get analysis from SONG: {song_response.status_code} - {song_response.text}'}, song_response.status_code
+
+            analysis_data = song_response.json()
+            
+            # Find the file with matching object_id in the files array
+            file_info = None
+            files = analysis_data.get('files', [])
+            
+            for file_obj in files:
+                if file_obj.get('objectId') == object_id:
+                    file_info = file_obj
+                    break
+            
+            if not file_info:
+                return {'error': f'File with object_id {object_id} not found in submission'}, 404
+
+            file_size = file_info.get('fileSize', 0)
+
+           
+            
+            # Get client token for SCORE API
+            score_token = keycloak_auth.get_client_token()
+            if not score_token:
+                return {'error': 'Failed to authenticate with SCORE service'}, 500
+
+            score_headers = {
+                'Authorization': f'Bearer {score_token}',
+                'User-Agent': 'Agari-Folio/1.0'
+            }
+
+            # Get download URL from SCORE
+            score_file_url = f"{SCORE_URL}/download/{object_id}?offset=0&length={file_size}"
+
+            print(f"Requesting download URL from SCORE: {score_file_url}")
+
+            score_response = requests.get(score_file_url, headers=score_headers, allow_redirects=False)
+
+            
+            if score_response.status_code == 200:
+
+                file_url = score_response.json().get('parts', [{}])[0].get('url')
+                if not file_url:
+                    return {'error': 'Download URL not found in SCORE response'}, 500
+
+                return {
+                    'file_url': file_url,
+                    'object_id': object_id,
+                    'file_size': file_size
+                }, 200
+            
+               
+            else:
+                return {'error': f'Failed to get download URL from SCORE: {score_response.status_code} - {score_response.text}'}, score_response.status_code
+
+        except Exception as e:
+            logger.exception(f"Error getting download URL for file {object_id} in submission {submission_id}: {str(e)}")
+            return {'error': f'Failed to get download URL: {str(e)}'}, 500
+
+
+
+
+
+
 ##########################
-### SUBMISSION
+### INVITES
+##########################
+
+invite_ns = api.namespace('invites', description='Invite management endpoints')
+
+
+@invite_ns.route('/project/<string:project_id>/<string:user_id>')
+class ProjectInviteStatus(Resource):
+
+    ### GET /invites/<user_id> ###
+
+    @api.doc('get_project_invites')
+    def get(self, project_id, user_id):
+        user = keycloak_auth.get_user(user_id)
+        if user.get("attributes"):
+            invite = user["attributes"].get(project_id, [""])[0]
+        print(invite)
+
+
+@invite_ns.route('/project/<string:token>/accept')
+class ProjectInviteConfirm(Resource):
+    ### POST /invites/<token>/accept ###
+
+    @api.doc('accept_project_invite')
+    def post(self, token):
+        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
+        user_id = user["user_id"]
+
+        invite_project_id = user["attributes"].get("invite_project_id", [""])[0]
+        invite_role = user["attributes"].get(f"invite_role_{invite_project_id}", [""])[0]
+
+        removed_roles = role_project_member(user_id, invite_project_id, invite_role)
+        print(f"Added project_id {invite_project_id} to role {invite_role} for user {user_id}")
+
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_project_id', invite_project_id)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_role_{invite_project_id}', invite_role)
+
+        # Get access token for the user
+        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
+        if not auth_tokens:
+            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
+
+        return {
+            'message': 'User added to project successfully',
+            'user_id': user_id,
+            'project_id': invite_project_id,
+            'new_role': invite_role,
+            'removed_roles': removed_roles,
+            'access_token': auth_tokens["access_token"],
+            'refresh_token': auth_tokens["refresh_token"]
+        }, 200
+
+
+@invite_ns.route('/organisation/<string:token>/accept')
+class OrganisationInviteConfirm(Resource):
+    ### POST /invites/<token>/accept ###
+
+    @api.doc('accept_organisation_invite')
+    def post(self, token):
+        user = keycloak_auth.get_users_by_attribute('invite_org_token', token)[0]
+        user_id = user["user_id"]
+
+        invite_org_id = user["attributes"].get("invite_org_id", [""])[0]
+        invite_org_role = user["attributes"].get(f"invite_org_role_{invite_org_id}", [""])[0]
+
+        result = role_org_member(user_id, invite_org_id, invite_org_role)
+
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_org_id', invite_org_id)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_org_role_{invite_org_id}', invite_org_role)
+
+        if invite_org_role == 'org-owner':
+            user_attr = keycloak_auth.get_user_attributes(user_id)
+            # Downgrade previous owner to org-admin
+            role_org_member(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
+            keycloak_auth.remove_attribute_value(user_id, "invite_org_old_owner", user_attr["invite_org_old_owner"][0])
+
+        # Get access token for the user
+        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
+        if not auth_tokens:
+            return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
+
+        if result.get('success'):
+            return {
+                'message': f'User added to organisation with role "{invite_org_role}"',
+                'user_id': user_id,
+                'organisation_id': invite_org_id,
+                'role': invite_org_role,
+                'realm_role_assigned': f'agari-{invite_org_role}',
+                'update_details': result.get('updates', {}),
+                'access_token': auth_tokens["access_token"],
+                'refresh_token': auth_tokens["refresh_token"]
+            }
+        else:
+            return {
+                'error': 'Failed to add user to organisation',
+                'details': result.get('error'),
+                'errors': result.get('errors', {})
+            }, 500
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#############################################################################
+### HERE BE DRAGONS 
+#############################################################################
+### HERE BE DRAGONS
+#############################################################################
+
+##########################
+### SUBMISSIONS LEGACY
 ##########################
 
 
@@ -2804,202 +3271,6 @@ class UnpublishSubmission(Resource):
             return {'error': f'Failed to unpublish analysis: {str(e)}'}, 500
         
 
-###########################
-### SEARCH
-###########################
-
-search_ns = api.namespace('search', description='Search endpoints')
-@search_ns.route('/')
-
-class Search(Resource):
-    
-    ### POST /search ###
-
-    @api.doc('search_samples')
-    @require_auth(keycloak_auth)
-    def post(self):
-
-        """Search published samples in Elasticsearch"""
-
-        try:
-            data = request.get_json()
-
-            print(data)
-
-            user_project_ids = keycloak_auth.get_user_projects()
-            organisation_project_ids = keycloak_auth.get_user_organisation_projects()
-
-            user_project_ids.extend(organisation_project_ids)
-
-            access_filter = {
-                "bool": {
-                    "should": [
-                        {
-                            "terms": {
-                                "projectId.keyword": user_project_ids
-                            }
-                        },
-                        {
-                            "terms": {
-                                "privacy.keyword": ["public", "semi-private"],
-                            }
-                        }
-                    ],
-                    "minimum_should_match": 1
-                }
-            }
-
-            print(f"Access filter: {access_filter}")
-
-            # Add access filter to the query
-            if 'query' in data and 'bool' in data['query']:
-                if 'must' not in data['query']['bool']:
-                    data['query']['bool']['must'] = []
-                elif not isinstance(data['query']['bool']['must'], list):
-                    data['query']['bool']['must'] = [data['query']['bool']['must']]
-                
-                data['query']['bool']['must'].append(access_filter)
-            elif 'query' in data:
-                existing_query = data['query']
-                data['query'] = {
-                    "bool": {
-                        "must": [
-                            existing_query,
-                            access_filter
-                        ]
-                    }
-                }
-            else:
-                data['query'] = access_filter
-
-            if not data:
-                return {'error': 'No JSON data provided'}, 400
-
-            results = query_elastic(data)
-
-            return results, 200
-
-        except Exception as e:
-            logger.exception(f"Error searching samples: {str(e)}")
-            return {'error': f'Search error: {str(e)}'}, 500
-
-
-
-@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files/<string:object_id>')
-class ProjectSubmissionFileDetails(Resource):
-    ### GET /projects/<project_id>/submissions/<submission_id>/files/<object_id> ###
-
-    @api.doc('get_submission_file_details')
-    @require_auth(keycloak_auth)
-    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
-    def get(self, project_id, submission_id, object_id):
-
-        """Get details for a submission file from SCORE (proxy endpoint)"""
-
-        try:
-            # Clean and validate UUIDs
-            try:
-                clean_project_id = str(uuid.UUID(project_id.strip('"')))
-                clean_submission_id = str(uuid.UUID(submission_id.strip('"')))
-            except ValueError as e:
-                return {'error': f'Invalid UUID format: {str(e)}'}, 400
-
-            # Get submission details to find the analysis_id and study_id
-            with get_db_cursor() as cursor:
-                cursor.execute("""
-                    SELECT study_id, analysis_id
-                    FROM submissions
-                    WHERE id = %s AND project_id = %s
-                """, (clean_submission_id, clean_project_id))
-                
-                submission = cursor.fetchone()
-                
-                if not submission:
-                    return {'error': 'Submission not found for this project'}, 404
-                
-                study_id = submission.get('study_id')
-                analysis_id = submission.get('analysis_id')
-
-            if not analysis_id or not study_id:
-                return {'error': 'Submission does not have associated analysis'}, 400
-
-            # Get client token for SONG API
-            song_token = keycloak_auth.get_client_token()
-            if not song_token:
-                return {'error': 'Failed to authenticate with SONG service'}, 500
-
-            song_headers = {
-                'Authorization': f'Bearer {song_token}',
-                'Content-Type': 'application/json'
-            }
-
-            # Get analysis details from SONG to find file size
-            song_analysis_url = f"{SONG_URL}/studies/{study_id}/analysis/{analysis_id}"
-            song_response = requests.get(song_analysis_url, headers=song_headers)
-
-           
-
-            if song_response.status_code != 200:
-                return {'error': f'Failed to get analysis from SONG: {song_response.status_code} - {song_response.text}'}, song_response.status_code
-
-            analysis_data = song_response.json()
-            
-            # Find the file with matching object_id in the files array
-            file_info = None
-            files = analysis_data.get('files', [])
-            
-            for file_obj in files:
-                if file_obj.get('objectId') == object_id:
-                    file_info = file_obj
-                    break
-            
-            if not file_info:
-                return {'error': f'File with object_id {object_id} not found in submission'}, 404
-
-            file_size = file_info.get('fileSize', 0)
-
-           
-            
-            # Get client token for SCORE API
-            score_token = keycloak_auth.get_client_token()
-            if not score_token:
-                return {'error': 'Failed to authenticate with SCORE service'}, 500
-
-            score_headers = {
-                'Authorization': f'Bearer {score_token}',
-                'User-Agent': 'Agari-Folio/1.0'
-            }
-
-            # Get download URL from SCORE
-            score_file_url = f"{SCORE_URL}/download/{object_id}?offset=0&length={file_size}"
-
-            print(f"Requesting download URL from SCORE: {score_file_url}")
-
-            score_response = requests.get(score_file_url, headers=score_headers, allow_redirects=False)
-
-            
-            if score_response.status_code == 200:
-
-                file_url = score_response.json().get('parts', [{}])[0].get('url')
-                if not file_url:
-                    return {'error': 'Download URL not found in SCORE response'}, 500
-
-                return {
-                    'file_url': file_url,
-                    'object_id': object_id,
-                    'file_size': file_size
-                }, 200
-            
-               
-            else:
-                return {'error': f'Failed to get download URL from SCORE: {score_response.status_code} - {score_response.text}'}, score_response.status_code
-
-        except Exception as e:
-            logger.exception(f"Error getting download URL for file {object_id} in submission {submission_id}: {str(e)}")
-            return {'error': f'Failed to get download URL: {str(e)}'}, 500
-
-
-
 ##########################
 ### STUDIES
 ##########################
@@ -3314,111 +3585,8 @@ class StudyAnalysisUpload(Resource):
         
 
 
-##########################
-### INVITES
-##########################
 
-invite_ns = api.namespace('invites', description='Invite management endpoints')
-
-
-@invite_ns.route('/project/<string:project_id>/<string:user_id>')
-class ProjectInviteStatus(Resource):
-
-    ### GET /invites/<user_id> ###
-
-    @api.doc('get_project_invites')
-    def get(self, project_id, user_id):
-        user = keycloak_auth.get_user(user_id)
-        if user.get("attributes"):
-            invite = user["attributes"].get(project_id, [""])[0]
-        print(invite)
-
-
-@invite_ns.route('/project/<string:token>/accept')
-class ProjectInviteConfirm(Resource):
-    ### POST /invites/<token>/accept ###
-
-    @api.doc('accept_project_invite')
-    def post(self, token):
-        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
-        user_id = user["user_id"]
-
-        invite_project_id = user["attributes"].get("invite_project_id", [""])[0]
-        invite_role = user["attributes"].get(f"invite_role_{invite_project_id}", [""])[0]
-
-        removed_roles = role_project_member(user_id, invite_project_id, invite_role)
-        print(f"Added project_id {invite_project_id} to role {invite_role} for user {user_id}")
-
-        # Remove temp attributes
-        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_project_id', invite_project_id)
-        keycloak_auth.remove_attribute_value(user_id, f'invite_role_{invite_project_id}', invite_role)
-
-        # Get access token for the user
-        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
-        if not auth_tokens:
-            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
-
-        return {
-            'message': 'User added to project successfully',
-            'user_id': user_id,
-            'project_id': invite_project_id,
-            'new_role': invite_role,
-            'removed_roles': removed_roles,
-            'access_token': auth_tokens["access_token"],
-            'refresh_token': auth_tokens["refresh_token"]
-        }, 200
-
-
-@invite_ns.route('/organisation/<string:token>/accept')
-class OrganisationInviteConfirm(Resource):
-    ### POST /invites/<token>/accept ###
-
-    @api.doc('accept_organisation_invite')
-    def post(self, token):
-        user = keycloak_auth.get_users_by_attribute('invite_org_token', token)[0]
-        user_id = user["user_id"]
-
-        invite_org_id = user["attributes"].get("invite_org_id", [""])[0]
-        invite_org_role = user["attributes"].get(f"invite_org_role_{invite_org_id}", [""])[0]
-
-        result = role_org_member(user_id, invite_org_id, invite_org_role)
-
-        # Remove temp attributes
-        keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', token)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_org_id', invite_org_id)
-        keycloak_auth.remove_attribute_value(user_id, f'invite_org_role_{invite_org_id}', invite_org_role)
-
-        if invite_org_role == 'org-owner':
-            user_attr = keycloak_auth.get_user_attributes(user_id)
-            # Downgrade previous owner to org-admin
-            role_org_member(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
-            keycloak_auth.remove_attribute_value(user_id, "invite_org_old_owner", user_attr["invite_org_old_owner"][0])
-
-        # Get access token for the user
-        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
-        if not auth_tokens:
-            return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
-
-        if result.get('success'):
-            return {
-                'message': f'User added to organisation with role "{invite_org_role}"',
-                'user_id': user_id,
-                'organisation_id': invite_org_id,
-                'role': invite_org_role,
-                'realm_role_assigned': f'agari-{invite_org_role}',
-                'update_details': result.get('updates', {}),
-                'access_token': auth_tokens["access_token"],
-                'refresh_token': auth_tokens["refresh_token"]
-            }
-        else:
-            return {
-                'error': 'Failed to add user to organisation',
-                'details': result.get('error'),
-                'errors': result.get('errors', {})
-            }, 500
 
 
 if __name__ == '__main__':
-    from settings import PORT
-    app.run(debug=True, host='0.0.0.0', port=PORT)
+    app.run(debug=True, host='0.0.0.0', port=settings.PORT)

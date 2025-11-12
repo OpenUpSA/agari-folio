@@ -2,6 +2,7 @@
 CREATE TABLE IF NOT EXISTS submission_files (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     submission_id UUID NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+    isolate_id UUID REFERENCES isolates(id) ON DELETE SET NULL,
     filename VARCHAR(255) NOT NULL,
     file_type VARCHAR(50) NOT NULL CHECK (file_type IN ('tsv', 'fasta')),
     object_id UUID,
