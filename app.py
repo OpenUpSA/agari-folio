@@ -2795,6 +2795,11 @@ class ProjectInviteConfirm(Resource):
 
         removed_roles = role_project_member(user_id, invite_project_id, invite_role)
         print(f"Added project_id {invite_project_id} to role {invite_role} for user {user_id}")
+        # If not in an organisation, assign the org-partial role
+        org = keycloak_auth.get_user_org()
+        if not org:
+            project_org_id = keycloak_auth.get_project_parent_org(invite_project_id)
+            role_org_member(user_id, project_org_id, "org-partial")
 
         # Remove temp attributes
         keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
