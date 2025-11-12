@@ -105,7 +105,7 @@ class DatabaseHealth(Resource):
                 'status': 'healthy',
             }
         else:
-            return {'status': 'unhealthy', 'error': 'Database connection failed'}, 503
+            return {'status': 'unhealthy', 'error': db_test}, 503
 
 @default_ns.route('/whoami')
 class WhoAmI(Resource):
