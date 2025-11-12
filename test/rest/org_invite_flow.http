@@ -48,8 +48,8 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "user_id": "a1163bae-f22d-437c-a4d9-4a1981714e8b",
-    "role": "org-admin",
+    "user_id": "e9f23458-7fb1-484a-bf30-82db540c362e",
+    "role": "org-viewer",
     "redirect_uri": "http://127.0.0.1"
 }
 
@@ -62,3 +62,8 @@ Content-Type: application/json
 
 # @name accept_organisation_invite
 POST {{folio}}/invites/organisation/{{inv_token}}/accept
+
+###
+
+# @name get_org_invites
+GET {{folio}}/invites/organisation/{{org_id}}
