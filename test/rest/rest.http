@@ -408,50 +408,6 @@ Content-Type: application/json
 DELETE {{folio}}/projects/{{project_id}}/users/{{user_id}}
 Authorization: Bearer {{token}}
 
-
-##########################
-### STUDIES
-##########################
-
-# @name list_studies
-GET {{folio}}/studies
-Authorization: Bearer {{token}}
-
-###
-
-# @study_id = dirk-mpox-1
-
-# @name create_study
-POST {{folio}}/studies/
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{
-    "studyId": "{{study_id}}",
-    "name": "{{study_id}}", 
-    "description": "",
-    "projectId": "{{project_id}}",
-    "info": {
-        "projectType": "genomics",
-        "region": "South Africa"
-    }
-}
-
-##########################
-### SONG
-##########################
-
-# @name get_studies_in_song
-GET {{song}}/studies/all
-Authorization: Bearer {{token}}
-
-
-###
-
-# @name get_study_in_song
-GET {{song}}/studies/{{study_id}}
-Authorization: Bearer {{token}}
-
 ###
 
 ##########################
@@ -459,7 +415,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 @project_id = cf8ddc93-5062-424d-964a-54610bcb5c4d
-@submission_id = 7ba50f1f-f97b-4488-8aa7-4799823a3373
+@submission_id = c8da1d56-49fc-4221-ad85-3696e9b45891
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -477,7 +433,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "submission_name": "test2"
+    "submission_name": "cholera_test"
 }
 
 ###
@@ -498,10 +454,10 @@ Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=boundary123
 
 --boundary123
-Content-Disposition: form-data; name="file"; filename="multiple_cholera.tsv"
+Content-Disposition: form-data; name="file"; filename="cholera_1.tsv"
 Content-Type: text/tab-separated-values
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/cholera/multiple_cholera.tsv
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_1.tsv
 
 --boundary123--
 
@@ -514,16 +470,16 @@ Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=boundary456
 
 --boundary456
-Content-Disposition: form-data; name="file"; filename="JBMGAC01.1.fasta"
+Content-Disposition: form-data; name="file"; filename="cholera_003.fasta"
 Content-Type: text/plain
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/cholera/JBMGAC01.1.fasta
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_003.fasta
 
 --boundary456--
 
 ###
 
-@file_id = b4908338-a477-497e-b16c-05a6630d7c12
+@file_id = 03b7a01d-6930-46fb-aa9e-f865a9634b4f
 
 ### Step 2c: Delete uploaded file
 # @name deleteUploadedFile2
@@ -554,7 +510,7 @@ Authorization: Bearer {{token}}
 ###
 
 ### Step 6: Get Isolate Squence
-@isolate_id = c1e76f05-7614-425e-b46c-ee78ce805772
+@isolate_id = 777573a6-1c85-4239-8426-6d7b4627d313
 # @name getIsolateSequence2
 GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/isolates/{{isolate_id}}/sequence
 Authorization: Bearer {{token}}
@@ -626,19 +582,14 @@ Content-Type: application/json
 
 
 
-###
 
 
 
-
-
-
-
-
-
-
-
-
+#############################################################################
+### HERE BE DRAGONS 
+#############################################################################
+### HERE BE DRAGONS
+#############################################################################
 
 
 ##########################
@@ -876,6 +827,48 @@ User-Agent: RestClient/2.1.0 (darwin20 x86_64) ruby/2.7.6p219
 
 
 
+##########################
+### STUDIES
+##########################
+
+# @name list_studies
+GET {{folio}}/studies
+Authorization: Bearer {{token}}
+
+###
+
+# @study_id = dirk-mpox-1
+
+# @name create_study
+POST {{folio}}/studies/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "studyId": "{{study_id}}",
+    "name": "{{study_id}}", 
+    "description": "",
+    "projectId": "{{project_id}}",
+    "info": {
+        "projectType": "genomics",
+        "region": "South Africa"
+    }
+}
+
+##########################
+### SONG
+##########################
+
+# @name get_studies_in_song
+GET {{song}}/studies/all
+Authorization: Bearer {{token}}
+
+
+###
+
+# @name get_study_in_song
+GET {{song}}/studies/{{study_id}}
+Authorization: Bearer {{token}}
 
 
 
