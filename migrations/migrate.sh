@@ -8,8 +8,7 @@ export PGPASSWORD="${DB_PASSWORD:-folio-db-pass-123}"
 
 FILES=(
     "migrations/06-11-25-add-schema-and-version-to-pathogens.sql"
-    # "07-11-25-next-migration.sql"
-    # "08-11-25-another-migration.sql"
+    "migrations/13-11-2025-submission-workflow-updates.sql"
 )
 
 for file in "${FILES[@]}"; do
