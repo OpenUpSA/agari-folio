@@ -461,7 +461,135 @@ def get_minio_client(self):
 ### VALIDATION HELPERS
 ##############################
 
-def validate_against_schema(data, schema):
+def validate_sample_file_correspondence(submission_id, samples):
+    """
+    Validate that every sample has a corresponding FASTA sequence.
+    Returns (success: bool, errors: list)
+    """
+    try:
+        # Get FASTA files for this submission
+        with get_db_cursor() as cursor:
+            cursor.execute("""
+                SELECT * FROM submission_files 
+                WHERE submission_id = %s AND file_type = 'fasta'
+            """, (submission_id,))
+            fasta_files = cursor.fetchall()
+        
+        if not fasta_files:
+            return False, ["No FASTA files found for validation"]
+        
+        # Build a map of available sequences by streaming each FASTA file
+        available_sequences = set()
+        
+        # Get MinIO client and settings
+        minio_endpoint = settings.MINIO_ENDPOINT
+        minio_access_key = settings.MINIO_ACCESS_KEY
+        minio_secret_key = settings.MINIO_SECRET_KEY
+        minio_secure = settings.MINIO_SECURE
+        
+        minio_client = Minio(
+            endpoint=minio_endpoint,
+            access_key=minio_access_key,
+            secret_key=minio_secret_key,
+            secure=minio_secure
+        )
+        
+        minio_bucket = settings.MINIO_BUCKET
+        
+        for fasta_file in fasta_files:
+            try:
+                print(f"Processing FASTA file: {fasta_file['filename']}")
+                
+                # Stream read the FASTA file to extract headers
+                fasta_object = minio_client.get_object(
+                    bucket_name=minio_bucket,
+                    object_name=fasta_file['object_id']
+                )
+                
+                # Stream process the FASTA file line by line
+                remaining_data = b""
+                for chunk in fasta_object.stream(1024 * 1024):  # 1MB chunks
+                    # Combine with any remaining data from previous chunk
+                    data_chunk = remaining_data + chunk
+                    
+                    # Split into lines, keeping incomplete last line for next iteration
+                    lines = data_chunk.split(b'\n')
+                    remaining_data = lines[-1]  # This might be incomplete
+                    
+                    # Process complete lines
+                    for line_bytes in lines[:-1]:
+                        try:
+                            line = line_bytes.decode('utf-8').strip()
+                            if line.startswith('>'):
+                                # Extract sequence identifier from header
+                                header = line[1:].strip()
+                                available_sequences.add(header)
+                                print(f"Found FASTA header: {header}")
+                        except UnicodeDecodeError:
+                            # Skip lines that can't be decoded
+                            continue
+                
+                # Process any remaining data
+                if remaining_data:
+                    try:
+                        line = remaining_data.decode('utf-8').strip()
+                        if line.startswith('>'):
+                            header = line[1:].strip()
+                            available_sequences.add(header)
+                            print(f"Found FASTA header: {header}")
+                    except UnicodeDecodeError:
+                        pass
+                
+                fasta_object.close()
+                fasta_object.release_conn()
+                
+            except Exception as e:
+                return False, [f"Error reading FASTA file {fasta_file['filename']}: {str(e)}"]
+        
+        print(f"Total FASTA headers found: {len(available_sequences)}")
+        
+        # Validate each sample against available sequences
+        missing_sequences = []
+        for i, sample in enumerate(samples):
+            isolate_id = sample.get('isolate_id', '')
+            fasta_header_name = sample.get('fasta_header_name', '')
+            
+            # Try to find this sample in available sequences
+            # Check for exact matches or partial matches
+            sample_found = False
+            
+            # First try exact match with fasta_header_name
+            if fasta_header_name in available_sequences:
+                sample_found = True
+            else:
+                # Try partial matches - look for isolate_id or fasta_header_name in sequence headers
+                for seq_header in available_sequences:
+                    if (isolate_id and isolate_id in seq_header) or \
+                       (fasta_header_name and fasta_header_name in seq_header):
+                        sample_found = True
+                        break
+            
+            if not sample_found:
+                missing_sequences.append({
+                    "row": i + 1,  # 1-based row numbering for user clarity
+                    "isolate_id": isolate_id,
+                    "fasta_header_name": fasta_header_name,
+                    "error": f"No corresponding FASTA sequence found for isolate_id: '{isolate_id}' or fasta_header_name: '{fasta_header_name}'"
+                })
+        
+        if missing_sequences:
+            print(f"Found {len(missing_sequences)} samples without corresponding FASTA sequences")
+            return False, missing_sequences
+        
+        print("All samples have corresponding FASTA sequences")
+        return True, []
+        
+    except Exception as e:
+        print(f"File correspondence validation error: {str(e)}")
+        return False, [f"File correspondence validation failed: {str(e)}"]
+
+
+def validate_against_schema(data, schema, submission_id=None):
     # load json schema file
     schemas = load_json_schema("schemas-all.json")
 
@@ -517,11 +645,115 @@ def validate_against_schema(data, schema):
             }
             all_errors.append(error_obj)
     
-    print(f"Total errors found: {len(all_errors)}")
+    print(f"Total schema errors found: {len(all_errors)}")
+    
+    # If schema validation passed and we have a submission_id, validate file correspondence
+    if not all_errors and submission_id:
+        print("Schema validation passed, checking file correspondence...")
+        file_validation_result = validate_sample_file_correspondence(submission_id, data["samples"])
+        
+        if not file_validation_result[0]:
+            # File correspondence validation failed
+            # Convert file validation errors to same format as schema errors
+            for file_error in file_validation_result[1]:
+                if isinstance(file_error, dict):
+                    all_errors.append(file_error)
+                else:
+                    # Handle string errors
+                    all_errors.append({
+                        "row": "N/A",
+                        "field": "file_correspondence",
+                        "value": "",
+                        "error": str(file_error),
+                        "description": "File correspondence validation"
+                    })
+    
+    print(f"Total validation errors found: {len(all_errors)}")
     
     if all_errors:
         return False, all_errors
     return True, None
+
+##############################
+### ASYNC VALIDATION HELPERS
+##############################
+
+def perform_validation(submission_id, tsv_json, async_mode=False):
+    """Actual validation logic"""
+    try:
+        data = {"samples": tsv_json}
+        validation = validate_against_schema(data, {"schema": 'cholera_schema', "version": 1}, submission_id)
+        
+        if validation[0] == False:
+            return {
+                'status': 'error',
+                'validation_errors': validation[1]
+            }
+        else:
+            return {
+                'status': 'validated',
+                'validation_warnings': validation[1] if validation[1] else []
+            }
+    except Exception as e:
+        print(f"Validation error: {str(e)}")
+        return {
+            'status': 'error',
+            'validation_errors': [f'Validation failed: {str(e)}']
+        }
+
+
+def perform_async_validation(submission_id, tsv_json):
+    """Background validation function"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        print(f"Starting async validation for submission {submission_id}")
+        result = perform_validation(submission_id, tsv_json, async_mode=True)
+        
+        # Update database with final result
+        with get_db_cursor() as cursor:
+            if result['status'] == 'validated':
+                cursor.execute("""
+                    UPDATE submissions 
+                    SET status = 'validated', updated_at = NOW()
+                    WHERE id = %s
+                """, (submission_id,))
+                print(f"Async validation completed successfully for submission {submission_id}")
+            else:
+                cursor.execute("""
+                    UPDATE submissions 
+                    SET status = 'error', updated_at = NOW()
+                    WHERE id = %s
+                """, (submission_id,))
+                print(f"Async validation failed for submission {submission_id}: {result.get('validation_errors', [])}")
+                
+        # Log the validation completion
+        log_submission(
+            submission_id, 
+            None,  # user_id not available in async context
+            result['status'], 
+            f"Async validation completed: {result['status']}"
+        )
+                
+    except Exception as e:
+        logger.exception(f"Background validation failed for submission {submission_id}: {str(e)}")
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    UPDATE submissions 
+                    SET status = 'error', updated_at = NOW()
+                    WHERE id = %s
+                """, (submission_id,))
+            
+            log_submission(
+                submission_id, 
+                None, 
+                'error', 
+                f"Async validation exception: {str(e)}"
+            )
+        except Exception as db_error:
+            logger.exception(f"Failed to update submission status after validation error: {str(db_error)}")
 
 ##############################
 ### SPLIT WORK

@@ -27,6 +27,8 @@ from helpers import (
     role_project_member,
     role_org_member,
     validate_against_schema,
+    perform_validation,
+    perform_async_validation,
     split_submission,
     get_isolate_fasta,
     get_isolate_from_elastic,
@@ -39,6 +41,7 @@ from helpers import (
 )
 import uuid
 import hashlib
+import threading
 from io import BytesIO
 import settings  # module import allows override via conftest.py
 from logging import getLogger
@@ -1963,9 +1966,16 @@ class ProjectSubmissionValidate2(Resource):
             minio_bucket = settings.MINIO_BUCKET
             minio_client = get_minio_client(self)
 
-            validation = {}
-
             try:
+                # Set submission status to 'validating' before starting intensive validation
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE submissions 
+                        SET status = 'validating', updated_at = NOW()
+                        WHERE id = %s
+                    """, (submission_id,))
+
+                # Read and convert TSV file
                 tsv_object = minio_client.get_object(
                     bucket_name=minio_bucket,
                     object_name=tsv_file_record['object_id']
@@ -1978,48 +1988,146 @@ class ProjectSubmissionValidate2(Resource):
                 
                 # print truncated tsv
                 print(json.dumps(tsv_json)[:500] + '...')
-
-                data = {
-                    "samples": tsv_json
-                }
-
-                validation = validate_against_schema(data, schema)
-
                 
+                # Check total file size to determine if we should use async validation
+                total_file_size = sum(f['file_size'] for f in files)
+                
+                # 50MB threshold for async validation
+                if total_file_size > 50 * 1024 * 1024:
+                    print(f"Large files detected ({total_file_size} bytes). Starting async validation...")
+                    
+                    # Start background validation
+                    validation_thread = threading.Thread(
+                        target=perform_async_validation,
+                        args=(submission_id, tsv_json),
+                        daemon=True
+                    )
+                    validation_thread.start()
+                    
+                    return {
+                        'status': 'validating',
+                        'message': 'Large files detected. Validation started in background.',
+                        'check_status_url': f'/projects/{project_id}/submissions2/{submission_id}/status'
+                    }, 202
+                else:
+                    # Perform synchronous validation for smaller files
+                    print(f"Small files ({total_file_size} bytes). Performing synchronous validation...")
+                    result = perform_validation(submission_id, tsv_json)
+                    
+                    # Update database with result
+                    with get_db_cursor() as cursor:
+                        if result['status'] == 'validated':
+                            cursor.execute("""
+                                UPDATE submissions 
+                                SET status = 'validated', updated_at = NOW()
+                                WHERE id = %s
+                            """, (submission_id,))
+                            
+                            return {
+                                'status': 'validated',
+                                'validation_warnings': result.get('validation_warnings', [])
+                            }, 200
+                        else:
+                            cursor.execute("""
+                                UPDATE submissions 
+                                SET status = 'error', updated_at = NOW()
+                                WHERE id = %s
+                            """, (submission_id,))
+                            
+                            return {
+                                'status': 'error',
+                                'validation_errors': result.get('validation_errors', [])
+                            }, 400
 
-                if validation[0] == False:
+            except Exception as e:
+                logger.exception(f"Error during validation of submission {submission_id}: {str(e)}")
+                
+                # Update submission status to error
+                try:
                     with get_db_cursor() as cursor:
                         cursor.execute("""
                             UPDATE submissions 
                             SET status = 'error', updated_at = NOW()
                             WHERE id = %s
                         """, (submission_id,))
+                except Exception as db_error:
+                    logger.exception(f"Failed to update submission status: {str(db_error)}")
                     
-                    return {
-                        'status': 'error',
-                        'validation_errors': validation[1]
-                    }, 400
-            
-                else:
-                    with get_db_cursor() as cursor:
-                        cursor.execute("""
-                            UPDATE submissions 
-                            SET status = 'validated', updated_at = NOW()
-                            WHERE id = %s
-                        """, (submission_id,))
-                    
-                    return {
-                        'status': 'validated',
-                        'validation_warnings': validation[1]
-                    }, 200
-
-            except Exception as e:
-                logger.exception(f"Error validating submission {submission_id}: {str(e)}")
-            return {'error': f'Validation failed: {str(e)}'}, 500
+                return {'error': f'Validation failed: {str(e)}'}, 500
 
         except Exception as e:
-            logger.exception(f"Error during validation of submission {submission_id}: {str(e)}")
-            return {'error': f'Validation failed: {str(e)}'}, 500
+            logger.exception(f"Error during validation setup for submission {submission_id}: {str(e)}")
+            return {'error': f'Validation setup failed: {str(e)}'}, 500
+
+
+@project_ns.route('/<string:project_id>/submissions2/<string:submission_id>/status')
+class ProjectSubmissionStatus(Resource):
+
+    ### GET /projects/<project_id>/submissions2/<submission_id>/status
+
+    @api.doc('get_submission_status')
+    @require_auth(keycloak_auth)
+    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
+    def get(self, project_id, submission_id):
+        """Get current submission status and progress information"""
+        
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, status, created_at, updated_at, name
+                    FROM submissions
+                    WHERE id = %s AND project_id = %s
+                """, (submission_id, project_id))
+                
+                submission = cursor.fetchone()
+                if not submission:
+                    return {'error': 'Submission not found'}, 404
+                
+                # Get file count for additional context
+                cursor.execute("""
+                    SELECT COUNT(*) as file_count,
+                           SUM(CASE WHEN file_type = 'tsv' THEN 1 ELSE 0 END) as tsv_count,
+                           SUM(CASE WHEN file_type = 'fasta' THEN 1 ELSE 0 END) as fasta_count,
+                           SUM(file_size) as total_size
+                    FROM submission_files
+                    WHERE submission_id = %s
+                """, (submission_id,))
+                
+                file_stats = cursor.fetchone()
+                
+                response = {
+                    'submission_id': submission_id,
+                    'name': submission['name'],
+                    'status': submission['status'],
+                    'created_at': submission['created_at'],
+                    'last_updated': submission['updated_at'],
+                    'file_stats': {
+                        'total_files': file_stats['file_count'] or 0,
+                        'tsv_files': file_stats['tsv_count'] or 0,
+                        'fasta_files': file_stats['fasta_count'] or 0,
+                        'total_size_bytes': file_stats['total_size'] or 0
+                    }
+                }
+                
+                # Add status-specific information
+                if submission['status'] == 'validating':
+                    response['message'] = 'Validation in progress. Please check back in a few minutes.'
+                elif submission['status'] == 'error':
+                    response['message'] = 'Validation failed. Check validation errors.'
+                elif submission['status'] == 'validated':
+                    response['message'] = 'Validation completed successfully.'
+                    response['actions'] = {
+                        'can_finalize': True,
+                        'finalize_url': f'/projects/{project_id}/submissions/{submission_id}/finalise'
+                    }
+                elif submission['status'] == 'draft':
+                    response['message'] = 'Upload files and validate to proceed.'
+                
+                return response
+                
+        except Exception as e:
+            logger.exception(f"Error checking submission status: {str(e)}")
+            return {'error': f'Status check failed: {str(e)}'}, 500
 
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/finalise')
@@ -2078,6 +2186,8 @@ class ProjectSubmissionFinalise(Resource):
                     minio_bucket = settings.MINIO_BUCKET
                     saved_fastas = []
                     failed_fastas = []
+                    indexed_samples = 0
+                    failed_samples = 0
 
                     for isolate in isolates:
                         
@@ -2141,9 +2251,6 @@ class ProjectSubmissionFinalise(Resource):
                             # Elasticsearch indexing
 
                             try:
-                                indexed_samples = 0
-                                failed_samples = 0
-
                                 isolate_data = dict(isolate)
 
                                 isolate_data['object_id'] = fasta_object_id
@@ -2172,6 +2279,7 @@ class ProjectSubmissionFinalise(Resource):
 
                             except Exception as es_error:
                                 logger.exception(f"Failed to index isolate {isolate['id']} to Elasticsearch: {str(es_error)}")
+                                failed_samples += 1
                             
 
 

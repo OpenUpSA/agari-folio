@@ -341,34 +341,7 @@
             "type": "string",
             "description": "describes the identifier assigned to a BioSample in International Nucleotide Sequence Database Collaboration (INSDC) archives"
           },
-          "plasmids_identified": {
-            "name": "Plasmids Identified",
-            "type": "array",
-            "items": {
-              "enum": [
-                "IncC1/C2",
-                "IncA",
-                "IncF",
-                "IncC",
-                "IncA/C",
-                "pVC",
-                "pSDH-1",
-                "pSDH-2",
-                "p3iANG",
-                "Not Collected",
-                "Not performed",
-                "Missing",
-                "Not Provided",
-                "Not Applicable",
-                "Restricted Access",
-                "Other"
-              ],
-              "type": "string"
-            },
-            "minItems": 1,
-            "description": "A plasmid is an extrachromosomal, usually circular DNA molecule found in bacteria that can carry genes conferring traits such as antimicrobial resistance or virulence. This field records the presence and, if known, the specific identity or type of plasmid detected in a sample. Multiple plasmids may be present in a single isolate.",
-            "uniqueItems": true
-          },
+          
           "purpose_of_sampling": {
             "enum": [
               "Cluster/Outbreak Investigation",
