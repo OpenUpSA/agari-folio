@@ -463,7 +463,7 @@ def get_minio_client(self):
 
 def validate_against_schema(data, schema):
     # load json schema file
-    schemas = load_json_schema("schemas.json")
+    schemas = load_json_schema("schemas-all.json")
 
     resultset_schema = [
         s for s in schemas["resultSet"] if s["name"] == schema["schema"] and s["version"] == schema["version"]
@@ -474,19 +474,15 @@ def validate_against_schema(data, schema):
     
     schema_obj = resultset_schema[0]["schema"]
     
-    # print('data', [data][0])
     
     # Ensure data is always a list (TSV rows)
     if not isinstance(data["samples"], list):
         return False, "Data must be an array of TSV rows"
 
-    print(f"Validating {len(data['samples'])} rows of data")
-
     all_errors = []
     
     # Validate each row in the TSV
     for row_index, row_data in enumerate(data["samples"]):
-        # print(f"Processing row {row_index}: {list(row_data.keys()) if isinstance(row_data, dict) else type(row_data)}")
         
         # Create validator for this row
         validator = Draft7Validator(schema_obj)
