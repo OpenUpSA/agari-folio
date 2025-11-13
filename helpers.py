@@ -320,6 +320,24 @@ def access_revoked_notification(user_id):
     sendgrid_email(to_email, to_name, subject, html_content)
 
 
+def extract_invite_roles(users_list, invite_type):
+    result = []
+
+    for user in users_list:
+        user_id = user.get("user_id")
+        attributes = user.get("attributes", {})
+
+        role = None
+        for key, value in attributes.items():
+            if key.startswith(f"invite_{invite_type}role_"):
+                role = value[0] if isinstance(value, list) and value else value
+
+        if role:
+            result.append({"user_id": user_id, "invite_role": role})
+
+    return result
+
+
 def log_event(log_type, resource_id, log_entry):
     try:
         with get_db_cursor() as cursor:
@@ -336,6 +354,7 @@ def log_event(log_type, resource_id, log_entry):
         print(f"Error saving submission log: {e}")
         return False
 
+
 def check_user_id(data, param_id):
     user_id = data.get(param_id)
 
@@ -348,9 +367,11 @@ def check_user_id(data, param_id):
         return {"error": f"User {user_id} not found in Keycloak"}, 404
     return user
 
+
 #############################
 ### SUBMISSION HELPERS
 #############################
+
 
 def log_submission(submission_id, user_id, status, message):
     try:
@@ -381,9 +402,11 @@ def tsv_to_json(tsv_string):
 
     return json_list
 
+
 ##############################
 ### ELASTICSEARCH HELPERS
 ##############################
+
 
 def send_to_elastic(index, document):
     es_url = settings.ELASTICSEARCH_URL

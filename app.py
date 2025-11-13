@@ -24,6 +24,7 @@ from helpers import (
     tsv_to_json,
     role_project_member,
     role_org_member,
+    extract_invite_roles,
     send_to_elastic,
     remove_from_elastic,
     remove_samples_from_elastic,
@@ -2773,17 +2774,28 @@ class StudyAnalysisUpload(Resource):
 invite_ns = api.namespace('invites', description='Invite management endpoints')
 
 
-@invite_ns.route('/project/<string:project_id>/<string:user_id>')
+@invite_ns.route('/project/<string:project_id>')
 class ProjectInviteStatus(Resource):
-
-    ### GET /invites/<user_id> ###
+    ### GET /invites/project/<project_id> ###
 
     @api.doc('get_project_invites')
-    def get(self, project_id, user_id):
-        user = keycloak_auth.get_user(user_id)
-        if user.get("attributes"):
-            invite = user["attributes"].get(project_id, [""])[0]
-        print(invite)
+    def get(self, project_id):
+        users = keycloak_auth.get_users_by_attribute('invite_project_id', project_id)
+        user_invites = extract_invite_roles(users, "")
+        print(user_invites)
+        return user_invites, 200
+
+
+@invite_ns.route('/organisation/<string:org_id>')
+class OrgInviteStatus(Resource):
+    ### GET /invites/organisation/<org_id> ###
+
+    @api.doc('get_project_invites')
+    def get(self, org_id):
+        users = keycloak_auth.get_users_by_attribute('invite_org_id', org_id)
+        user_invites = extract_invite_roles(users, "org_")
+        print(user_invites)
+        return user_invites, 200
 
 
 @invite_ns.route('/project/<string:token>/accept')
