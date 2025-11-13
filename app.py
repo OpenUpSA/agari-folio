@@ -1916,6 +1916,10 @@ class ProjectSubmissionValidate2(Resource):
         
         try:
 
+            post_data = request.get_json()
+
+            schema = post_data.get('schema')
+
             # Get uploaded files for basic validation
             with get_db_cursor() as cursor:
                 cursor.execute("""
@@ -1979,7 +1983,7 @@ class ProjectSubmissionValidate2(Resource):
                     "samples": tsv_json
                 }
 
-                validation = validate_against_schema(data, {"schema": 'cholera_schema', "version": 1})
+                validation = validate_against_schema(data, schema)
 
                 
 
