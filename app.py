@@ -3280,7 +3280,8 @@ class PublishSubmission(Resource):
                 if not project:
                     return {'error': 'Project not found'}, 404
                 
-                privacy = project.get('privacy', 'public')
+                privacy = project.get('privacy')
+                pathogen_id = project.get('pathogen_id')
 
             # get the study_id and analysis_id from the submission record
             with get_db_cursor() as cursor:
@@ -3351,7 +3352,7 @@ class PublishSubmission(Resource):
                                 "organisationId": project.get('organisation_id'),
                                 "submissionId": clean_submission_id,
                                 "studyId": study_id,
-                                "pathogenId": project.get('pathogen_id'),
+                                "pathogenId": pathogen_id,
                                 "analysisId": analysis_id,
                                 "privacy": privacy,
                                 "publishedAt": datetime.now().isoformat(),
