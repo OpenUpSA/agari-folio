@@ -306,6 +306,19 @@ class KeycloakAuth:
             return []
     
 
+    ### GET PROJECTS PARENT ORG ###
+
+    def get_project_parent_org(self, project_id):
+        """Get the parent organisation ID for a given project ID"""
+        with get_db_cursor() as cursor:
+            cursor.execute("""
+                SELECT organisation_id FROM projects WHERE id = %s
+            """, (project_id,))
+            result = cursor.fetchone()
+            if result:
+                return result['organisation_id']
+            else:
+                return None
 
     ### GET USERS BY ATTRIBUTE ###
 
