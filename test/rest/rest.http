@@ -58,7 +58,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "email": "michael@openup.org.za",
+  "email": "test-user2@example.com",
   "client_id": "dms",
   "redirect_uri": "https://agari.openup.org.za",
   "expiration_seconds": 3600,
@@ -159,6 +159,25 @@ Content-Type: application/json
   "accepted_terms": true,
   "accepted_governance": true
 }
+
+###
+
+# @name request_email_change
+PUT {{folio}}/users/email
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "redirect_uri": "127.0.0.1",
+  "new_email": "test-user2@example.com"
+}
+
+###
+
+@inv_token = a1b06b98ea6f9715c81b4be4e0f8956a
+# @name confirm_email_change
+POST {{folio}}/invites/email/{{inv_token}}/confirm
+
 
 ##########################
 ## ORGANISATIONS
@@ -816,7 +835,7 @@ Authorization: Bearer {{token}}
 
 ### Get user by email
 # @name getUserByEmail
-GET {{keycloak}}/admin/realms/{{realm}}/users?email=michael@openup.org.za
+GET {{keycloak}}/admin/realms/{{realm}}/users?email=test-user2@example.com
 Authorization: Bearer {{token}}
 
 ###
@@ -828,7 +847,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "firstName": "Michael"
+  "firstName": "Jebadiah"
 }
 
 ### Create new user in Keycloak
@@ -853,7 +872,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "email": "michael@openup.org.za",
+  "email": "test-user2@example.com",
   "redirect_uri": "https://agari.openup.org.za/",
   "send_email": "false"
 }
