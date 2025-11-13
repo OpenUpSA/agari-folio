@@ -18,6 +18,7 @@ from helpers import (
     magic_link,
     invite_user_to_project,
     invite_user_to_org,
+    invite_email_change,
     access_revoked_notification,
     log_event,
     log_submission,
@@ -31,6 +32,7 @@ from helpers import (
     split_submission,
     get_isolate_fasta,
     get_isolate_from_elastic,
+    extract_invite_roles,
     send_to_elastic,
     remove_from_elastic,
     remove_samples_from_elastic,
@@ -269,6 +271,8 @@ class PathogenList(Resource):
             name = data.get('name')
             scientific_name = data.get('scientific_name')
             description = data.get('description')
+            schema = data.get('schema')
+            schema_version = data.get('schema_version')
             
             if not name:
                 return {'error': 'Pathogen name is required'}, 400
@@ -277,11 +281,11 @@ class PathogenList(Resource):
 
             with get_db_cursor() as cursor:
                 cursor.execute("""
-                    INSERT INTO pathogens (name, scientific_name, description)
-                    VALUES (%s, %s, %s)
+                    INSERT INTO pathogens (name, scientific_name, description, schema, schema_version)
+                    VALUES (%s, %s, %s, %s, %s)
                     RETURNING id, name, scientific_name, description, created_at
-                """, (name, scientific_name, description))
-                
+                """, (name, scientific_name, description, schema, schema_version))
+
                 new_pathogen = cursor.fetchone()
                 
                 return {
@@ -308,7 +312,7 @@ class Pathogen(Resource):
         try:
             with get_db_cursor() as cursor:
                 cursor.execute("""
-                    SELECT id, name, scientific_name, description, created_at, updated_at
+                    SELECT id, name, scientific_name, description, schema, schema_version, created_at, updated_at
                     FROM pathogens 
                     WHERE id = %s AND deleted_at IS NULL
                 """, (pathogen_id,))
@@ -398,6 +402,8 @@ class Pathogen(Resource):
             name = data.get('name')
             scientific_name = data.get('scientific_name')
             description = data.get('description')
+            schema = data.get('schema')
+            schema_version = data.get('schema_version')
             
             if not name:
                 return {'error': 'Pathogen name is required'}, 400
@@ -407,11 +413,11 @@ class Pathogen(Resource):
             with get_db_cursor() as cursor:
                 cursor.execute("""
                     UPDATE pathogens 
-                    SET name = %s, scientific_name = %s, description = %s, updated_at = NOW()
+                    SET name = %s, scientific_name = %s, description = %s, schema = %s, schema_version = %s, updated_at = NOW()
                     WHERE id = %s AND deleted_at IS NULL
-                    RETURNING id, name, scientific_name, description, updated_at
-                """, (name, scientific_name, description, pathogen_id))
-                
+                    RETURNING id, name, scientific_name, description, schema, schema_version, updated_at
+                """, (name, scientific_name, description, schema, schema_version, pathogen_id))
+
                 updated_pathogen = cursor.fetchone()
                 
                 if not updated_pathogen:
@@ -447,7 +453,7 @@ class PathogenRestore(Resource):
                     UPDATE pathogens 
                     SET deleted_at = NULL, updated_at = NOW()
                     WHERE id = %s AND deleted_at IS NOT NULL
-                    RETURNING id, name, scientific_name, description, updated_at
+                    RETURNING id, name, scientific_name, description, schema, schema_version, created_at, updated_at
                 """, (pathogen_id,))
                 
                 restored_pathogen = cursor.fetchone()
@@ -641,6 +647,36 @@ class User(Resource):
         except Exception as e:
             logger.exception(f"Error updating user {user_id}: {str(e)}")
             return {'error': f'Failed to update user: {str(e)}'}, 500
+
+
+@user_ns.route('/email')
+class UserEmail(Resource):
+    ### PUT /users/<user_id> ###
+    @user_ns.doc('changer_user_email')
+    @require_auth(keycloak_auth)
+    def put(self):
+        try:
+            data = request.get_json()
+            if not data:
+                return {"error": "No JSON data provided"}, 400
+
+            user_info = extract_user_info(request.user)
+            current_user_id = user_info.get("user_id")
+            redirect_uri = data.get("redirect_uri")
+            new_email = data.get("new_email")
+
+            if not redirect_uri:
+                return {"error": "redirect_uri is required for confirmation link"}, 400
+            if not new_email:
+                return {"error": "new_email is required for confirmation link"}, 400
+
+            # Check if user is trying to edit their own profile
+            print(user_info)
+            return invite_email_change(user_info, redirect_uri, new_email)
+        except Exception as e:
+            logger.exception(f"Changing user email failed: {str(e)}")
+            return {"error": f"Changing user email failed: {str(e)}"}, 500
+
 
 ##########################
 ### ORGANISATIONS
@@ -1882,6 +1918,10 @@ class ProjectSubmissionValidate2(Resource):
         """Validate submission files"""
         
         try:
+
+            post_data = request.get_json()
+
+            schema = post_data.get('schema')
 
             # Get uploaded files for basic validation
             with get_db_cursor() as cursor:
@@ -3423,6 +3463,7 @@ class PublishSubmission(Resource):
                                 "organisationId": project.get('organisation_id'),
                                 "submissionId": clean_submission_id,
                                 "studyId": study_id,
+                                "pathogenId": project.get('pathogen_id'),
                                 "analysisId": analysis_id,
                                 "privacy": privacy,
                                 "publishedAt": datetime.now().isoformat(),
@@ -3855,7 +3896,142 @@ class StudyAnalysisUpload(Resource):
         
 
 
+##########################
+### INVITES
+##########################
 
+invite_ns = api.namespace('invites', description='Invite management endpoints')
+
+
+@invite_ns.route('/project/<string:project_id>')
+class ProjectInviteStatus(Resource):
+    ### GET /invites/project/<project_id> ###
+
+    @api.doc('get_project_invites')
+    def get(self, project_id):
+        users = keycloak_auth.get_users_by_attribute('invite_project_id', project_id)
+        user_invites = extract_invite_roles(users, "")
+        print(user_invites)
+        return user_invites, 200
+
+
+@invite_ns.route('/organisation/<string:org_id>')
+class OrgInviteStatus(Resource):
+    ### GET /invites/organisation/<org_id> ###
+
+    @api.doc('get_project_invites')
+    def get(self, org_id):
+        users = keycloak_auth.get_users_by_attribute('invite_org_id', org_id)
+        user_invites = extract_invite_roles(users, "org_")
+        print(user_invites)
+        return user_invites, 200
+
+
+@invite_ns.route('/project/<string:token>/accept')
+class ProjectInviteConfirm(Resource):
+    ### POST /invites/project/<token>/accept ###
+
+    @api.doc('accept_project_invite')
+    def post(self, token):
+        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
+        user_id = user["user_id"]
+
+        invite_project_id = user["attributes"].get("invite_project_id", [""])[0]
+        invite_role = user["attributes"].get(f"invite_role_{invite_project_id}", [""])[0]
+
+        removed_roles = role_project_member(user_id, invite_project_id, invite_role)
+        print(f"Added project_id {invite_project_id} to role {invite_role} for user {user_id}")
+        # If not in an organisation, assign the org-partial role
+        org = keycloak_auth.get_user_org()
+        if not org:
+            project_org_id = keycloak_auth.get_project_parent_org(invite_project_id)
+            role_org_member(user_id, project_org_id, "org-partial")
+
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_project_id', invite_project_id)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_role_{invite_project_id}', invite_role)
+
+        # Get access token for the user
+        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
+        if not auth_tokens:
+            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
+
+        return {
+            'message': 'User added to project successfully',
+            'user_id': user_id,
+            'project_id': invite_project_id,
+            'new_role': invite_role,
+            'removed_roles': removed_roles,
+            'access_token': auth_tokens["access_token"],
+            'refresh_token': auth_tokens["refresh_token"]
+        }, 200
+
+
+@invite_ns.route('/organisation/<string:token>/accept')
+class OrganisationInviteConfirm(Resource):
+    ### POST /invites/organisation/<token>/accept ###
+
+    @api.doc('accept_organisation_invite')
+    def post(self, token):
+        user = keycloak_auth.get_users_by_attribute('invite_org_token', token)[0]
+        user_id = user["user_id"]
+
+        invite_org_id = user["attributes"].get("invite_org_id", [""])[0]
+        invite_org_role = user["attributes"].get(f"invite_org_role_{invite_org_id}", [""])[0]
+
+        result = role_org_member(user_id, invite_org_id, invite_org_role)
+
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_org_id', invite_org_id)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_org_role_{invite_org_id}', invite_org_role)
+
+        if invite_org_role == 'org-owner':
+            user_attr = keycloak_auth.get_user_attributes(user_id)
+            # Downgrade previous owner to org-admin
+            role_org_member(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
+            keycloak_auth.remove_attribute_value(user_id, "invite_org_old_owner", user_attr["invite_org_old_owner"][0])
+
+        # Get access token for the user
+        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
+        if not auth_tokens:
+            return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
+
+
+
+@invite_ns.route('/email/<string:token>/confirm')
+class EmailChangeConfirm(Resource):
+    ### POST /invites/email/<token>/confirm ###
+
+    @api.doc('accept_project_invite')
+    def post(self, token):
+        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
+        user_id = user["user_id"]
+
+        invite_email = user["attributes"].get("invite_new_email", [""])[0]
+
+        success = keycloak_auth.change_username(user_id, invite_email)
+        if not success:
+            return success
+
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_new_email', invite_email)
+
+        # Get access token for the user
+        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
+        if not auth_tokens:
+            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
+
+        return {
+            'message': 'User changed email successfully',
+            'user_id': user_id,
+            'new_email': invite_email,
+            'previous_email': user["username"],
+            'access_token': auth_tokens["access_token"],
+            'refresh_token': auth_tokens["refresh_token"]
+        }, 200
 
 
 if __name__ == '__main__':
