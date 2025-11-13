@@ -259,6 +259,8 @@ class PathogenList(Resource):
             name = data.get('name')
             scientific_name = data.get('scientific_name')
             description = data.get('description')
+            schema = data.get('schema')
+            schema_version = data.get('schema_version')
             
             if not name:
                 return {'error': 'Pathogen name is required'}, 400
@@ -267,11 +269,11 @@ class PathogenList(Resource):
 
             with get_db_cursor() as cursor:
                 cursor.execute("""
-                    INSERT INTO pathogens (name, scientific_name, description)
-                    VALUES (%s, %s, %s)
+                    INSERT INTO pathogens (name, scientific_name, description, schema, schema_version)
+                    VALUES (%s, %s, %s, %s, %s)
                     RETURNING id, name, scientific_name, description, created_at
-                """, (name, scientific_name, description))
-                
+                """, (name, scientific_name, description, schema, schema_version))
+
                 new_pathogen = cursor.fetchone()
                 
                 return {
@@ -298,7 +300,7 @@ class Pathogen(Resource):
         try:
             with get_db_cursor() as cursor:
                 cursor.execute("""
-                    SELECT id, name, scientific_name, description, created_at, updated_at
+                    SELECT id, name, scientific_name, description, schema, schema_version, created_at, updated_at
                     FROM pathogens 
                     WHERE id = %s AND deleted_at IS NULL
                 """, (pathogen_id,))
@@ -388,6 +390,8 @@ class Pathogen(Resource):
             name = data.get('name')
             scientific_name = data.get('scientific_name')
             description = data.get('description')
+            schema = data.get('schema')
+            schema_version = data.get('schema_version')
             
             if not name:
                 return {'error': 'Pathogen name is required'}, 400
@@ -397,11 +401,11 @@ class Pathogen(Resource):
             with get_db_cursor() as cursor:
                 cursor.execute("""
                     UPDATE pathogens 
-                    SET name = %s, scientific_name = %s, description = %s, updated_at = NOW()
+                    SET name = %s, scientific_name = %s, description = %s, schema = %s, schema_version = %s, updated_at = NOW()
                     WHERE id = %s AND deleted_at IS NULL
-                    RETURNING id, name, scientific_name, description, updated_at
-                """, (name, scientific_name, description, pathogen_id))
-                
+                    RETURNING id, name, scientific_name, description, schema, schema_version, updated_at
+                """, (name, scientific_name, description, schema, schema_version, pathogen_id))
+
                 updated_pathogen = cursor.fetchone()
                 
                 if not updated_pathogen:
@@ -437,7 +441,7 @@ class PathogenRestore(Resource):
                     UPDATE pathogens 
                     SET deleted_at = NULL, updated_at = NOW()
                     WHERE id = %s AND deleted_at IS NOT NULL
-                    RETURNING id, name, scientific_name, description, updated_at
+                    RETURNING id, name, scientific_name, description, schema, schema_version, created_at, updated_at
                 """, (pathogen_id,))
                 
                 restored_pathogen = cursor.fetchone()
