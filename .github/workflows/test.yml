@@ -56,10 +56,6 @@ jobs:
     - name: Install MJML
       run: npm install -g mjml
 
-    - name: Run migrations
-      run: |
-        ./migrations/migrate.sh
-
     - name: Run tests
       run: |
         pytest -v

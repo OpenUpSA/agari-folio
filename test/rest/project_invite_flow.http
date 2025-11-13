@@ -63,8 +63,3 @@ Content-Type: application/json
 
 # @name accept_project_invite
 POST {{folio}}/invites/project/{{inv_token}}/accept
-
-###
-
-# @name get_project_invites
-GET {{folio}}/invites/project/{{project_id}}

@@ -306,19 +306,6 @@ class KeycloakAuth:
             return []
     
 
-    ### GET PROJECTS PARENT ORG ###
-
-    def get_project_parent_org(self, project_id):
-        """Get the parent organisation ID for a given project ID"""
-        with get_db_cursor() as cursor:
-            cursor.execute("""
-                SELECT organisation_id FROM projects WHERE id = %s
-            """, (project_id,))
-            result = cursor.fetchone()
-            if result:
-                return result['organisation_id']
-            else:
-                return None
 
     ### GET USERS BY ATTRIBUTE ###
 
@@ -869,7 +856,6 @@ class KeycloakAuth:
         user['enabled'] = False
         requests.put(user_url, headers=headers, json=user)
 
-
     def get_user_access_token(self, user_id):
         """Get an access token for a specific user using token exchange or admin token"""
         try:
@@ -933,68 +919,6 @@ class KeycloakAuth:
         except Exception as e:
             print(f"Error getting user refresh token: {str(e)}")
             return None
-
-
-    def change_username(self, user_id, new_username):
-        admin_token = self.get_admin_token()
-        if not admin_token:
-            return {'success': False, 'error': 'Could not get admin token'}
-        try:
-            # First check if the new username is already taken
-            check_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users"
-            headers = {
-                'Authorization': f'Bearer {admin_token}',
-                'Content-Type': 'application/json'
-            }
-
-            # Search for existing user with the new username
-            check_params = {'username': new_username, 'exact': 'true'}
-            check_response = requests.get(check_url, headers=headers, params=check_params)
-            check_response.raise_for_status()
-
-            existing_users = check_response.json()
-            if existing_users:
-                # Check if it's the same user (updating to same username)
-                if len(existing_users) == 1 and existing_users[0]['id'] == user_id:
-                    return {'success': True, 'message': 'Username is already set to this value'}
-                else:
-                    return {'success': False, 'error': 'Username already exists'}
-
-            # Get current user data
-            user_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users/{user_id}"
-            response = requests.get(user_url, headers=headers)
-            response.raise_for_status()
-
-            user = response.json()
-            old_username = user.get('username')
-
-            # Update the username
-            user['username'] = new_username
-
-            # Send update request
-            update_response = requests.put(user_url, headers=headers, json=user)
-            update_response.raise_for_status()
-
-            return {
-                'success': True,
-                'message': f'Username changed from "{old_username}" to "{new_username}"',
-                'old_username': old_username,
-                'new_username': new_username
-            }
-        except requests.RequestException as e:
-            error_msg = f"Error changing username: {e}"
-            if hasattr(e, 'response') and e.response is not None:
-                try:
-                    error_detail = e.response.json()
-                    if 'errorMessage' in error_detail:
-                        error_msg = f"Keycloak error: {error_detail['errorMessage']}"
-                    elif 'error_description' in error_detail:
-                        error_msg = f"Keycloak error: {error_detail['error_description']}"
-                except:
-                    pass
-            return {'success': False, 'error': error_msg}
-        except Exception as e:
-            return {'success': False, 'error': f"Unexpected error: {str(e)}"}
 
 
 def require_auth(keycloak_auth):
