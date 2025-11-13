@@ -326,7 +326,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 # @name list_projects
-GET {{folio}}/projects?search=Dirk
+GET {{folio}}/projects
 Authorization: Bearer {{token}}
 
 ###
@@ -459,7 +459,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 @project_id = cf8ddc93-5062-424d-964a-54610bcb5c4d
-@submission_id = 69ba688f-52dc-476c-8be2-a158ebd0ca93
+@submission_id = 7ba50f1f-f97b-4488-8aa7-4799823a3373
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -477,7 +477,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "submission_name": "test"
+    "submission_name": "test2"
 }
 
 ###
@@ -560,6 +560,86 @@ GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/isolates/{{i
 Authorization: Bearer {{token}}
 
 ###
+
+### Step 7: Publish Submission
+# @name publishSubmission2
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/publish2
+Authorization: Bearer {{token}}
+
+###
+
+### Step 8: Unpublish Submission
+# @name unpublishSubmission2
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/unpublish2
+Authorization: Bearer {{token}}
+
+###
+
+
+##########################
+### ELASTICSEARCH
+##########################
+
+# @name list_all_indices
+GET http://localhost:9200/_cat/indices?v
+Content-Type: application/json
+
+###
+
+# @name delete_indexed_samples
+POST http://localhost:9200/agari-samples/_delete_by_query
+Content-Type: application/json
+
+{
+  "query": {
+    "match_all": {}
+  }
+}
+
+###
+
+# @name get_all_indexed_samples
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "match_all": {}
+  }
+}
+
+###
+
+# @name search_by_study_id
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "term": {
+      "geo_loc_name_country.keyword": "South Africa"
+    },
+  }
+}
+
+
+
+###
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ##########################
 ### SUBMISSIONS
@@ -794,45 +874,6 @@ User-Agent: RestClient/2.1.0 (darwin20 x86_64) ruby/2.7.6p219
 ###
 
 
-##########################
-### ELASTICSEARCH
-##########################
-
-# @name list_all_indices
-GET http://localhost:9200/_cat/indices?v
-Content-Type: application/json
-
-###
-
-# @name get_all_indexed_samples
-POST {{folio}}/search/
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{
-  "query": {
-    "match_all": {}
-  }
-}
-
-###
-
-# @name search_by_study_id
-POST {{folio}}/search/
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{
-  "query": {
-    "term": {
-      "geo_loc_name_country.keyword": "South Africa"
-    },
-  }
-}
-
-
-
-###
 
 
 

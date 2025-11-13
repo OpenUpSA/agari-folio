@@ -28,6 +28,7 @@ from helpers import (
     validate_against_schema,
     split_submission,
     get_isolate_fasta,
+    get_isolate_from_elastic,
     send_to_elastic,
     remove_from_elastic,
     remove_samples_from_elastic,
@@ -1734,7 +1735,7 @@ class ProjectSubmissionFiles2(Resource):
             try:
                 # Get MinIO credentials and upload
                 minio_bucket = settings.MINIO_BUCKET 
-                minio_client = get_minio_client()
+                minio_client = get_minio_client(self)
                 
                 # Upload to MinIO with object_id as the key
                 from io import BytesIO
@@ -1875,21 +1876,9 @@ class ProjectSubmissionValidate2(Resource):
     @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
     def post(self, project_id, submission_id):
 
-        """Validate submission files (simple pass-through for now)"""
+        """Validate submission files"""
         
         try:
-            # Update submission status to 'validating'
-            # with get_db_cursor() as cursor:
-            #     cursor.execute("""
-            #         UPDATE submissions 
-            #         SET status = 'validating'
-            #         WHERE id = %s AND project_id = %s
-            #         RETURNING *
-            #     """, (submission_id, project_id))
-                
-            #     submission = cursor.fetchone()
-            #     if not submission:
-            #         return {'error': 'Submission not found'}, 404
 
             # Get uploaded files for basic validation
             with get_db_cursor() as cursor:
@@ -1934,6 +1923,8 @@ class ProjectSubmissionValidate2(Resource):
             minio_bucket = settings.MINIO_BUCKET
             minio_client = get_minio_client(self)
 
+            validation = {}
+
             try:
                 tsv_object = minio_client.get_object(
                     bucket_name=minio_bucket,
@@ -1949,42 +1940,45 @@ class ProjectSubmissionValidate2(Resource):
                 print(json.dumps(tsv_json)[:500] + '...')
 
                 data = {
-                    "studyId": "test",
-                    "analysisType": {
-                        "name": "cholera_schema",
-                        "version": 4
-                    },
-                    "files": [
-                        {
-                        "fileName": "sequence.fasta",
-                        "fileType": "FASTA",
-                        "fileSize": 1544,
-                        "fileMd5sum": "70d264d6fcb968cae55c90902923413e",
-                        "fileAccess": "open",
-                        "dataType": "Genome"
-                        }
-                    ],
                     "samples": tsv_json
                 }
 
-                validation = validate_against_schema(data, {"schema": 'cholera_schema', "version": 4})
+                validation = validate_against_schema(data, {"schema": 'cholera_schema', "version": 1})
 
-                return {
-                    'status': 'validated',
-                    'validation_results': validation
-                }, 200
-
-            except Exception as minio_error:
                 
-                return {
-                    'status': 'error',
-                    'validation_errors': [f'Failed to retrieve TSV file']
-                }, 500
 
+                if validation[0] == False:
+                    with get_db_cursor() as cursor:
+                        cursor.execute("""
+                            UPDATE submissions 
+                            SET status = 'error', updated_at = NOW()
+                            WHERE id = %s
+                        """, (submission_id,))
+                    
+                    return {
+                        'status': 'error',
+                        'validation_errors': validation[1]
+                    }, 400
             
+                else:
+                    with get_db_cursor() as cursor:
+                        cursor.execute("""
+                            UPDATE submissions 
+                            SET status = 'validated', updated_at = NOW()
+                            WHERE id = %s
+                        """, (submission_id,))
+                    
+                    return {
+                        'status': 'validated',
+                        'validation_warnings': validation[1]
+                    }, 200
+
+            except Exception as e:
+                logger.exception(f"Error validating submission {submission_id}: {str(e)}")
+            return {'error': f'Validation failed: {str(e)}'}, 500
+
         except Exception as e:
-            # Update to error status
-            logger.exception(f"Error validating submission {submission_id}: {str(e)}")
+            logger.exception(f"Error during validation of submission {submission_id}: {str(e)}")
             return {'error': f'Validation failed: {str(e)}'}, 500
 
 
@@ -2004,8 +1998,10 @@ class ProjectSubmissionFinalise(Resource):
             # Get submission details and verify it exists and belongs to the project
             with get_db_cursor() as cursor:
                 cursor.execute("""
-                    SELECT * FROM submissions 
-                    WHERE id = %s AND project_id = %s
+                    SELECT s.*, p.privacy, p.organisation_id 
+                    FROM submissions s
+                    LEFT JOIN projects p ON s.project_id = p.id
+                    WHERE s.id = %s AND s.project_id = %s
                 """, (submission_id, project_id))
                 
                 submission = cursor.fetchone()
@@ -2013,9 +2009,9 @@ class ProjectSubmissionFinalise(Resource):
                     return {'error': 'Submission not found'}, 404
                 
                 # Check if submission is in a valid state for finalisation
-                if submission['status'] != 'ready':
+                if submission['status'] != 'validated':
                     return {
-                        'error': f"Cannot finalise submission with status '{submission['status']}'. Must be 'ready'."
+                        'error': f"Cannot finalise submission with status '{submission['status']}'."
                     }, 400
             
             # Call the split_submission function
@@ -2101,7 +2097,44 @@ class ProjectSubmissionFinalise(Resource):
                             })
                             
                             logger.info(f"Saved FASTA for isolate {isolate['id']} to MinIO with object_id {fasta_object_id}")
+
+                            # Elasticsearch indexing
+
+                            try:
+                                indexed_samples = 0
+                                failed_samples = 0
+
+                                isolate_data = dict(isolate)
+
+                                isolate_data['object_id'] = fasta_object_id
+
+                                # Convert datetime objects to ISO format strings
+                                for key, value in isolate_data.items():
+                                    if isinstance(value, datetime):
+                                        isolate_data[key] = value.isoformat()
+                                    elif isinstance(value, date):
+                                        isolate_data[key] = value.isoformat()
+
+                                # index to elasticsearch
+                                sample_doc = {
+                                    "project_id": project_id,
+                                    "organisation_id": submission.get('organisation_id'),
+                                    "privacy": submission.get('privacy'),
+                                    "status": submission.get('status'),
+                                    **isolate_data
+                                }
+                                    
+                                # Index this sample document
+                                if send_to_elastic("agari-samples", sample_doc):
+                                    indexed_samples += 1
+                                else:
+                                    failed_samples += 1
+
+                            except Exception as es_error:
+                                logger.exception(f"Failed to index isolate {isolate['id']} to Elasticsearch: {str(es_error)}")
                             
+
+
                         except Exception as fasta_error:
                             logger.exception(f"Failed to process FASTA for isolate {isolate['id']}: {str(fasta_error)}")
                             failed_fastas.append({
@@ -2126,7 +2159,9 @@ class ProjectSubmissionFinalise(Resource):
                     'fastas_saved': len(saved_fastas),
                     'fastas_failed': len(failed_fastas),
                     'saved_fastas': saved_fastas,
-                    'failed_fastas': failed_fastas if failed_fastas else None
+                    'failed_fastas': failed_fastas if failed_fastas else None,
+                    'indexed_samples': indexed_samples,
+                    'failed_samples': failed_samples if failed_samples else None
                 }, 200
             else:
                 return {'error': message}, 400
@@ -2239,6 +2274,133 @@ class ProjectSubmissionIsolate(Resource):
             return {'error': f'Failed to get download URL: {str(e)}'}, 500
 
 
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/publish2')
+class ProjectSubmissionPublish2(Resource):
+
+    ### POST /projects/<project_id>/submissions2/<submission_id>/publish2 ###
+
+    @api.doc('publish_submission_v2')
+    @require_auth(keycloak_auth)
+    @require_permission('publish_submission', resource_type='project', resource_id_arg='project_id')
+    def post(self, project_id, submission_id):
+
+        """Publish a submission - makes isolates searchable"""
+
+        try:
+
+            if not submission_id:
+                return {'error': 'submission_id is required'}, 400
+            
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM submissions 
+                    WHERE id = %s AND project_id = %s
+                """, (submission_id, project_id))
+                
+                submission = cursor.fetchone()
+                if not submission:
+                    return {'error': 'Submission not found'}, 404
+                
+                if submission['status'] not in ['finalised', 'published']:
+                    return {
+                        'error': f"Cannot publish submission with status '{submission['status']}'."
+                    }, 400
+                
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE submissions 
+                        SET status = 'published', updated_at = NOW()
+                        WHERE id = %s
+                    """, (submission_id,))
+
+                # now we need to update the index in elasticsearch for all isolates in this submission
+                # setting status to published
+
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        SELECT * FROM isolates 
+                        WHERE submission_id = %s
+                    """, (submission_id,))
+
+                    isolates = cursor.fetchall()
+
+                    for isolate in isolates:
+                        try:
+                            # Fetch existing document from Elasticsearch
+                            es_doc = get_isolate_from_elastic(isolate['id'])
+                            print(es_doc)
+                            if es_doc:
+                                es_doc['_source']['status'] = 'published'
+                                # Re-index the updated document
+                                send_to_elastic("agari-samples", es_doc)
+                        except Exception as es_error:
+                            logger.exception(f"Failed to update isolate {isolate['id']} in Elasticsearch: {str(es_error)}")
+                
+
+            return {
+                'message': 'Submission published successfully',
+                'submission_id': submission_id,
+                'status': 'published'
+            }, 200
+
+
+        except Exception as e:
+            logger.exception(f"Error publishing submission {submission_id}: {str(e)}")
+            return {'error': f'Publication failed: {str(e)}'}, 500
+
+
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/unpublish2')
+class ProjectSubmissionUnpublish2(Resource):
+
+    ### POST /projects/<project_id>/submissions2/<submission_id>/unpublish2 ###
+
+    @api.doc('unpublish_submission_v2')
+    @require_auth(keycloak_auth)
+    @require_permission('publish_submission', resource_type='project', resource_id_arg='project_id')
+    def post(self, project_id, submission_id):
+
+        """Unpublish a submission - makes isolates non-searchable"""
+
+        try:
+
+            if not submission_id:
+                return {'error': 'submission_id is required'}, 400
+            
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM submissions 
+                    WHERE id = %s AND project_id = %s
+                """, (submission_id, project_id))
+                
+                submission = cursor.fetchone()
+                if not submission:
+                    return {'error': 'Submission not found'}, 404
+                
+                if submission['status'] != 'published':
+                    return {
+                        'error': f"Cannot unpublish submission with status '{submission['status']}'."
+                    }, 400
+                
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE submissions 
+                        SET status = 'finalised', updated_at = NOW()
+                        WHERE id = %s
+                    """, (submission_id,))
+
+            return {
+                'message': 'Submission unpublished successfully',
+                'submission_id': submission_id,
+                'status': 'finalised'
+            }, 200
+
+
+        except Exception as e:
+            logger.exception(f"Error unpublishing submission {submission_id}: {str(e)}")
+            return {'error': f'Unpublication failed: {str(e)}'}, 500
+
+
+
 ###########################
 ### SEARCH
 ###########################
@@ -2299,8 +2461,8 @@ class Search(Resource):
                 data['query'] = {
                     "bool": {
                         "must": [
-                            existing_query,
-                            access_filter
+                            existing_query
+                            
                         ]
                     }
                 }

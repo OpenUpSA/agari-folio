@@ -5,7 +5,7 @@ import hashlib
 import uuid
 import requests
 import settings
-from jsonschema import validate, ValidationError
+from jsonschema import validate, ValidationError, Draft7Validator
 from flask import render_template_string
 from auth import KeycloakAuth
 from sendgrid import SendGridAPIClient
@@ -373,34 +373,32 @@ def tsv_to_json(tsv_string):
     return json_list
 
 def get_minio_client(self):
-        """Get MinIO client instance"""
-        try:
-            from minio import Minio
-            
-            # Get MinIO settings
-            minio_endpoint = settings.MINIO_ENDPOINT
-            minio_access_key = settings.MINIO_ACCESS_KEY
-            minio_secret_key = settings.MINIO_SECRET_KEY
-            minio_secure = getattr(settings, 'MINIO_SECURE', False)
-            
-            client = Minio(
-                endpoint=minio_endpoint,
-                access_key=minio_access_key,
-                secret_key=minio_secret_key,
-                secure=minio_secure
-            )
-            
-            # Ensure bucket exists
-            bucket_name = settings.MINIO_BUCKET or 'agari-data'
-            if not client.bucket_exists(bucket_name):
-                client.make_bucket(bucket_name)
-                logger.info(f"Created MinIO bucket: {bucket_name}")
-            
-            return client
-            
-        except Exception as e:
-            logger.exception(f"Failed to create MinIO client: {str(e)}")
-            raise e
+    """Get MinIO client instance"""
+    try:
+        from minio import Minio
+        
+        # Get MinIO settings
+        minio_endpoint = settings.MINIO_ENDPOINT
+        minio_access_key = settings.MINIO_ACCESS_KEY
+        minio_secret_key = settings.MINIO_SECRET_KEY
+        minio_secure = getattr(settings, 'MINIO_SECURE', False)
+        
+        client = Minio(
+            endpoint=minio_endpoint,
+            access_key=minio_access_key,
+            secret_key=minio_secret_key,
+            secure=minio_secure
+        )
+        
+        # Ensure bucket exists
+        bucket_name = settings.MINIO_BUCKET or 'agari-data'
+        if not client.bucket_exists(bucket_name):
+            client.make_bucket(bucket_name)
+        
+        return client
+        
+    except Exception as e:
+        raise e
 
 ##############################
 ### VALIDATION HELPERS
@@ -419,26 +417,58 @@ def validate_against_schema(data, schema):
     
     schema_obj = resultset_schema[0]["schema"]
     
-    # Handle both single objects and arrays (TSV rows)
-    if isinstance(data, list):
-        # Validate each row in the TSV
-        errors = []
-        for row_index, row_data in enumerate(data):
-            try:
-                validate(instance=row_data, schema=schema_obj)
-            except ValidationError as e:
-                errors.append(f"Row {row_index + 1}: {str(e)}")
+    # print('data', [data][0])
+    
+    # Ensure data is always a list (TSV rows)
+    if not isinstance(data["samples"], list):
+        return False, "Data must be an array of TSV rows"
+
+    print(f"Validating {len(data['samples'])} rows of data")
+
+    all_errors = []
+    
+    # Validate each row in the TSV
+    for row_index, row_data in enumerate(data["samples"]):
+        # print(f"Processing row {row_index}: {list(row_data.keys()) if isinstance(row_data, dict) else type(row_data)}")
         
-        if errors:
-            return False, "; ".join(errors)
-        return True, None
-    else:
-        # Single object validation
-        try:
-            validate(instance=data, schema=schema_obj)
-            return True, None
-        except ValidationError as e:
-            return False, str(e)
+        # Create validator for this row
+        validator = Draft7Validator(schema_obj)
+        
+        # Collect all validation errors for this specific row
+        for error in validator.iter_errors(row_data):
+            # Extract field name from the validation path
+            field_path = list(error.absolute_path)
+            field_name = field_path[-1] if field_path else "unknown"
+            
+            print(f"  Error in row {row_index}, field '{field_name}': {error.message}")
+            
+            # Get field description from schema if available
+            field_description = ""
+            try:
+                field_schema = schema_obj
+                for path_part in field_path:
+                    if isinstance(path_part, str) and 'properties' in field_schema:
+                        field_schema = field_schema['properties'].get(path_part, {})
+                    elif isinstance(path_part, int) and 'items' in field_schema:
+                        field_schema = field_schema['items']
+                field_description = field_schema.get('description', '')
+            except:
+                pass
+            
+            error_obj = {
+                "row": row_index,
+                "field": field_name,
+                "value": error.instance,
+                "error": error.message,
+                "description": field_description
+            }
+            all_errors.append(error_obj)
+    
+    print(f"Total errors found: {len(all_errors)}")
+    
+    if all_errors:
+        return False, all_errors
+    return True, None
 
 ##############################
 ### SPLIT WORK
@@ -456,12 +486,12 @@ def split_submission(submission_id):
                 SELECT s.*, p.id as project_id, p.name as project_name
                 FROM submissions s
                 LEFT JOIN projects p ON s.project_id = p.id
-                WHERE s.id = %s AND s.status = 'ready'
+                WHERE s.id = %s AND s.status = 'validated'
             """, (submission_id,))
             
             submission = cursor.fetchone()
             if not submission:
-                return False, "Submission not found or not ready"
+                return False, "Submission not found or not validated"
             
             # Get TSV files for this submission
             cursor.execute("""
@@ -512,7 +542,7 @@ def split_submission(submission_id):
                         """, (
                             submission_id,
                             sample.get('isolate_id'),
-                            'b4908338-a477-497e-b16c-05a6630d7c12',
+                            None,
                             json.dumps(sample),
                         ))
                         total_samples_processed += 1
@@ -520,13 +550,7 @@ def split_submission(submission_id):
             except Exception as file_error:
                 return False, f"Failed to process TSV file: {tsv_file['filename']} - {str(file_error)}"
         
-        # Update submission status to 'ready' after successful split
-        # with get_db_cursor() as cursor:
-        #     cursor.execute("""
-        #         UPDATE submissions 
-        #         SET status = 'finalizing', updated_at = NOW()
-        #         WHERE id = %s
-        #     """, (submission_id,))
+      
         
         return True, f"Successfully processed {total_samples_processed} samples"
         
@@ -603,10 +627,6 @@ def get_isolate_fasta(id):
         fasta_content = response.read().decode('utf-8')
         response.close()
         response.release_conn()
-
-        print("=========================")
-        print(fasta_content)
-        print("=========================")
 
         # Extract the specific sequence by header
         fasta_lines = fasta_content.splitlines()
@@ -716,6 +736,39 @@ def remove_samples_from_elastic(analysis_id):
         print(f"Error removing sample documents from Elasticsearch: {e}")
         return False
 
+def get_isolate_from_elastic(isolate_id):
+
+    es_url = settings.ELASTICSEARCH_URL
+    es_query_url = f"{es_url}/agari-samples/_search"
+
+    query_body = {
+        "query": {
+            "term": {
+                "id.keyword": isolate_id
+            }
+        }
+    }
+
+    print(query_body)
+
+    try:
+        response = requests.post(
+            es_query_url, json=query_body, headers={"Content-Type": "application/json"}
+        )
+        if response.status_code == 200:
+            result = response.json()
+            hits = result.get("hits", {}).get("hits", [])
+            if hits:
+                return hits[0]
+            else:
+                return None
+        else:
+            print(f"Failed to query Elasticsearch: {response.text}")
+            return None
+    except Exception as e:
+        print(f"Error querying Elasticsearch: {e}")
+        return None
+    
 
 def query_elastic(query_body):
     es_url = settings.ELASTICSEARCH_URL
