@@ -2,8 +2,10 @@ from email import message
 import subprocess
 import json
 import hashlib
+import uuid
 import requests
 import settings
+from jsonschema import validate, ValidationError, Draft7Validator
 from flask import render_template_string
 from auth import KeycloakAuth
 from sendgrid import SendGridAPIClient
@@ -19,8 +21,33 @@ from sendgrid.helpers.mail import (
     ContentId,
 )
 import base64
+from minio import Minio
 
 from database import get_db_cursor
+import os
+from typing import Any, Dict
+
+SCHEMAS_DIR = os.path.join(os.path.dirname(__file__), "test", "data")
+
+def load_json_schema(filename: str) -> Dict[str, Any]:
+    
+    """
+    Load a JSON Schema from the helpers/schemas directory (or absolute path).
+    Usage: schema = load_json_schema("my_schema.json") or load_json_schema("my_schema")
+    """
+
+    # allow passing either "name.json" or "name"
+    if not filename.endswith(".json"):
+        filename = f"{filename}.json"
+
+    path = filename if os.path.isabs(filename) else os.path.join(SCHEMAS_DIR, filename)
+
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+
+
 from settings import (
     SENDGRID_API_KEY,
     SENDGRID_FROM_EMAIL,
@@ -402,6 +429,288 @@ def tsv_to_json(tsv_string):
 
     return json_list
 
+def get_minio_client(self):
+    """Get MinIO client instance"""
+    try:
+        from minio import Minio
+        
+        # Get MinIO settings
+        minio_endpoint = settings.MINIO_ENDPOINT
+        minio_access_key = settings.MINIO_ACCESS_KEY
+        minio_secret_key = settings.MINIO_SECRET_KEY
+        minio_secure = getattr(settings, 'MINIO_SECURE', False)
+        
+        client = Minio(
+            endpoint=minio_endpoint,
+            access_key=minio_access_key,
+            secret_key=minio_secret_key,
+            secure=minio_secure
+        )
+        
+        # Ensure bucket exists
+        bucket_name = settings.MINIO_BUCKET or 'agari-data'
+        if not client.bucket_exists(bucket_name):
+            client.make_bucket(bucket_name)
+        
+        return client
+        
+    except Exception as e:
+        raise e
+
+##############################
+### VALIDATION HELPERS
+##############################
+
+def validate_against_schema(data, schema):
+    # load json schema file
+    schemas = load_json_schema("schemas.json")
+
+    resultset_schema = [
+        s for s in schemas["resultSet"] if s["name"] == schema["schema"] and s["version"] == schema["version"]
+    ]
+    
+    if not resultset_schema:
+        return False, f"Schema '{schema['schema']}' version {schema['version']} not found"
+    
+    schema_obj = resultset_schema[0]["schema"]
+    
+    # print('data', [data][0])
+    
+    # Ensure data is always a list (TSV rows)
+    if not isinstance(data["samples"], list):
+        return False, "Data must be an array of TSV rows"
+
+    print(f"Validating {len(data['samples'])} rows of data")
+
+    all_errors = []
+    
+    # Validate each row in the TSV
+    for row_index, row_data in enumerate(data["samples"]):
+        # print(f"Processing row {row_index}: {list(row_data.keys()) if isinstance(row_data, dict) else type(row_data)}")
+        
+        # Create validator for this row
+        validator = Draft7Validator(schema_obj)
+        
+        # Collect all validation errors for this specific row
+        for error in validator.iter_errors(row_data):
+            # Extract field name from the validation path
+            field_path = list(error.absolute_path)
+            field_name = field_path[-1] if field_path else "unknown"
+            
+            print(f"  Error in row {row_index}, field '{field_name}': {error.message}")
+            
+            # Get field description from schema if available
+            field_description = ""
+            try:
+                field_schema = schema_obj
+                for path_part in field_path:
+                    if isinstance(path_part, str) and 'properties' in field_schema:
+                        field_schema = field_schema['properties'].get(path_part, {})
+                    elif isinstance(path_part, int) and 'items' in field_schema:
+                        field_schema = field_schema['items']
+                field_description = field_schema.get('description', '')
+            except:
+                pass
+            
+            error_obj = {
+                "row": row_index,
+                "field": field_name,
+                "value": error.instance,
+                "error": error.message,
+                "description": field_description
+            }
+            all_errors.append(error_obj)
+    
+    print(f"Total errors found: {len(all_errors)}")
+    
+    if all_errors:
+        return False, all_errors
+    return True, None
+
+##############################
+### SPLIT WORK
+##############################
+
+def split_submission(submission_id):
+    """
+    Split a validated submission by reading TSV from MinIO and inserting samples into isolates table.
+    Only processes submissions with status = 'ready'.
+    """
+    try:
+        with get_db_cursor() as cursor:
+            # Get the submission details and verify status
+            cursor.execute("""
+                SELECT s.*, p.id as project_id, p.name as project_name
+                FROM submissions s
+                LEFT JOIN projects p ON s.project_id = p.id
+                WHERE s.id = %s AND s.status = 'validated'
+            """, (submission_id,))
+            
+            submission = cursor.fetchone()
+            if not submission:
+                return False, "Submission not found or not validated"
+            
+            # Get TSV files for this submission
+            cursor.execute("""
+                SELECT * FROM submission_files
+                WHERE submission_id = %s AND file_type = 'tsv'
+            """, (submission_id,))
+            
+            tsv_files = cursor.fetchall()
+            if not tsv_files:
+                return False, "No TSV files found for submission"
+        
+        
+        
+        minio_endpoint = settings.MINIO_ENDPOINT
+        minio_access_key = settings.MINIO_ACCESS_KEY
+        minio_secret_key = settings.MINIO_SECRET_KEY
+        minio_secure = settings.MINIO_SECURE
+        
+        minio_client = Minio(
+            endpoint=minio_endpoint,
+            access_key=minio_access_key,
+            secret_key=minio_secret_key,
+            secure=minio_secure
+        )
+        
+        bucket_name = settings.MINIO_BUCKET or 'agari-data'
+        total_samples_processed = 0
+        
+        # Process each TSV file
+        for tsv_file in tsv_files:
+            try:
+                # Get file from MinIO using object_id
+                response = minio_client.get_object(bucket_name, tsv_file['object_id'])
+                tsv_content = response.read().decode('utf-8')
+                response.close()
+                response.release_conn()
+                
+                # Convert TSV to JSON array
+                samples_data = tsv_to_json(tsv_content)
+                
+                # Insert each sample as an isolate
+                with get_db_cursor() as cursor:
+                    for sample in samples_data:
+                        cursor.execute("""
+                            INSERT INTO isolates (
+                                submission_id, isolate_id, object_id, isolate_data, created_at
+                            ) VALUES (%s, %s, %s, %s, NOW())
+                        """, (
+                            submission_id,
+                            sample.get('isolate_id'),
+                            None,
+                            json.dumps(sample),
+                        ))
+                        total_samples_processed += 1
+                
+            except Exception as file_error:
+                return False, f"Failed to process TSV file: {tsv_file['filename']} - {str(file_error)}"
+        
+      
+        
+        return True, f"Successfully processed {total_samples_processed} samples"
+        
+    except Exception as e:
+        print(f"Error splitting submission {submission_id}: {str(e)}")
+        
+      
+            
+        return False, f"Failed to split submission: {str(e)}"
+
+
+def get_isolate_fasta(id):
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT isolate_data
+            FROM isolates
+            WHERE id = %s AND deleted_at IS NULL
+        """,
+            (id,),
+        )
+        isolate = cursor.fetchone()
+        if not isolate:
+            return None
+
+    isolate_data = isolate["isolate_data"]
+    if isinstance(isolate_data, str):
+        isolate_data = json.loads(isolate_data)
+
+    fasta_file = isolate_data.get("fasta_file_name", "")
+    fasta_header = isolate_data.get("fasta_header_name", "")
+    isolate_sample_id = isolate_data.get("isolate_id", "")
+    isolate_sample_id = isolate_sample_id.replace("ISO_", "")
+
+    print(f"FASTA File: {fasta_file}")
+    print(f"FASTA Header: {fasta_header}")
+    print(f"Isolate Sample ID: {isolate_sample_id}")
+
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT object_id 
+            FROM submission_files 
+            WHERE filename = %s AND file_type = 'fasta'
+            ORDER BY created_at DESC 
+            LIMIT 1
+            """,
+            (fasta_file,),
+        )
+        file_record = cursor.fetchone()
+        
+        if not file_record:
+            return None
+
+    object_id = file_record["object_id"]
+
+    # Load the FASTA file from MinIO
+    minio_endpoint = settings.MINIO_ENDPOINT
+    minio_access_key = settings.MINIO_ACCESS_KEY
+    minio_secret_key = settings.MINIO_SECRET_KEY
+    minio_secure = settings.MINIO_SECURE
+
+    minio_client = Minio(
+        endpoint=minio_endpoint,
+        access_key=minio_access_key,
+        secret_key=minio_secret_key,
+        secure=minio_secure
+    )
+
+    bucket_name = settings.MINIO_BUCKET 
+
+    try:
+        response = minio_client.get_object(bucket_name, object_id)
+        fasta_content = response.read().decode('utf-8')
+        response.close()
+        response.release_conn()
+
+        # Extract the specific sequence by header
+        fasta_lines = fasta_content.splitlines()
+        sequence_lines = []
+        recording = False
+
+        for line in fasta_lines:
+            if line.startswith('>'):
+                if isolate_sample_id in line[1:].strip():
+                    recording = True
+                    sequence_lines.append(line)
+                else:
+                    if recording:
+                        break  
+            else:
+                if recording:
+                    sequence_lines.append(line)
+
+        return '\n'.join(sequence_lines)
+
+
+    except Exception as e:
+        print(f"Error loading FASTA file from MinIO: {e}")
+        return None
+
+
+
 
 ##############################
 ### ELASTICSEARCH HELPERS
@@ -485,6 +794,39 @@ def remove_samples_from_elastic(analysis_id):
         print(f"Error removing sample documents from Elasticsearch: {e}")
         return False
 
+def get_isolate_from_elastic(isolate_id):
+
+    es_url = settings.ELASTICSEARCH_URL
+    es_query_url = f"{es_url}/agari-samples/_search"
+
+    query_body = {
+        "query": {
+            "term": {
+                "id.keyword": isolate_id
+            }
+        }
+    }
+
+    print(query_body)
+
+    try:
+        response = requests.post(
+            es_query_url, json=query_body, headers={"Content-Type": "application/json"}
+        )
+        if response.status_code == 200:
+            result = response.json()
+            hits = result.get("hits", {}).get("hits", [])
+            if hits:
+                return hits[0]
+            else:
+                return None
+        else:
+            print(f"Failed to query Elasticsearch: {response.text}")
+            return None
+    except Exception as e:
+        print(f"Error querying Elasticsearch: {e}")
+        return None
+    
 
 def query_elastic(query_body):
     es_url = settings.ELASTICSEARCH_URL

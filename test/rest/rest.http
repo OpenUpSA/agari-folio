@@ -22,7 +22,7 @@
 @client_id = dms
 @client_secret = VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc
 
-# @username = system.admin@agari.tech
+@username = system.admin@agari.tech
 # @username = owner@org1.ac.za
 # @username = owner@org2.ac.za
 # @username = org-admin@org1.ac.za
@@ -30,7 +30,7 @@
 # @username = test-user1@example.com
 # @username = test-user2@example.com
 # @username = test-user3@example.com
-@username = dirk@openup.org.za
+# @username = dirk@openup.org.za
 
 @password = pass123
 
@@ -283,7 +283,7 @@ Content-Type: application/json
 
 ###
 
-@pathogen_id = 4b0cb65f-1665-4e52-9b0c-8ad8878aef2e
+@pathogen_id = 0392eece-ebfe-4a52-ae33-d400d556cd47
 
 # @name get_pathogen
 GET {{folio}}/pathogens/{{pathogen_id}}
@@ -345,7 +345,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 # @name list_projects
-GET {{folio}}/projects?search=Dirk
+GET {{folio}}/projects
 Authorization: Bearer {{token}}
 
 ###
@@ -356,7 +356,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Dirk Covid",
+    "name": "Dirk Mpox",
     "description": "",
     "pathogen_id": "{{pathogen_id}}",
     "privacy": "public"
@@ -364,7 +364,7 @@ Content-Type: application/json
 
 ###
 
-@project_id = 0a6050a3-03b3-4c67-978e-91f1b308d692
+# @project_id = cf8ddc93-5062-424d-964a-54610bcb5c4d
 
 ### @name get_project
 GET {{folio}}/projects/{{project_id}}
@@ -473,14 +473,201 @@ Authorization: Bearer {{token}}
 
 ###
 
+##########################
+### SUBMISSIONS2
+##########################
+
+@project_id = cf8ddc93-5062-424d-964a-54610bcb5c4d
+@submission_id = 7ba50f1f-f97b-4488-8aa7-4799823a3373
+
+### Step 1: Get all submission
+# @name getSubmission2
+GET {{folio}}/projects/{{project_id}}/submissions2
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+###
+
+
+### Step 1: Create new submission
+# @name createSubmission2
+POST {{folio}}/projects/{{project_id}}/submissions2
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "submission_name": "test2"
+}
+
+###
+
+### Step 2: Get the submission details
+# @name getSubmission2
+GET {{folio}}/projects/{{project_id}}/submissions2/{{submission_id}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+###
+
+
+### Step 3a: Upload TSV file 
+# @name uploadTSV2
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload2
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=boundary123
+
+--boundary123
+Content-Disposition: form-data; name="file"; filename="multiple_cholera.tsv"
+Content-Type: text/tab-separated-values
+
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/cholera/multiple_cholera.tsv
+
+--boundary123--
+
+###
+
+### Step 2b: Upload FASTA file
+# @name uploadFASTA2
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload2
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=boundary456
+
+--boundary456
+Content-Disposition: form-data; name="file"; filename="JBMGAC01.1.fasta"
+Content-Type: text/plain
+
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/cholera/JBMGAC01.1.fasta
+
+--boundary456--
+
+###
+
+@file_id = b4908338-a477-497e-b16c-05a6630d7c12
+
+### Step 2c: Delete uploaded file
+# @name deleteUploadedFile2
+DELETE {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/files2/{{file_id}}
+Authorization: Bearer {{token}}
+
+###
+
+### Step 3: Validate submission
+# @name validateSubmission2
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/validate2
+Authorization: Bearer {{token}}
+
+###
+
+### Step 4: Finalise submission
+# @name finalizeSubmission2
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/finalise
+Authorization: Bearer {{token}}
+
+###
+
+### Step 5: View isolates
+# @name getIsolatesSubmission2
+GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/isolates
+Authorization: Bearer {{token}}
+
+###
+
+### Step 6: Get Isolate Squence
+@isolate_id = c1e76f05-7614-425e-b46c-ee78ce805772
+# @name getIsolateSequence2
+GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/isolates/{{isolate_id}}/sequence
+Authorization: Bearer {{token}}
+
+###
+
+### Step 7: Publish Submission
+# @name publishSubmission2
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/publish2
+Authorization: Bearer {{token}}
+
+###
+
+### Step 8: Unpublish Submission
+# @name unpublishSubmission2
+POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/unpublish2
+Authorization: Bearer {{token}}
+
+###
+
+
+##########################
+### ELASTICSEARCH
+##########################
+
+# @name list_all_indices
+GET http://localhost:9200/_cat/indices?v
+Content-Type: application/json
+
+###
+
+# @name delete_indexed_samples
+POST http://localhost:9200/agari-samples/_delete_by_query
+Content-Type: application/json
+
+{
+  "query": {
+    "match_all": {}
+  }
+}
+
+###
+
+# @name get_all_indexed_samples
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "match_all": {}
+  }
+}
+
+###
+
+# @name search_by_study_id
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "term": {
+      "geo_loc_name_country.keyword": "South Africa"
+    },
+  }
+}
+
+
+
+###
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ##########################
 ### SUBMISSIONS
 ##########################
 
-@project_id = 0a6050a3-03b3-4c67-978e-91f1b308d692
-@submission_id = 3fa85f64-5717-4562-b3fc-2c963f66afa6
-@study_id = dirk-mpox-1
+# Test variables - uncomment and set your values
+# @project_id = 0a6050a3-03b3-4c67-978e-91f1b308d692
+# @submission_id = 3fa85f64-5717-4562-b3fc-2c963f66afa6
+# @study_id = dirk-mpox-1
 
 
 # @name getProjectSubmissions
@@ -535,7 +722,7 @@ Authorization: Bearer {{token}}
 
 ###
 
-@object_id = e353ee2a-4392-5928-9122-a4cd3fa0568a
+# @object_id = e353ee2a-4392-5928-9122-a4cd3fa0568a
 
 # @name upload_init
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/init
@@ -553,7 +740,7 @@ Content-Type: application/json
 
 # @name upload_file_to_minio
 
-@url = http://minio:9000/object/data/e353ee2a-4392-5928-9122-a4cd3fa0568a?uploadId=YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmY4ZWVhNjdmLTgwYzktNGVlZS1hOTgyLTJiNWE5MTVkODgxNA&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251109T100244Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518400&X-Amz-Credential=admin%2F20251109%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=ff57798a397bbacfc1727112b68e8ff0ea89750b1ed1805ca981d5732b7fb91f
+# @url = http://minio:9000/object/data/e353ee2a-4392-5928-9122-a4cd3fa0568a?uploadId=YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmY4ZWVhNjdmLTgwYzktNGVlZS1hOTgyLTJiNWE5MTVkODgxNA&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251109T100244Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518400&X-Amz-Credential=admin%2F20251109%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=ff57798a397bbacfc1727112b68e8ff0ea89750b1ed1805ca981d5732b7fb91f
 
 PUT {{url}}
 Content-Type: application/octet-stream
@@ -563,7 +750,7 @@ Content-Type: application/octet-stream
 
 ###
 
-@upload_id = YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmY4ZWVhNjdmLTgwYzktNGVlZS1hOTgyLTJiNWE5MTVkODgxNA
+# @upload_id = YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmY4ZWVhNjdmLTgwYzktNGVlZS1hOTgyLTJiNWE5MTVkODgxNA
 
 # @name finalise_part
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/finalise-part
@@ -631,7 +818,7 @@ GET {{url}}
 ##########################
 
 
-@analysis_id = 7bb4edfa-b7d6-4058-b4ed-fab7d620583c
+# @analysis_id = 7bb4edfa-b7d6-4058-b4ed-fab7d620583c
 
 
 # @name list_study_analyses
@@ -652,7 +839,7 @@ GET {{keycloak}}/admin/realms/{{realm}}/users?email=test-user2@example.com
 Authorization: Bearer {{token}}
 
 ###
-@user_id = 9af85893-2402-4069-95ef-16045ab5a77f
+# @user_id = 9af85893-2402-4069-95ef-16045ab5a77f
 
 ### Keycloak update user details
 PUT {{keycloak}}/admin/realms/{{realm}}/users/{{user_id}}
@@ -706,45 +893,6 @@ User-Agent: RestClient/2.1.0 (darwin20 x86_64) ruby/2.7.6p219
 ###
 
 
-##########################
-### ELASTICSEARCH
-##########################
-
-# @name list_all_indices
-GET http://localhost:9200/_cat/indices?v
-Content-Type: application/json
-
-###
-
-# @name get_all_indexed_samples
-POST {{folio}}/search/
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{
-  "query": {
-    "match_all": {}
-  }
-}
-
-###
-
-# @name search_by_study_id
-POST {{folio}}/search/
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{
-  "query": {
-    "term": {
-      "geo_loc_name_country.keyword": "South Africa"
-    },
-  }
-}
-
-
-
-###
 
 
 
@@ -753,30 +901,3 @@ Content-Type: application/json
 
 
 
-
-
-##########################
-### OLD
-##########################
-
-
-# @name upload_analysis_file_rest
-POST {{folio}}/studies/{{study_id}}/analysis/{{analysis_id}}/upload
-Authorization: Bearer {{token}}
-Content-Type: multipart/form-data; boundary=----WebKitFormBoundary123
-
-------WebKitFormBoundary123
-Content-Disposition: form-data; name="object_id"
-
-{{object_id_from_analysis}}
-------WebKitFormBoundary123
-Content-Disposition: form-data; name="overwrite"
-
-true
-------WebKitFormBoundary123
-Content-Disposition: form-data; name="file"; filename="test_data.fasta"
-Content-Type: text/plain
-
-< /media/dimee/Work/OpenUp/SANBI/agari-folio/test/LS997867.1 Vibrio cholerae strain NCTC 30 genome assembly, chromosome 1.fasta
-
-------WebKitFormBoundary123--
