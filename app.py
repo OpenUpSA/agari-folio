@@ -32,6 +32,7 @@ from helpers import (
     get_isolate_from_elastic,
     extract_invite_roles,
     send_to_elastic,
+    send_to_elastic2,
     remove_from_elastic,
     remove_samples_from_elastic,
     check_user_id,
@@ -1974,10 +1975,27 @@ class ProjectSubmissionValidate2(Resource):
 
                 for row_index, row in enumerate(tsv_json):
                     with get_db_cursor() as cursor:
+                        # Check if isolate already exists for this submission and row
                         cursor.execute("""
-                            INSERT INTO isolates (submission_id, isolate_data, tsv_row)
-                            VALUES (%s, %s, %s)
-                        """, (submission_id, json.dumps(row), row_index + 1))
+                            SELECT id FROM isolates 
+                            WHERE submission_id = %s AND tsv_row = %s
+                        """, (submission_id, row_index + 1))
+                        
+                        existing_isolate = cursor.fetchone()
+                        
+                        if existing_isolate:
+                            # Update existing isolate
+                            cursor.execute("""
+                                UPDATE isolates 
+                                SET isolate_data = %s, status = NULL, error = NULL, updated_at = NOW()
+                                WHERE submission_id = %s AND tsv_row = %s
+                            """, (json.dumps(row), submission_id, row_index + 1))
+                        else:
+                            # Insert new isolate
+                            cursor.execute("""
+                                INSERT INTO isolates (submission_id, isolate_data, tsv_row)
+                                VALUES (%s, %s, %s)
+                            """, (submission_id, json.dumps(row), row_index + 1))
                 
                 with get_db_cursor() as cursor:
                     cursor.execute("""
@@ -1994,7 +2012,6 @@ class ProjectSubmissionValidate2(Resource):
                         # Run validation against schema
                         is_valid, errors = validate_against_schema(isolate_data, isolate['tsv_row'], {'schema': schema, 'version': version})
 
-
                         if not is_valid:
                             cursor.execute("""
                                 UPDATE isolates
@@ -2008,6 +2025,19 @@ class ProjectSubmissionValidate2(Resource):
                                 WHERE id = %s
                             """, (isolate['id'],))
 
+                            cursor.execute("""
+                                SELECT i.*, s.project_id, p.pathogen_id
+                                FROM isolates i
+                                LEFT JOIN submissions s ON i.submission_id = s.id
+                                LEFT JOIN projects p ON s.project_id = p.id
+                                WHERE i.id = %s
+                            """, (isolate['id'],))
+
+                            isolate_data = cursor.fetchone()
+
+                            if isolate_data:
+                                send_to_elastic2(isolate_data)
+
                 # After validating all isolates, check if any have errors
                 with get_db_cursor() as cursor:
                     cursor.execute("""
@@ -2020,7 +2050,7 @@ class ProjectSubmissionValidate2(Resource):
                     isolates_with_errors = [iso["error"] for iso in all_isolates if iso['status'] == 'error']
 
                     return {
-                        "validated": [],
+                        "validated": len(all_isolates) - len(isolates_with_errors),
                         "validation_errors": isolates_with_errors,
                         "missing_sequences": []
                     }

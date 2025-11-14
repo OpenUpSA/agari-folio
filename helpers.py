@@ -1,6 +1,7 @@
 from email import message
 import subprocess
 import json
+from datetime import datetime, date
 import hashlib
 import uuid
 import requests
@@ -687,7 +688,37 @@ def get_isolate_fasta(id):
 ### ELASTICSEARCH HELPERS
 ##############################
 
+def json_serial(obj):
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
 
+# NEW FUNCTION TO SEND TO FIXED INDEX
+def send_to_elastic2(document):
+
+    es_index_url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_doc"
+    method = requests.post
+
+    try:
+        serialized_document = json.loads(json.dumps(document, default=json_serial))
+    except Exception as e:
+        print(f"Error serializing document: {e}")
+        return False
+
+    try:
+        response = method(es_index_url, json=serialized_document)
+        if response.status_code in [200, 201]:
+            print(f"Successfully indexed document to {es_index_url}")
+            return True
+        else:
+            print(f"Failed to index document: {response.text}")
+            return False
+    except Exception as e:
+        print(f"Error sending document to Elasticsearch: {e}")
+        return False
+
+
+# OLD FUNCTION FOR LEGACY USE
 def send_to_elastic(index, document):
     es_url = settings.ELASTICSEARCH_URL
 
@@ -714,7 +745,6 @@ def send_to_elastic(index, document):
     except Exception as e:
         print(f"Error sending document to Elasticsearch: {e}")
         return False
-
 
 def remove_from_elastic(index, doc_id):
     es_url = settings.ELASTICSEARCH_URL
