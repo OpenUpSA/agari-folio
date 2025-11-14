@@ -1,9 +1,9 @@
-# @folio = http://localhost:8000
-@folio = https://folio-staging.openup.org.za
+@folio = http://localhost:8000
+# @folio = https://folio-staging.openup.org.za
 # @folio = https://folio-ilifu.openup.org.za
 
-# @keycloak = http://keycloak.local
-@keycloak = https://keycloak-staging.openup.org.za
+@keycloak = http://keycloak.local
+# @keycloak = https://keycloak-staging.openup.org.za
 # @keycloak = https://keycloak-ilifu.openup.org.za
 
 # @song = http://song.local
@@ -321,24 +321,6 @@ POST {{folio}}/pathogens/{{pathogen_id}}/restore
 Authorization: Bearer {{token}}
 
 
-###
-
-# @name register_schema
-POST {{song}}/schemas
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-< /home/dimee/Work/OpenUp/SANBI/agari-helm-2/metadata/schemas/cholera/cholera-v4.json
-
-###
-
-# @name list_schemas
-GET {{song}}/schemas
-Authorization: Bearer {{token}}
-
-
-###
-
 
 ##########################
 ### PROJECTS
@@ -433,8 +415,8 @@ Authorization: Bearer {{token}}
 ### SUBMISSIONS2
 ##########################
 
-@project_id = c6cf9642-5ae7-45c6-80a8-4194d76c0c50
-@submission_id = 56a07a54-55ed-4534-8915-de3a287420ec
+@project_id = cf8ddc93-5062-424d-964a-54610bcb5c4d
+@submission_id = 67287fce-853c-4d7f-90f1-13a7bc8383b2
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -489,10 +471,10 @@ Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=boundary456
 
 --boundary456
-Content-Disposition: form-data; name="file"; filename="cholera_002.fasta"
+Content-Disposition: form-data; name="file"; filename="cholera_003.fasta"
 Content-Type: text/plain
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_002.fasta
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_003.fasta
 
 --boundary456--
 

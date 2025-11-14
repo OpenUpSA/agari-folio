@@ -528,14 +528,10 @@ async def check_for_sequence_data(isolate):
         fasta_header = isolate_data.get("fasta_header_name", "")
         isolate_sample_id = isolate_data.get("isolate_id", "")
         
-        # Clean up isolate ID (remove ISO_ prefix if present)
-        if isolate_sample_id.startswith("ISO_"):
-            isolate_sample_id = isolate_sample_id.replace("ISO_", "")
-        
         if not fasta_file or not fasta_header:
             return False, "Missing FASTA file name or header name in isolate data"
         
-        print(f"Looking for FASTA File: {fasta_file}, Header: {fasta_header}, Isolate ID: {isolate_sample_id}")
+        print(f"Looking for FASTA File: {fasta_file}, Header: {fasta_header}")
         
         # 2. Get the object_id from submission_files table where filename matches
         with get_db_cursor() as cursor:

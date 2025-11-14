@@ -30,7 +30,6 @@ from helpers import (
     role_org_member,
     validate_against_schema,
     check_for_sequence_data,
-    get_isolate_fasta,
     extract_invite_roles,
     send_to_elastic,
     send_to_elastic2,
