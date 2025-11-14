@@ -34,8 +34,6 @@ from helpers import (
     extract_invite_roles,
     send_to_elastic,
     send_to_elastic2,
-    remove_from_elastic,
-    remove_samples_from_elastic,
     check_user_id,
     query_elastic
 )
