@@ -461,36 +461,15 @@ def get_minio_client(self):
 ### VALIDATION HELPERS
 ##############################
 
-def validate_against_schema(data, schema_info):
+def validate_against_schema(data, row, schema_info):
     schemas = load_json_schema("schemas-all.json")
 
-    print(f"Loaded schemas type: {type(schemas)}")
-    print(f"Schema info parameter: {schema_info}")
-    
-    # Handle both string and dict formats for schema_info
-    if isinstance(schema_info, str):
-        # If it's a string, assume it's the schema name with version 1
-        schema_name = schema_info
-        schema_version = 1
-    elif isinstance(schema_info, dict):
-        # If it's a dict, extract schema and version
-        schema_name = schema_info.get("schema")
-        schema_version = schema_info.get("version")
-    else:
-        return False, "Invalid schema format: expected string or dict"
-    
-    # Check if schemas is properly structured
-    if not isinstance(schemas, dict):
-        return False, "Invalid schemas file format: expected dict"
+    schema_name = schema_info.get("schema")
+    schema_version = schema_info.get("version")
 
-    if "schemas" not in schemas:
-        return False, "Invalid schemas file format: missing 'schemas' key"
 
     resultset = schemas["schemas"]
-    if not isinstance(resultset, list):
-        return False, f"Invalid schemas file format: 'schemas' should be a list, got {type(resultset)}"
 
-    # Find the matching schema by name and version
     resultset_schema = [
         s for s in resultset 
         if s.get("name") == schema_name and s.get("version") == schema_version
@@ -499,32 +478,22 @@ def validate_against_schema(data, schema_info):
     if not resultset_schema:
         return False, f"Schema '{schema_name}' version {schema_version} not found"
     
-    # Get the actual schema object
     schema_obj = resultset_schema[0]["schema"]
-    
-    # Ensure data is always a list (TSV rows)
-    if not isinstance(data.get("samples"), list):
-        return False, "Data samples must be a list"
 
     all_errors = []
     
-    # Validate each row in the TSV
-    for row_index, row_data in enumerate(data["samples"]):
-        # Create validator for this row
-        validator = Draft7Validator(schema_obj)
-        
-        # Collect all validation errors for this specific row
-        for error in validator.iter_errors(row_data):
-            error_info = {
-                "row": row_index + 1,
-                "field": ".".join(str(x) for x in error.path) if error.path else "root",
-                "message": error.message,
-                "invalid_value": error.instance
-            }
-            all_errors.append(error_info)
+    validator = Draft7Validator(schema_obj)
     
-    print(f"Total errors found: {len(all_errors)}")
-    
+    # Collect all validation errors for this specific row
+    for error in validator.iter_errors(data):
+        error_info = {
+            "row": row,
+            "field": ".".join(str(x) for x in error.path) if error.path else "root",
+            "invalid_value": error.instance,
+            "message": error.message
+        }
+        all_errors.append(error_info)
+ 
     if all_errors:
         return False, all_errors
     return True, None

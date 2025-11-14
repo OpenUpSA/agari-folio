@@ -1917,8 +1917,8 @@ class ProjectSubmissionValidate2(Resource):
         try:
 
             post_data = request.get_json()
-
             schema = post_data.get('schema')
+            version = post_data.get('version')
 
             # Get uploaded files for basic validation
             with get_db_cursor() as cursor:
@@ -1963,8 +1963,6 @@ class ProjectSubmissionValidate2(Resource):
             minio_bucket = settings.MINIO_BUCKET
             minio_client = get_minio_client(self)
 
-            validation = {}
-
             try:
                 tsv_object = minio_client.get_object(
                     bucket_name=minio_bucket,
@@ -1974,44 +1972,59 @@ class ProjectSubmissionValidate2(Resource):
                 
                 tsv_json = tsv_to_json(tsv_content)
 
-                print("TSV converted to JSON:")
-                
-                # print truncated tsv
-                print(json.dumps(tsv_json)[:500] + '...')
-
-                data = {
-                    "samples": tsv_json
-                }
-
-                validation = validate_against_schema(data, schema)
-
-                
-
-                if validation[0] == False:
+                for row_index, row in enumerate(tsv_json):
                     with get_db_cursor() as cursor:
                         cursor.execute("""
-                            UPDATE submissions 
-                            SET status = 'error', updated_at = NOW()
-                            WHERE id = %s
-                        """, (submission_id,))
+                            INSERT INTO isolates (submission_id, isolate_data, tsv_row)
+                            VALUES (%s, %s, %s)
+                        """, (submission_id, json.dumps(row), row_index + 1))
+                
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        SELECT * FROM isolates 
+                        WHERE submission_id = %s 
+                        AND (status IS NULL OR status = '' OR status = 'error')
+                    """, (submission_id,))
                     
-                    return {
-                        'status': 'error',
-                        'validation_errors': validation[1]
-                    }, 400
-            
-                else:
-                    with get_db_cursor() as cursor:
-                        cursor.execute("""
-                            UPDATE submissions 
-                            SET status = 'validated', updated_at = NOW()
-                            WHERE id = %s
-                        """, (submission_id,))
+                    existing_isolates = cursor.fetchall()
                     
+                    for isolate in existing_isolates:
+                        isolate_data = isolate.get('isolate_data', {})
+                        
+                        # Run validation against schema
+                        is_valid, errors = validate_against_schema(isolate_data, isolate['tsv_row'], {'schema': schema, 'version': version})
+
+
+                        if not is_valid:
+                            cursor.execute("""
+                                UPDATE isolates
+                                SET error = %s, status = 'error', updated_at = NOW()
+                                WHERE id = %s
+                            """, (json.dumps(errors), isolate['id']))
+                        else:
+                            cursor.execute("""
+                                UPDATE isolates 
+                                SET status = 'validated', updated_at = NOW()
+                                WHERE id = %s
+                            """, (isolate['id'],))
+
+                # After validating all isolates, check if any have errors
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        SELECT * FROM isolates 
+                        WHERE submission_id = %s
+                    """, (submission_id,))
+
+                    all_isolates = cursor.fetchall()
+
+                    isolates_with_errors = [iso["error"] for iso in all_isolates if iso['status'] == 'error']
+
                     return {
-                        'status': 'validated',
-                        'validation_warnings': validation[1]
-                    }, 200
+                        "validated": [],
+                        "validation_errors": isolates_with_errors,
+                        "missing_sequences": []
+                    }
+
 
             except Exception as e:
                 logger.exception(f"Error validating submission {submission_id}: {str(e)}")
