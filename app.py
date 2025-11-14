@@ -31,7 +31,6 @@ from helpers import (
     validate_against_schema,
     check_for_sequence_data,
     get_isolate_fasta,
-    get_isolate_from_elastic,
     extract_invite_roles,
     send_to_elastic,
     send_to_elastic2,
