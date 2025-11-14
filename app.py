@@ -2015,7 +2015,7 @@ class ProjectSubmissionValidate2(Resource):
 
             except Exception as e:
                 logger.exception(f"Error validating submission {submission_id}: {str(e)}")
-            return {'error': f'Validation failed: {str(e)}'}, 500
+                return {'error': f'Validation failed: {str(e)}'}, 500
 
         except Exception as e:
             logger.exception(f"Error during validation of submission {submission_id}: {str(e)}")

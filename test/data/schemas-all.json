@@ -1,8 +1,5 @@
 {
-  "limit": 20,
-  "offset": 0,
-  "count": 6,
-  "resultSet": [
+  "schemas": [
     {
       "name": "malaria_vector_schema",
       "version": 1,
@@ -93,9 +90,7 @@
           }
         },
         "required": [
-          "studyId",
-          "analysisType",
-          "files"
+         
         ],
         "properties": {
           "analysisId": {
@@ -2632,9 +2627,7 @@
           }
         },
         "required": [
-          "studyId",
-          "analysisType",
-          "files"
+         
         ],
         "properties": {
           "analysisId": {
@@ -5428,9 +5421,7 @@
           }
         },
         "required": [
-          "studyId",
-          "analysisType",
-          "files"
+          
         ],
         "properties": {
           "analysisId": {
@@ -8099,9 +8090,7 @@
           }
         },
         "required": [
-          "studyId",
-          "analysisType",
-          "files"
+         
         ],
         "properties": {
           "analysisId": {
@@ -10344,9 +10333,6 @@
           }
         },
         "required": [
-          "studyId",
-          "analysisType",
-          "files"
         ],
         "properties": {
           "analysisId": {
@@ -12398,9 +12384,7 @@
           }
         },
         "required": [
-          "studyId",
-          "analysisType",
-          "files"
+          
         ],
         "properties": {
           "analysisId": {
