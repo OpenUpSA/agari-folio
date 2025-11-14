@@ -2740,7 +2740,23 @@ class OrganisationInviteConfirm(Resource):
         if not auth_tokens:
             return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
 
-
+        if result.get('success'):
+            return {
+                'message': f'User added to organisation with role "{invite_org_role}"',
+                'user_id': user_id,
+                'organisation_id': invite_org_id,
+                'role': invite_org_role,
+                'realm_role_assigned': f'agari-{invite_org_role}',
+                'update_details': result.get('updates', {}),
+                'access_token': auth_tokens["access_token"],
+                'refresh_token': auth_tokens["refresh_token"]
+            }
+        else:
+            return {
+                'error': 'Failed to add user to organisation',
+                'details': result.get('error'),
+                'errors': result.get('errors', {})
+            }, 500
 
 @invite_ns.route('/email/<string:token>/confirm')
 class EmailChangeConfirm(Resource):
