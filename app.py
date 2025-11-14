@@ -35,7 +35,9 @@ from helpers import (
     remove_from_elastic,
     remove_samples_from_elastic,
     check_user_id,
-    query_elastic
+    query_elastic,
+    PROJECT_ROLE_MAPPING,
+    ORG_ROLE_MAPPING
 )
 import uuid
 import hashlib
@@ -958,9 +960,11 @@ class OrganisationUsers(Resource):
             # Update user's organisation_id and org_role attributes in Keycloak
             if 'force_role' in data:
                 role_org_member(user["id"], org_id, role)
+                log_event("org_user_added", org_id, {"email":user["username"], "role":ORG_ROLE_MAPPING[role]})
                 return f"User role updated for organisation {org_id}"
             else:
                 response = invite_user_to_org(user, redirect_uri, org_id, role)
+                log_event("org_user_invited", org_id, {"email":user["username"], "role":ORG_ROLE_MAPPING[role]})
             return response
 
         except Exception as e:
@@ -1216,7 +1220,7 @@ class ProjectList(Resource):
 
                 new_project = cursor.fetchone()
                 role_project_member(user_id, new_project["id"], "project-admin")
-
+                log_event("project_created", organisation_id, name)
                 return {
                     'message': 'Project created successfully',
                     'project': new_project
@@ -1393,10 +1397,10 @@ class Project(Resource):
                     """, (project_id,))
                     
                     deleted_project = cursor.fetchone()
-                    
+
                     if not deleted_project:
                         return {'error': 'Project not found or already deleted'}, 404
-                    
+                    log_event("project_deleted", deleted_project["organisation_id"], deleted_project["name"])
                     return {
                         'message': f'Project "{deleted_project["name"]}" deleted (can be restored)',
                         'delete_type': 'soft'
@@ -1523,9 +1527,11 @@ class ProjectUsers(Resource):
 
             if 'force_role' in data:
                 role_project_member(user["id"], project_id, role)
+                log_event("user_added", project_id, {"email":user["username"], "role": PROJECT_ROLE_MAPPING[role]})
                 return f"User role updated for project {project_id}"
             else:
                 response = invite_user_to_project(user, redirect_uri, project_id, role)
+                log_event("user_invited", project_id, {"email":user["username"], "role": PROJECT_ROLE_MAPPING[role]})
             return response
         except Exception as e:
             logger.exception(f"Error adding user to project: {str(e)}")
@@ -1801,7 +1807,7 @@ class ProjectSubmissionFiles2(Resource):
                 """, (submission_id, file.filename, file_type, object_id, file_size, file_md5))
                 
                 file_record = cursor.fetchone()
-            
+            log_event("file_uploaded", project_id, {"submission_id":{submission_id}, "files": file.filename})
             return {
                 'message': 'File uploaded successfully',
                 'submission_id': file_record['submission_id'],
@@ -2185,7 +2191,7 @@ class ProjectSubmissionFinalise(Resource):
                         SET status = 'finalised', updated_at = NOW()
                         WHERE id = %s
                     """, (submission_id,))
-
+                log_event("submission_finalised", project_id, {"submission_id":{submission_id}, "sample_count": indexed_samples})
                 return {
                     'message': 'Submission finalised successfully',
                     'submission_id': submission_id,
@@ -2372,7 +2378,7 @@ class ProjectSubmissionPublish2(Resource):
                         except Exception as es_error:
                             logger.exception(f"Failed to update isolate {isolate['id']} in Elasticsearch: {str(es_error)}")
                 
-
+            log_event("submission_published", project_id, {"submission_id":{submission_id}})
             return {
                 'message': 'Submission published successfully',
                 'submission_id': submission_id,
@@ -2698,7 +2704,7 @@ class ProjectInviteConfirm(Resource):
         auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
         if not auth_tokens:
             return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
-
+        log_event("user_accepted", invite_project_id,  {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_role]})
         return {
             'message': 'User added to project successfully',
             'user_id': user_id,
@@ -2741,6 +2747,7 @@ class OrganisationInviteConfirm(Resource):
             return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
 
         if result.get('success'):
+            log_event("org_user_accepted", invite_org_id,  {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_org_role]})
             return {
                 'message': f'User added to organisation with role "{invite_org_role}"',
                 'user_id': user_id,
@@ -3828,6 +3835,37 @@ class StudyAnalysisUpload(Resource):
         except Exception as e:
             logger.exception(f"Error uploading file to analysis {analysis_id} in study {study_id}: {str(e)}")
             return {'error': f'Failed to upload file: {str(e)}'}, 500
+
+
+##########################
+### ACTIVITY LOGS
+##########################
+
+
+study_ns = api.namespace('activity-log', description='Activity logs')
+
+@study_ns.route('/<string:resource_id>')
+class StudyList(Resource):
+    ### GET /activity-log/<resource_id> ###
+
+    @study_ns.doc('list_logs')
+    def get(self, resource_id):
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT *
+                    FROM logs
+                    WHERE resource_id = %s
+                    ORDER BY created_at DESC
+                """, (resource_id,))
+
+                logs = cursor.fetchall()
+
+                return logs
+
+        except Exception as e:
+            logger.exception("Error retrieving activity logs")
+            return {'error': f'Database error: {str(e)}'}, 500
 
 
 if __name__ == '__main__':
