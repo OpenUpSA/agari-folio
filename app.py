@@ -2649,22 +2649,33 @@ class ProjectSubmissionFileDetails(Resource):
 invite_ns = api.namespace('invites', description='Invite management endpoints')
 
 
-@invite_ns.route('/project/<string:project_id>/<string:user_id>')
+@invite_ns.route('/project/<string:project_id>')
 class ProjectInviteStatus(Resource):
-
-    ### GET /invites/<user_id> ###
+    ### GET /invites/project/<project_id> ###
 
     @api.doc('get_project_invites')
-    def get(self, project_id, user_id):
-        user = keycloak_auth.get_user(user_id)
-        if user.get("attributes"):
-            invite = user["attributes"].get(project_id, [""])[0]
-        print(invite)
+    def get(self, project_id):
+        users = keycloak_auth.get_users_by_attribute('invite_project_id', project_id)
+        user_invites = extract_invite_roles(users, "")
+        print(user_invites)
+        return user_invites, 200
+
+
+@invite_ns.route('/organisation/<string:org_id>')
+class OrgInviteStatus(Resource):
+    ### GET /invites/organisation/<org_id> ###
+
+    @api.doc('get_project_invites')
+    def get(self, org_id):
+        users = keycloak_auth.get_users_by_attribute('invite_org_id', org_id)
+        user_invites = extract_invite_roles(users, "org_")
+        print(user_invites)
+        return user_invites, 200
 
 
 @invite_ns.route('/project/<string:token>/accept')
 class ProjectInviteConfirm(Resource):
-    ### POST /invites/<token>/accept ###
+    ### POST /invites/project/<token>/accept ###
 
     @api.doc('accept_project_invite')
     def post(self, token):
@@ -2676,6 +2687,11 @@ class ProjectInviteConfirm(Resource):
 
         removed_roles = role_project_member(user_id, invite_project_id, invite_role)
         print(f"Added project_id {invite_project_id} to role {invite_role} for user {user_id}")
+        # If not in an organisation, assign the org-partial role
+        org = keycloak_auth.get_user_org()
+        if not org:
+            project_org_id = keycloak_auth.get_project_parent_org(invite_project_id)
+            role_org_member(user_id, project_org_id, "org-partial")
 
         # Remove temp attributes
         keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
@@ -2700,7 +2716,7 @@ class ProjectInviteConfirm(Resource):
 
 @invite_ns.route('/organisation/<string:token>/accept')
 class OrganisationInviteConfirm(Resource):
-    ### POST /invites/<token>/accept ###
+    ### POST /invites/organisation/<token>/accept ###
 
     @api.doc('accept_organisation_invite')
     def post(self, token):
@@ -2746,7 +2762,38 @@ class OrganisationInviteConfirm(Resource):
                 'errors': result.get('errors', {})
             }, 500
 
+@invite_ns.route('/email/<string:token>/confirm')
+class EmailChangeConfirm(Resource):
+    ### POST /invites/email/<token>/confirm ###
 
+    @api.doc('accept_project_invite')
+    def post(self, token):
+        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
+        user_id = user["user_id"]
+
+        invite_email = user["attributes"].get("invite_new_email", [""])[0]
+
+        success = keycloak_auth.change_username(user_id, invite_email)
+        if not success:
+            return success
+
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_new_email', invite_email)
+
+        # Get access token for the user
+        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
+        if not auth_tokens:
+            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
+
+        return {
+            'message': 'User changed email successfully',
+            'user_id': user_id,
+            'new_email': invite_email,
+            'previous_email': user["username"],
+            'access_token': auth_tokens["access_token"],
+            'refresh_token': auth_tokens["refresh_token"]
+        }, 200
 
 
 
@@ -3786,145 +3833,6 @@ class StudyAnalysisUpload(Resource):
         except Exception as e:
             logger.exception(f"Error uploading file to analysis {analysis_id} in study {study_id}: {str(e)}")
             return {'error': f'Failed to upload file: {str(e)}'}, 500
-        
-
-
-##########################
-### INVITES
-##########################
-
-invite_ns = api.namespace('invites', description='Invite management endpoints')
-
-
-@invite_ns.route('/project/<string:project_id>')
-class ProjectInviteStatus(Resource):
-    ### GET /invites/project/<project_id> ###
-
-    @api.doc('get_project_invites')
-    def get(self, project_id):
-        users = keycloak_auth.get_users_by_attribute('invite_project_id', project_id)
-        user_invites = extract_invite_roles(users, "")
-        print(user_invites)
-        return user_invites, 200
-
-
-@invite_ns.route('/organisation/<string:org_id>')
-class OrgInviteStatus(Resource):
-    ### GET /invites/organisation/<org_id> ###
-
-    @api.doc('get_project_invites')
-    def get(self, org_id):
-        users = keycloak_auth.get_users_by_attribute('invite_org_id', org_id)
-        user_invites = extract_invite_roles(users, "org_")
-        print(user_invites)
-        return user_invites, 200
-
-
-@invite_ns.route('/project/<string:token>/accept')
-class ProjectInviteConfirm(Resource):
-    ### POST /invites/project/<token>/accept ###
-
-    @api.doc('accept_project_invite')
-    def post(self, token):
-        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
-        user_id = user["user_id"]
-
-        invite_project_id = user["attributes"].get("invite_project_id", [""])[0]
-        invite_role = user["attributes"].get(f"invite_role_{invite_project_id}", [""])[0]
-
-        removed_roles = role_project_member(user_id, invite_project_id, invite_role)
-        print(f"Added project_id {invite_project_id} to role {invite_role} for user {user_id}")
-        # If not in an organisation, assign the org-partial role
-        org = keycloak_auth.get_user_org()
-        if not org:
-            project_org_id = keycloak_auth.get_project_parent_org(invite_project_id)
-            role_org_member(user_id, project_org_id, "org-partial")
-
-        # Remove temp attributes
-        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_project_id', invite_project_id)
-        keycloak_auth.remove_attribute_value(user_id, f'invite_role_{invite_project_id}', invite_role)
-
-        # Get access token for the user
-        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
-        if not auth_tokens:
-            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
-
-        return {
-            'message': 'User added to project successfully',
-            'user_id': user_id,
-            'project_id': invite_project_id,
-            'new_role': invite_role,
-            'removed_roles': removed_roles,
-            'access_token': auth_tokens["access_token"],
-            'refresh_token': auth_tokens["refresh_token"]
-        }, 200
-
-
-@invite_ns.route('/organisation/<string:token>/accept')
-class OrganisationInviteConfirm(Resource):
-    ### POST /invites/organisation/<token>/accept ###
-
-    @api.doc('accept_organisation_invite')
-    def post(self, token):
-        user = keycloak_auth.get_users_by_attribute('invite_org_token', token)[0]
-        user_id = user["user_id"]
-
-        invite_org_id = user["attributes"].get("invite_org_id", [""])[0]
-        invite_org_role = user["attributes"].get(f"invite_org_role_{invite_org_id}", [""])[0]
-
-        result = role_org_member(user_id, invite_org_id, invite_org_role)
-
-        # Remove temp attributes
-        keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', token)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_org_id', invite_org_id)
-        keycloak_auth.remove_attribute_value(user_id, f'invite_org_role_{invite_org_id}', invite_org_role)
-
-        if invite_org_role == 'org-owner':
-            user_attr = keycloak_auth.get_user_attributes(user_id)
-            # Downgrade previous owner to org-admin
-            role_org_member(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
-            keycloak_auth.remove_attribute_value(user_id, "invite_org_old_owner", user_attr["invite_org_old_owner"][0])
-
-        # Get access token for the user
-        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
-        if not auth_tokens:
-            return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
-
-
-
-@invite_ns.route('/email/<string:token>/confirm')
-class EmailChangeConfirm(Resource):
-    ### POST /invites/email/<token>/confirm ###
-
-    @api.doc('accept_project_invite')
-    def post(self, token):
-        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
-        user_id = user["user_id"]
-
-        invite_email = user["attributes"].get("invite_new_email", [""])[0]
-
-        success = keycloak_auth.change_username(user_id, invite_email)
-        if not success:
-            return success
-
-        # Remove temp attributes
-        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_new_email', invite_email)
-
-        # Get access token for the user
-        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
-        if not auth_tokens:
-            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
-
-        return {
-            'message': 'User changed email successfully',
-            'user_id': user_id,
-            'new_email': invite_email,
-            'previous_email': user["username"],
-            'access_token': auth_tokens["access_token"],
-            'refresh_token': auth_tokens["refresh_token"]
-        }, 200
 
 
 if __name__ == '__main__':
