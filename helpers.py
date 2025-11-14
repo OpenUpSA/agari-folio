@@ -565,6 +565,9 @@ async def check_for_sequence_data(isolate):
         try:
             response = minio_client.get_object(bucket_name, object_id)
             fasta_content = response.read().decode('utf-8')
+            print("====================")
+            print(fasta_content)
+            print("====================")
             response.close()
             response.release_conn()
         except Exception as e:
@@ -579,7 +582,7 @@ async def check_for_sequence_data(isolate):
         for line in fasta_lines:
             if line.startswith('>'):
                 # Check if this header matches what we're looking for
-                if isolate_sample_id in line[1:].strip():
+                if fasta_header in line:
                     recording = True
                     header_found = True
                     sequence_lines.append(line)
@@ -590,10 +593,12 @@ async def check_for_sequence_data(isolate):
             else:
                 if recording:
                     sequence_lines.append(line)
+
+        print(sequence_lines)
         
         # 6. Return error if header not found
         if not header_found:
-            return False, f"Header for isolate '{isolate_sample_id}' not found in FASTA file"
+            return False, f"Header '{fasta_header}' not found in {fasta_file} for isolate '{isolate_sample_id}'"
         
         sequence_data = '\n'.join(sequence_lines)
         
@@ -660,7 +665,7 @@ async def save_sequence_data(sequence):
         fasta_bytes = fasta_content.encode('utf-8')
         
         # Generate object_id for MinIO storage
-        object_id = f"sequences/{unique_id}"
+        object_id = unique_id
         
         # Upload to MinIO
         from io import BytesIO
