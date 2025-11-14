@@ -1630,17 +1630,22 @@ class ProjectSubmissions2(Resource):
                 return {'error': 'No JSON data provided'}, 400
 
             submission_name = data.get('submission_name')
+
+            user_info = extract_user_info(request.user)
+            current_user_id = user_info.get('user_id')
             
             if not submission_name:
                 return {'error': 'submission_name is required'}, 400
-            
+
+            if not current_user_id:
+                return {'error': 'user_id is required'}, 400
 
             with get_db_cursor() as cursor:
                 cursor.execute("""
-                    INSERT INTO submissions (project_id, submission_name, status)
-                    VALUES (%s, %s, 'draft')
+                    INSERT INTO submissions (project_id, submission_name, status, user_id)
+                    VALUES (%s, %s, 'draft', %s)
                     RETURNING *
-                """, (project_id, submission_name))
+                """, (project_id, submission_name, current_user_id))
                 
                 new_submission = cursor.fetchone()
                 
