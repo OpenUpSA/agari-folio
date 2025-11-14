@@ -3,6 +3,8 @@ import subprocess
 import json
 from datetime import datetime, date
 import hashlib
+import asyncio
+import random
 import uuid
 import requests
 import settings
@@ -503,92 +505,6 @@ def validate_against_schema(data, row, schema_info):
 ### SPLIT WORK
 ##############################
 
-def split_submission(submission_id):
-    """
-    Split a validated submission by reading TSV from MinIO and inserting samples into isolates table.
-    Only processes submissions with status = 'ready'.
-    """
-    try:
-        with get_db_cursor() as cursor:
-            # Get the submission details and verify status
-            cursor.execute("""
-                SELECT s.*, p.id as project_id, p.name as project_name
-                FROM submissions s
-                LEFT JOIN projects p ON s.project_id = p.id
-                WHERE s.id = %s AND s.status = 'validated'
-            """, (submission_id,))
-            
-            submission = cursor.fetchone()
-            if not submission:
-                return False, "Submission not found or not validated"
-            
-            # Get TSV files for this submission
-            cursor.execute("""
-                SELECT * FROM submission_files
-                WHERE submission_id = %s AND file_type = 'tsv'
-            """, (submission_id,))
-            
-            tsv_files = cursor.fetchall()
-            if not tsv_files:
-                return False, "No TSV files found for submission"
-        
-        
-        
-        minio_endpoint = settings.MINIO_ENDPOINT
-        minio_access_key = settings.MINIO_ACCESS_KEY
-        minio_secret_key = settings.MINIO_SECRET_KEY
-        minio_secure = settings.MINIO_SECURE
-        
-        minio_client = Minio(
-            endpoint=minio_endpoint,
-            access_key=minio_access_key,
-            secret_key=minio_secret_key,
-            secure=minio_secure
-        )
-        
-        bucket_name = settings.MINIO_BUCKET or 'agari-data'
-        total_samples_processed = 0
-        
-        # Process each TSV file
-        for tsv_file in tsv_files:
-            try:
-                # Get file from MinIO using object_id
-                response = minio_client.get_object(bucket_name, tsv_file['object_id'])
-                tsv_content = response.read().decode('utf-8')
-                response.close()
-                response.release_conn()
-                
-                # Convert TSV to JSON array
-                samples_data = tsv_to_json(tsv_content)
-                
-                # Insert each sample as an isolate
-                with get_db_cursor() as cursor:
-                    for sample in samples_data:
-                        cursor.execute("""
-                            INSERT INTO isolates (
-                                submission_id, isolate_id, object_id, isolate_data, created_at
-                            ) VALUES (%s, %s, %s, %s, NOW())
-                        """, (
-                            submission_id,
-                            sample.get('isolate_id'),
-                            None,
-                            json.dumps(sample),
-                        ))
-                        total_samples_processed += 1
-                
-            except Exception as file_error:
-                return False, f"Failed to process TSV file: {tsv_file['filename']} - {str(file_error)}"
-        
-      
-        
-        return True, f"Successfully processed {total_samples_processed} samples"
-        
-    except Exception as e:
-        print(f"Error splitting submission {submission_id}: {str(e)}")
-        
-      
-            
-        return False, f"Failed to split submission: {str(e)}"
 
 
 def get_isolate_fasta(id):
@@ -682,6 +598,24 @@ def get_isolate_fasta(id):
         return None
 
 
+
+
+
+
+async def check_for_sequence_data(row, isolate):
+    for i in range(1, 201):
+        await asyncio.sleep(0.03)
+        if i % 20 == 0:
+            print(f"Counted to {i}")
+    
+    errors = [
+        "No sequence data found",
+        "Sequence data is corrupted",
+        "FASTA header does not match isolate ID"
+    ]
+
+    if random.choice([True, False]):
+        return random.choice(errors)
 
 
 ##############################
