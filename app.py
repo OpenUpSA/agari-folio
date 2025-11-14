@@ -1653,6 +1653,7 @@ class ProjectSubmissions2(Resource):
             logger.exception(f"Error creating submission for project {project_id}: {str(e)}")
             return {'error': f'Failed to create submission: {str(e)}'}, 500
 
+
 @project_ns.route('/<string:project_id>/submissions2/<string:submission_id>')
 class ProjectSubmission2(Resource):
 
@@ -1698,6 +1699,95 @@ class ProjectSubmission2(Resource):
         except Exception as e:
             logger.exception(f"Error retrieving submission {submission_id}: {str(e)}")
             return {'error': f'Failed to retrieve submission: {str(e)}'}, 500
+        
+    ### DELETE /projects/<project_id>/submissions2/<submission_id>
+
+    @api.doc('delete_submission_v2')
+    @require_auth(keycloak_auth)
+    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
+    def delete(self, project_id, submission_id):
+
+        """Delete a submission"""
+
+        try:
+            with get_db_cursor() as cursor:
+                
+                # check if submission exists
+                cursor.execute("""
+                    SELECT * FROM submissions 
+                    WHERE id = %s AND project_id = %s
+                """, (submission_id, project_id))
+                submission = cursor.fetchone()
+                if not submission:
+                    return {'error': 'Submission not found'}, 404
+                
+                # Delete associated files first
+                cursor.execute("""
+                    DELETE FROM submission_files
+                    WHERE submission_id = %s
+                """, (submission_id,))
+
+                # delete the isolates from isolates table
+                cursor.execute("""
+                    DELETE FROM isolates
+                    WHERE submission_id = %s
+                """, (submission_id,))
+
+                ### DELETE MINIO OBJECTS HERE
+
+                # Delete the submission
+                cursor.execute("""
+                    DELETE FROM submissions 
+                    WHERE id = %s AND project_id = %s
+                """, (submission_id, project_id)) 
+
+                return {
+                    'message': f'Submission {submission_id} deleted successfully'
+                }, 200
+                
+
+        except Exception as e:
+            logger.exception(f"Error deleting submission {submission_id}: {str(e)}")
+            return {'error': f'Failed to delete submission: {str(e)}'}, 500
+        
+    ### PUT /projects/<project_id>/submissions2/<submission_id>
+
+    @api.doc('update_submission_v2')
+    @require_auth(keycloak_auth)
+    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
+    def put(self, project_id, submission_id):
+        
+        """Update submission details (e.g., submission_name)"""
+
+        try:
+            data = request.get_json()
+
+            submission_name = data.get('submission_name')
+
+            if not submission_name:
+                return {'error': 'submission_name is required'}, 400
+
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    UPDATE submissions 
+                    SET submission_name = %s, updated_at = NOW()
+                    WHERE id = %s AND project_id = %s
+                    RETURNING *
+                """, (submission_name, submission_id, project_id))
+                
+                updated_submission = cursor.fetchone()
+                
+                if not updated_submission:
+                    return {'error': 'Submission not found'}, 404
+                
+                return {
+                    'message': 'Submission updated successfully',
+                    'submission': updated_submission
+                }
+                
+        except Exception as e:
+            logger.exception(f"Error updating submission {submission_id}: {str(e)}")
+            return {'error': f'Database error: {str(e)}'}, 500
 
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/upload2')
@@ -2085,7 +2175,11 @@ class ProjectSubmissionValidate2(Resource):
 
                     isolates_with_errors = [iso["error"] for iso in all_isolates if iso['status'] == 'error']
 
-                    # async job here
+
+                    ###############################################
+                    #### ASYNC SEQUENCE DATA CHECKING JOB 
+                    ###############################################
+
                     def run_async_job():
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
@@ -2116,11 +2210,8 @@ class ProjectSubmissionValidate2(Resource):
                             loop.close()
                     
 
-                    # Start background thread
                     thread = threading.Thread(target=run_async_job)
                     thread.start()
-                    # Note: thread.join() would wait for completion, but we're running it in background
-
 
                     return {
                         "validated": len(all_isolates) - len(isolates_with_errors),
