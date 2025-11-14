@@ -1819,7 +1819,7 @@ class ProjectSubmissionFiles2(Resource):
                 if not submission:
                     return {'error': 'Submission not found'}, 404
 
-                if submission['status'] not in ['draft', 'error']:
+                if submission['status'] not in ['draft', 'error', 'validating', 'validated']:
                     return {'error': f'Cannot upload files to submission in status: {submission["status"]}.'}, 400
 
             # Check file upload
@@ -2355,123 +2355,35 @@ class Search(Resource):
             logger.exception(f"Error searching samples: {str(e)}")
             return {'error': f'Search error: {str(e)}'}, 500
 
+##########################
+### DOWNLOAD
+##########################
 
-@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files/<string:object_id>')
-class ProjectSubmissionFileDetails(Resource):
-    ### GET /projects/<project_id>/submissions/<submission_id>/files/<object_id> ###
+download_ns = api.namespace('download', description='Download endpoints')
 
-    @api.doc('get_submission_file_details')
+@download_ns.route('/isoaltes')
+class DownloadSamples(Resource):
+
+    ### POST /download/isolates ###
+
+    @api.doc('download_isolates')
     @require_auth(keycloak_auth)
-    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
-    def get(self, project_id, submission_id, object_id):
+    def post(self):
 
-        """Get details for a submission file from SCORE (proxy endpoint)"""
+        """Download isolates data as TSV"""
 
         try:
-            # Clean and validate UUIDs
-            try:
-                clean_project_id = str(uuid.UUID(project_id.strip('"')))
-                clean_submission_id = str(uuid.UUID(submission_id.strip('"')))
-            except ValueError as e:
-                return {'error': f'Invalid UUID format: {str(e)}'}, 400
+            data = request.get_json()
+            isolate_ids = data.get('isolate_ids', [])
 
-            # Get submission details to find the analysis_id and study_id
-            with get_db_cursor() as cursor:
-                cursor.execute("""
-                    SELECT study_id, analysis_id
-                    FROM submissions
-                    WHERE id = %s AND project_id = %s
-                """, (clean_submission_id, clean_project_id))
-                
-                submission = cursor.fetchone()
-                
-                if not submission:
-                    return {'error': 'Submission not found for this project'}, 404
-                
-                study_id = submission.get('study_id')
-                analysis_id = submission.get('analysis_id')
+            if not isolate_ids:
+                return {'error': 'isolate_ids list is required'}, 400
 
-            if not analysis_id or not study_id:
-                return {'error': 'Submission does not have associated analysis'}, 400
-
-            # Get client token for SONG API
-            song_token = keycloak_auth.get_client_token()
-            if not song_token:
-                return {'error': 'Failed to authenticate with SONG service'}, 500
-
-            song_headers = {
-                'Authorization': f'Bearer {song_token}',
-                'Content-Type': 'application/json'
-            }
-
-            # Get analysis details from SONG to find file size
-            song_analysis_url = f"{SONG_URL}/studies/{study_id}/analysis/{analysis_id}"
-            song_response = requests.get(song_analysis_url, headers=song_headers)
-
-           
-
-            if song_response.status_code != 200:
-                return {'error': f'Failed to get analysis from SONG: {song_response.status_code} - {song_response.text}'}, song_response.status_code
-
-            analysis_data = song_response.json()
-            
-            # Find the file with matching object_id in the files array
-            file_info = None
-            files = analysis_data.get('files', [])
-            
-            for file_obj in files:
-                if file_obj.get('objectId') == object_id:
-                    file_info = file_obj
-                    break
-            
-            if not file_info:
-                return {'error': f'File with object_id {object_id} not found in submission'}, 404
-
-            file_size = file_info.get('fileSize', 0)
-
-           
-            
-            # Get client token for SCORE API
-            score_token = keycloak_auth.get_client_token()
-            if not score_token:
-                return {'error': 'Failed to authenticate with SCORE service'}, 500
-
-            score_headers = {
-                'Authorization': f'Bearer {score_token}',
-                'User-Agent': 'Agari-Folio/1.0'
-            }
-
-            # Get download URL from SCORE
-            score_file_url = f"{SCORE_URL}/download/{object_id}?offset=0&length={file_size}"
-
-            print(f"Requesting download URL from SCORE: {score_file_url}")
-
-            score_response = requests.get(score_file_url, headers=score_headers, allow_redirects=False)
-
-            
-            if score_response.status_code == 200:
-
-                file_url = score_response.json().get('parts', [{}])[0].get('url')
-                if not file_url:
-                    return {'error': 'Download URL not found in SCORE response'}, 500
-
-                return {
-                    'file_url': file_url,
-                    'object_id': object_id,
-                    'file_size': file_size
-                }, 200
-            
-               
-            else:
-                return {'error': f'Failed to get download URL from SCORE: {score_response.status_code} - {score_response.text}'}, score_response.status_code
+            return 
 
         except Exception as e:
-            logger.exception(f"Error getting download URL for file {object_id} in submission {submission_id}: {str(e)}")
-            return {'error': f'Failed to get download URL: {str(e)}'}, 500
-
-
-
-
+            logger.exception(f"Error downloading isolates: {str(e)}")
+            return {'error': f'Download error: {str(e)}'}, 500
 
 
 ##########################
@@ -2628,7 +2540,142 @@ class EmailChangeConfirm(Resource):
 
 
 
+##########################
+### INVITES
+##########################
 
+invite_ns = api.namespace('invites', description='Invite management endpoints')
+
+
+@invite_ns.route('/project/<string:project_id>')
+class ProjectInviteStatus(Resource):
+    ### GET /invites/project/<project_id> ###
+
+    @api.doc('get_project_invites')
+    def get(self, project_id):
+        users = keycloak_auth.get_users_by_attribute('invite_project_id', project_id)
+        user_invites = extract_invite_roles(users, "")
+        print(user_invites)
+        return user_invites, 200
+
+
+@invite_ns.route('/organisation/<string:org_id>')
+class OrgInviteStatus(Resource):
+    ### GET /invites/organisation/<org_id> ###
+
+    @api.doc('get_project_invites')
+    def get(self, org_id):
+        users = keycloak_auth.get_users_by_attribute('invite_org_id', org_id)
+        user_invites = extract_invite_roles(users, "org_")
+        print(user_invites)
+        return user_invites, 200
+
+
+@invite_ns.route('/project/<string:token>/accept')
+class ProjectInviteConfirm(Resource):
+    ### POST /invites/project/<token>/accept ###
+
+    @api.doc('accept_project_invite')
+    def post(self, token):
+        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
+        user_id = user["user_id"]
+
+        invite_project_id = user["attributes"].get("invite_project_id", [""])[0]
+        invite_role = user["attributes"].get(f"invite_role_{invite_project_id}", [""])[0]
+
+        removed_roles = role_project_member(user_id, invite_project_id, invite_role)
+        print(f"Added project_id {invite_project_id} to role {invite_role} for user {user_id}")
+        # If not in an organisation, assign the org-partial role
+        org = keycloak_auth.get_user_org()
+        if not org:
+            project_org_id = keycloak_auth.get_project_parent_org(invite_project_id)
+            role_org_member(user_id, project_org_id, "org-partial")
+
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_project_id', invite_project_id)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_role_{invite_project_id}', invite_role)
+
+        # Get access token for the user
+        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
+        if not auth_tokens:
+            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
+
+        return {
+            'message': 'User added to project successfully',
+            'user_id': user_id,
+            'project_id': invite_project_id,
+            'new_role': invite_role,
+            'removed_roles': removed_roles,
+            'access_token': auth_tokens["access_token"],
+            'refresh_token': auth_tokens["refresh_token"]
+        }, 200
+
+
+@invite_ns.route('/organisation/<string:token>/accept')
+class OrganisationInviteConfirm(Resource):
+    ### POST /invites/organisation/<token>/accept ###
+
+    @api.doc('accept_organisation_invite')
+    def post(self, token):
+        user = keycloak_auth.get_users_by_attribute('invite_org_token', token)[0]
+        user_id = user["user_id"]
+
+        invite_org_id = user["attributes"].get("invite_org_id", [""])[0]
+        invite_org_role = user["attributes"].get(f"invite_org_role_{invite_org_id}", [""])[0]
+
+        result = role_org_member(user_id, invite_org_id, invite_org_role)
+
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_org_id', invite_org_id)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_org_role_{invite_org_id}', invite_org_role)
+
+        if invite_org_role == 'org-owner':
+            user_attr = keycloak_auth.get_user_attributes(user_id)
+            # Downgrade previous owner to org-admin
+            role_org_member(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
+            keycloak_auth.remove_attribute_value(user_id, "invite_org_old_owner", user_attr["invite_org_old_owner"][0])
+
+        # Get access token for the user
+        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
+        if not auth_tokens:
+            return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
+
+
+
+@invite_ns.route('/email/<string:token>/confirm')
+class EmailChangeConfirm(Resource):
+    ### POST /invites/email/<token>/confirm ###
+
+    @api.doc('accept_project_invite')
+    def post(self, token):
+        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
+        user_id = user["user_id"]
+
+        invite_email = user["attributes"].get("invite_new_email", [""])[0]
+
+        success = keycloak_auth.change_username(user_id, invite_email)
+        if not success:
+            return success
+
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_new_email', invite_email)
+
+        # Get access token for the user
+        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
+        if not auth_tokens:
+            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
+
+        return {
+            'message': 'User changed email successfully',
+            'user_id': user_id,
+            'new_email': invite_email,
+            'previous_email': user["username"],
+            'access_token': auth_tokens["access_token"],
+            'refresh_token': auth_tokens["refresh_token"]
+        }, 200
 
 
 
@@ -3354,143 +3401,126 @@ class UnpublishSubmission(Resource):
             return {'error': f'Failed to unpublish analysis: {str(e)}'}, 500
         
 
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files/<string:object_id>')
+class ProjectSubmissionFileDetails(Resource):
+    ### GET /projects/<project_id>/submissions/<submission_id>/files/<object_id> ###
 
-##########################
-### INVITES
-##########################
+    @api.doc('get_submission_file_details')
+    @require_auth(keycloak_auth)
+    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
+    def get(self, project_id, submission_id, object_id):
 
-invite_ns = api.namespace('invites', description='Invite management endpoints')
+        """Get details for a submission file from SCORE (proxy endpoint)"""
+
+        try:
+            # Clean and validate UUIDs
+            try:
+                clean_project_id = str(uuid.UUID(project_id.strip('"')))
+                clean_submission_id = str(uuid.UUID(submission_id.strip('"')))
+            except ValueError as e:
+                return {'error': f'Invalid UUID format: {str(e)}'}, 400
+
+            # Get submission details to find the analysis_id and study_id
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT study_id, analysis_id
+                    FROM submissions
+                    WHERE id = %s AND project_id = %s
+                """, (clean_submission_id, clean_project_id))
+                
+                submission = cursor.fetchone()
+                
+                if not submission:
+                    return {'error': 'Submission not found for this project'}, 404
+                
+                study_id = submission.get('study_id')
+                analysis_id = submission.get('analysis_id')
+
+            if not analysis_id or not study_id:
+                return {'error': 'Submission does not have associated analysis'}, 400
+
+            # Get client token for SONG API
+            song_token = keycloak_auth.get_client_token()
+            if not song_token:
+                return {'error': 'Failed to authenticate with SONG service'}, 500
+
+            song_headers = {
+                'Authorization': f'Bearer {song_token}',
+                'Content-Type': 'application/json'
+            }
+
+            # Get analysis details from SONG to find file size
+            song_analysis_url = f"{SONG_URL}/studies/{study_id}/analysis/{analysis_id}"
+            song_response = requests.get(song_analysis_url, headers=song_headers)
+
+           
+
+            if song_response.status_code != 200:
+                return {'error': f'Failed to get analysis from SONG: {song_response.status_code} - {song_response.text}'}, song_response.status_code
+
+            analysis_data = song_response.json()
+            
+            # Find the file with matching object_id in the files array
+            file_info = None
+            files = analysis_data.get('files', [])
+            
+            for file_obj in files:
+                if file_obj.get('objectId') == object_id:
+                    file_info = file_obj
+                    break
+            
+            if not file_info:
+                return {'error': f'File with object_id {object_id} not found in submission'}, 404
+
+            file_size = file_info.get('fileSize', 0)
+
+           
+            
+            # Get client token for SCORE API
+            score_token = keycloak_auth.get_client_token()
+            if not score_token:
+                return {'error': 'Failed to authenticate with SCORE service'}, 500
+
+            score_headers = {
+                'Authorization': f'Bearer {score_token}',
+                'User-Agent': 'Agari-Folio/1.0'
+            }
+
+            # Get download URL from SCORE
+            score_file_url = f"{SCORE_URL}/download/{object_id}?offset=0&length={file_size}"
+
+            print(f"Requesting download URL from SCORE: {score_file_url}")
+
+            score_response = requests.get(score_file_url, headers=score_headers, allow_redirects=False)
+
+            
+            if score_response.status_code == 200:
+
+                file_url = score_response.json().get('parts', [{}])[0].get('url')
+                if not file_url:
+                    return {'error': 'Download URL not found in SCORE response'}, 500
+
+                return {
+                    'file_url': file_url,
+                    'object_id': object_id,
+                    'file_size': file_size
+                }, 200
+            
+               
+            else:
+                return {'error': f'Failed to get download URL from SCORE: {score_response.status_code} - {score_response.text}'}, score_response.status_code
+
+        except Exception as e:
+            logger.exception(f"Error getting download URL for file {object_id} in submission {submission_id}: {str(e)}")
+            return {'error': f'Failed to get download URL: {str(e)}'}, 500
 
 
-@invite_ns.route('/project/<string:project_id>')
-class ProjectInviteStatus(Resource):
-    ### GET /invites/project/<project_id> ###
-
-    @api.doc('get_project_invites')
-    def get(self, project_id):
-        users = keycloak_auth.get_users_by_attribute('invite_project_id', project_id)
-        user_invites = extract_invite_roles(users, "")
-        print(user_invites)
-        return user_invites, 200
-
-
-@invite_ns.route('/organisation/<string:org_id>')
-class OrgInviteStatus(Resource):
-    ### GET /invites/organisation/<org_id> ###
-
-    @api.doc('get_project_invites')
-    def get(self, org_id):
-        users = keycloak_auth.get_users_by_attribute('invite_org_id', org_id)
-        user_invites = extract_invite_roles(users, "org_")
-        print(user_invites)
-        return user_invites, 200
-
-
-@invite_ns.route('/project/<string:token>/accept')
-class ProjectInviteConfirm(Resource):
-    ### POST /invites/project/<token>/accept ###
-
-    @api.doc('accept_project_invite')
-    def post(self, token):
-        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
-        user_id = user["user_id"]
-
-        invite_project_id = user["attributes"].get("invite_project_id", [""])[0]
-        invite_role = user["attributes"].get(f"invite_role_{invite_project_id}", [""])[0]
-
-        removed_roles = role_project_member(user_id, invite_project_id, invite_role)
-        print(f"Added project_id {invite_project_id} to role {invite_role} for user {user_id}")
-        # If not in an organisation, assign the org-partial role
-        org = keycloak_auth.get_user_org()
-        if not org:
-            project_org_id = keycloak_auth.get_project_parent_org(invite_project_id)
-            role_org_member(user_id, project_org_id, "org-partial")
-
-        # Remove temp attributes
-        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_project_id', invite_project_id)
-        keycloak_auth.remove_attribute_value(user_id, f'invite_role_{invite_project_id}', invite_role)
-
-        # Get access token for the user
-        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
-        if not auth_tokens:
-            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
-
-        return {
-            'message': 'User added to project successfully',
-            'user_id': user_id,
-            'project_id': invite_project_id,
-            'new_role': invite_role,
-            'removed_roles': removed_roles,
-            'access_token': auth_tokens["access_token"],
-            'refresh_token': auth_tokens["refresh_token"]
-        }, 200
-
-
-@invite_ns.route('/organisation/<string:token>/accept')
-class OrganisationInviteConfirm(Resource):
-    ### POST /invites/organisation/<token>/accept ###
-
-    @api.doc('accept_organisation_invite')
-    def post(self, token):
-        user = keycloak_auth.get_users_by_attribute('invite_org_token', token)[0]
-        user_id = user["user_id"]
-
-        invite_org_id = user["attributes"].get("invite_org_id", [""])[0]
-        invite_org_role = user["attributes"].get(f"invite_org_role_{invite_org_id}", [""])[0]
-
-        result = role_org_member(user_id, invite_org_id, invite_org_role)
-
-        # Remove temp attributes
-        keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', token)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_org_id', invite_org_id)
-        keycloak_auth.remove_attribute_value(user_id, f'invite_org_role_{invite_org_id}', invite_org_role)
-
-        if invite_org_role == 'org-owner':
-            user_attr = keycloak_auth.get_user_attributes(user_id)
-            # Downgrade previous owner to org-admin
-            role_org_member(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
-            keycloak_auth.remove_attribute_value(user_id, "invite_org_old_owner", user_attr["invite_org_old_owner"][0])
-
-        # Get access token for the user
-        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
-        if not auth_tokens:
-            return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
 
 
 
-@invite_ns.route('/email/<string:token>/confirm')
-class EmailChangeConfirm(Resource):
-    ### POST /invites/email/<token>/confirm ###
 
-    @api.doc('accept_project_invite')
-    def post(self, token):
-        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
-        user_id = user["user_id"]
 
-        invite_email = user["attributes"].get("invite_new_email", [""])[0]
 
-        success = keycloak_auth.change_username(user_id, invite_email)
-        if not success:
-            return success
-
-        # Remove temp attributes
-        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_new_email', invite_email)
-
-        # Get access token for the user
-        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
-        if not auth_tokens:
-            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
-
-        return {
-            'message': 'User changed email successfully',
-            'user_id': user_id,
-            'new_email': invite_email,
-            'previous_email': user["username"],
-            'access_token': auth_tokens["access_token"],
-            'refresh_token': auth_tokens["refresh_token"]
-        }, 200
 
 
 if __name__ == '__main__':

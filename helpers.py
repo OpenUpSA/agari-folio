@@ -600,9 +600,6 @@ def get_isolate_fasta(id):
 
 
 
-
-
-
 async def check_for_sequence_data(row, isolate):
     for i in range(1, 201):
         await asyncio.sleep(0.03)
@@ -653,6 +650,32 @@ def send_to_elastic2(document):
         return False
 
 
+##############################
+### DOWNLOAD
+##############################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # OLD FUNCTION FOR LEGACY USE
 def send_to_elastic(index, document):
     es_url = settings.ELASTICSEARCH_URL
@@ -681,88 +704,9 @@ def send_to_elastic(index, document):
         print(f"Error sending document to Elasticsearch: {e}")
         return False
 
-def remove_from_elastic(index, doc_id):
-    es_url = settings.ELASTICSEARCH_URL
-    es_delete_url = f"{es_url}/{index}/_doc/{doc_id}"
-
-    try:
-        response = requests.delete(es_delete_url)
-        if response.status_code in [
-            200,
-            404,
-        ]:  # 404 means document doesn't exist, which is OK
-            print(f"Successfully removed document {doc_id} from {index}")
-            return True
-        else:
-            print(f"Failed to remove document: {response.text}")
-            return False
-    except Exception as e:
-        print(f"Error removing document from Elasticsearch: {e}")
-        return False
 
 
-def remove_samples_from_elastic(analysis_id):
-    """Remove all sample documents for a specific analysis from Elasticsearch"""
-    es_url = settings.ELASTICSEARCH_URL
 
-    # Use delete by query to remove all sample documents for this analysis
-    delete_query = {"query": {"term": {"analysisId.keyword": analysis_id}}}
-
-    es_delete_url = f"{es_url}/agari-samples/_delete_by_query"
-
-    try:
-        response = requests.post(
-            es_delete_url,
-            json=delete_query,
-            headers={"Content-Type": "application/json"},
-        )
-        if response.status_code in [200, 409]:  # 409 can happen if no documents found
-            result = response.json()
-            deleted_count = result.get("deleted", 0)
-            print(
-                f"Successfully removed {deleted_count} sample documents for analysis {analysis_id}"
-            )
-            return True
-        else:
-            print(f"Failed to remove sample documents: {response.text}")
-            return False
-    except Exception as e:
-        print(f"Error removing sample documents from Elasticsearch: {e}")
-        return False
-
-def get_isolate_from_elastic(isolate_id):
-
-    es_url = settings.ELASTICSEARCH_URL
-    es_query_url = f"{es_url}/agari-samples/_search"
-
-    query_body = {
-        "query": {
-            "term": {
-                "id.keyword": isolate_id
-            }
-        }
-    }
-
-    print(query_body)
-
-    try:
-        response = requests.post(
-            es_query_url, json=query_body, headers={"Content-Type": "application/json"}
-        )
-        if response.status_code == 200:
-            result = response.json()
-            hits = result.get("hits", {}).get("hits", [])
-            if hits:
-                return hits[0]
-            else:
-                return None
-        else:
-            print(f"Failed to query Elasticsearch: {response.text}")
-            return None
-    except Exception as e:
-        print(f"Error querying Elasticsearch: {e}")
-        return None
-    
 
 def query_elastic(query_body):
     es_url = settings.ELASTICSEARCH_URL

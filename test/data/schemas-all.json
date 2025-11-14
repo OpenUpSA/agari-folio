@@ -10584,7 +10584,7 @@
           },
           "plasmids_identified": {
             "name": "Plasmids Identified",
-            "type": "string",
+            "type": "array",
             "items": {
               "enum": [
                 "IncC1/C2",
