@@ -30,6 +30,7 @@ MINIO_SECURE = os.getenv('MINIO_SECURE', 'false').lower() == 'true'
 
 # Elasticsearch Configuration
 ELASTICSEARCH_URL = os.getenv('ELASTICSEARCH_URL', 'http://localhost:9200')
+ELASTICSEARCH_INDEX = os.getenv('ELASTICSEARCH_INDEX', 'agari-samples')
 
 # SendGrid Configuration
 SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY', '')

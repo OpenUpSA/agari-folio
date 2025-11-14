@@ -32,6 +32,7 @@ from helpers import (
     get_isolate_from_elastic,
     extract_invite_roles,
     send_to_elastic,
+    send_to_elastic2,
     remove_from_elastic,
     remove_samples_from_elastic,
     check_user_id,
@@ -1917,8 +1918,8 @@ class ProjectSubmissionValidate2(Resource):
         try:
 
             post_data = request.get_json()
-
             schema = post_data.get('schema')
+            version = post_data.get('version')
 
             # Get uploaded files for basic validation
             with get_db_cursor() as cursor:
@@ -1945,25 +1946,10 @@ class ProjectSubmissionValidate2(Resource):
                     'validation_errors': [f'Exactly 1 TSV file required, found {len(tsv_files)}']
                 }, 400
             
-            if len(fasta_files) == 0:
-                with get_db_cursor() as cursor:
-                    cursor.execute("""
-                        UPDATE submissions 
-                        SET status = 'error'
-                        WHERE id = %s
-                    """, (submission_id,))
-                
-                return {
-                    'status': 'error',
-                    'validation_errors': ['At least 1 FASTA file required']
-                }, 400
-            
             tsv_file_record = tsv_files[0]
             
             minio_bucket = settings.MINIO_BUCKET
             minio_client = get_minio_client(self)
-
-            validation = {}
 
             try:
                 tsv_object = minio_client.get_object(
@@ -1974,44 +1960,88 @@ class ProjectSubmissionValidate2(Resource):
                 
                 tsv_json = tsv_to_json(tsv_content)
 
-                print("TSV converted to JSON:")
-                
-                # print truncated tsv
-                print(json.dumps(tsv_json)[:500] + '...')
-
-                data = {
-                    "samples": tsv_json
-                }
-
-                validation = validate_against_schema(data, schema)
-
-                
-
-                if validation[0] == False:
+                for row_index, row in enumerate(tsv_json):
                     with get_db_cursor() as cursor:
+                        # Check if isolate already exists for this submission and row
                         cursor.execute("""
-                            UPDATE submissions 
-                            SET status = 'error', updated_at = NOW()
-                            WHERE id = %s
-                        """, (submission_id,))
+                            SELECT id FROM isolates 
+                            WHERE submission_id = %s AND tsv_row = %s
+                        """, (submission_id, row_index + 1))
+                        
+                        existing_isolate = cursor.fetchone()
+                        
+                        if existing_isolate:
+                            # Update existing isolate
+                            cursor.execute("""
+                                UPDATE isolates 
+                                SET isolate_data = %s, status = NULL, error = NULL, updated_at = NOW()
+                                WHERE submission_id = %s AND tsv_row = %s
+                            """, (json.dumps(row), submission_id, row_index + 1))
+                        else:
+                            # Insert new isolate
+                            cursor.execute("""
+                                INSERT INTO isolates (submission_id, isolate_data, tsv_row)
+                                VALUES (%s, %s, %s)
+                            """, (submission_id, json.dumps(row), row_index + 1))
+                
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        SELECT * FROM isolates 
+                        WHERE submission_id = %s 
+                        AND (status IS NULL OR status = '' OR status = 'error')
+                    """, (submission_id,))
                     
-                    return {
-                        'status': 'error',
-                        'validation_errors': validation[1]
-                    }, 400
-            
-                else:
-                    with get_db_cursor() as cursor:
-                        cursor.execute("""
-                            UPDATE submissions 
-                            SET status = 'validated', updated_at = NOW()
-                            WHERE id = %s
-                        """, (submission_id,))
+                    existing_isolates = cursor.fetchall()
                     
+                    for isolate in existing_isolates:
+                        isolate_data = isolate.get('isolate_data', {})
+                        
+                        # Run validation against schema
+                        is_valid, errors = validate_against_schema(isolate_data, isolate['tsv_row'], {'schema': schema, 'version': version})
+
+                        if not is_valid:
+                            cursor.execute("""
+                                UPDATE isolates
+                                SET error = %s, status = 'error', updated_at = NOW()
+                                WHERE id = %s
+                            """, (json.dumps(errors), isolate['id']))
+                        else:
+                            cursor.execute("""
+                                UPDATE isolates 
+                                SET status = 'validated', updated_at = NOW()
+                                WHERE id = %s
+                            """, (isolate['id'],))
+
+                            cursor.execute("""
+                                SELECT i.*, s.project_id, p.pathogen_id
+                                FROM isolates i
+                                LEFT JOIN submissions s ON i.submission_id = s.id
+                                LEFT JOIN projects p ON s.project_id = p.id
+                                WHERE i.id = %s
+                            """, (isolate['id'],))
+
+                            isolate_data = cursor.fetchone()
+
+                            if isolate_data:
+                                send_to_elastic2(isolate_data)
+
+                # After validating all isolates, check if any have errors
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        SELECT * FROM isolates 
+                        WHERE submission_id = %s
+                    """, (submission_id,))
+
+                    all_isolates = cursor.fetchall()
+
+                    isolates_with_errors = [iso["error"] for iso in all_isolates if iso['status'] == 'error']
+
                     return {
-                        'status': 'validated',
-                        'validation_warnings': validation[1]
-                    }, 200
+                        "validated": len(all_isolates) - len(isolates_with_errors),
+                        "validation_errors": isolates_with_errors,
+                        "missing_sequences": []
+                    }
+
 
             except Exception as e:
                 logger.exception(f"Error validating submission {submission_id}: {str(e)}")
@@ -2032,287 +2062,9 @@ class ProjectSubmissionFinalise(Resource):
     @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
     def post(self, project_id, submission_id):
 
-        """Finalise submission after validation - splits TSV data into isolates"""
+        """Finalise submission after validation - splits fasta files isolates"""
         
-        try:
-            # Get submission details and verify it exists and belongs to the project
-            with get_db_cursor() as cursor:
-                cursor.execute("""
-                    SELECT s.*, p.privacy, p.organisation_id 
-                    FROM submissions s
-                    LEFT JOIN projects p ON s.project_id = p.id
-                    WHERE s.id = %s AND s.project_id = %s
-                """, (submission_id, project_id))
-                
-                submission = cursor.fetchone()
-                if not submission:
-                    return {'error': 'Submission not found'}, 404
-                
-                # Check if submission is in a valid state for finalisation
-                if submission['status'] != 'validated':
-                    return {
-                        'error': f"Cannot finalise submission with status '{submission['status']}'."
-                    }, 400
-            
-            # Call the split_submission function
-            success, message = split_submission(submission_id)
-            
-            if success:
-                # Get all isolates for this submission - NEW CURSOR CONTEXT
-                with get_db_cursor() as cursor:
-                    cursor.execute("""
-                        SELECT * FROM isolates 
-                        WHERE submission_id = %s
-                    """, (submission_id,))
-
-                    isolates = cursor.fetchall()
-
-                    if not isolates:
-                        return {
-                            'error': 'No isolates found for submission',
-                            'submission_id': submission_id
-                        }, 400
-
-                    # Process each isolate and save FASTA to MinIO
-                    minio_client = get_minio_client(self)
-                    minio_bucket = settings.MINIO_BUCKET
-                    saved_fastas = []
-                    failed_fastas = []
-
-                    for isolate in isolates:
-                        
-                        try:
-                            # Get FASTA data for this isolate
-                            fasta_data = get_isolate_fasta(isolate['id'])
-                            
-                            if not fasta_data:
-                                failed_fastas.append({
-                                    'isolate_id': isolate['id'],
-                                    'isolate_sample_id': isolate['isolate_data'].get('isolate_id'),
-                                    'fasta_file_name': isolate['isolate_data'].get('fasta_file_name'),
-                                    'fasta_header_name': isolate['isolate_data'].get('fasta_header_name'),
-                                    'error': 'No FASTA data found'
-                                })
-                                continue
-                                
-                            # Generate object_id for MinIO storage
-                            fasta_object_id = str(uuid.uuid4())
-                            
-                            # Calculate file size and MD5
-                            fasta_bytes = fasta_data.encode('utf-8')
-                            fasta_size = len(fasta_bytes)
-                            fasta_md5 = hashlib.md5(fasta_bytes).hexdigest()
-                            
-                            # Upload FASTA to MinIO
-                            fasta_stream = BytesIO(fasta_bytes)
-                            
-                            minio_client.put_object(
-                                bucket_name=minio_bucket,
-                                object_name=fasta_object_id,
-                                data=fasta_stream,
-                                length=fasta_size,
-                                content_type='text/plain'
-                            )
-                            
-                            # Update isolate record with object_id and file details
-                            cursor.execute("""
-                                UPDATE isolates 
-                                SET object_id = %s, updated_at = NOW()
-                                WHERE id = %s
-                            """, (fasta_object_id, isolate['id']))
-                            
-                            # Save FASTA file record to submission_files table with isolate_id
-                            cursor.execute("""
-                                INSERT INTO submission_files 
-                                (submission_id, filename, file_type, object_id, file_size, md5_hash, isolate_id)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                            """, (submission_id, f"{isolate.get('sample_id', isolate['id'])}.fasta", 
-                                    'fasta', fasta_object_id, fasta_size, fasta_md5, isolate['id']))
-                            
-                            saved_fastas.append({
-                                'isolate_id': isolate['id'],
-                                'sample_id': isolate.get('sample_id'),
-                                'object_id': fasta_object_id,
-                                'file_size': fasta_size
-                            })
-                            
-                            logger.info(f"Saved FASTA for isolate {isolate['id']} to MinIO with object_id {fasta_object_id}")
-
-                            # Elasticsearch indexing
-
-                            try:
-                                indexed_samples = 0
-                                failed_samples = 0
-
-                                isolate_data = dict(isolate)
-
-                                isolate_data['object_id'] = fasta_object_id
-
-                                # Convert datetime objects to ISO format strings
-                                for key, value in isolate_data.items():
-                                    if isinstance(value, datetime):
-                                        isolate_data[key] = value.isoformat()
-                                    elif isinstance(value, date):
-                                        isolate_data[key] = value.isoformat()
-
-                                # index to elasticsearch
-                                sample_doc = {
-                                    "project_id": project_id,
-                                    "organisation_id": submission.get('organisation_id'),
-                                    "privacy": submission.get('privacy'),
-                                    "status": submission.get('status'),
-                                    **isolate_data
-                                }
-                                    
-                                # Index this sample document
-                                if send_to_elastic("agari-samples", sample_doc):
-                                    indexed_samples += 1
-                                else:
-                                    failed_samples += 1
-
-                            except Exception as es_error:
-                                logger.exception(f"Failed to index isolate {isolate['id']} to Elasticsearch: {str(es_error)}")
-                            
-
-
-                        except Exception as fasta_error:
-                            logger.exception(f"Failed to process FASTA for isolate {isolate['id']}: {str(fasta_error)}")
-                            failed_fastas.append({
-                                'isolate_id': isolate['id'],
-                                'sample_id': isolate.get('sample_id'),
-                                'error': str(fasta_error)
-                            })
-
-                    # Update submission status
-                    cursor.execute("""
-                        UPDATE submissions 
-                        SET status = 'finalised', updated_at = NOW()
-                        WHERE id = %s
-                    """, (submission_id,))
-
-                return {
-                    'message': 'Submission finalised successfully',
-                    'submission_id': submission_id,
-                    'status': 'finalised',
-                    'details': message,
-                    'isolates_processed': len(isolates),
-                    'fastas_saved': len(saved_fastas),
-                    'fastas_failed': len(failed_fastas),
-                    'saved_fastas': saved_fastas,
-                    'failed_fastas': failed_fastas if failed_fastas else None,
-                    'indexed_samples': indexed_samples,
-                    'failed_samples': failed_samples if failed_samples else None
-                }, 200
-            else:
-                return {'error': message}, 400
-            
-        except Exception as e:
-            # Update submission status to error
-            with get_db_cursor() as cursor:
-                cursor.execute("""
-                    UPDATE submissions 
-                    SET status = 'error', updated_at = NOW()
-                    WHERE id = %s
-                """, (submission_id,))
-            
-            logger.exception(f"Error finalising submission {submission_id}: {str(e)}")
-            return {'error': f'Finalisation failed: {str(e)}'}, 500
-
-
-@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/isolates')
-class ProjectSubmissionIsolates(Resource):
-
-    ### GET /projects/<project_id>/submissions/<submission_id>/isolates ###
-
-    @api.doc('list_submission_isolates')
-    @require_auth(keycloak_auth)
-    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
-    def get(self, project_id, submission_id):
-
-        """List all isolates for a specific submission"""
-
-        try:
-            with get_db_cursor() as cursor:
-                cursor.execute("""
-                    SELECT *
-                    FROM isolates
-                    WHERE submission_id = %s
-                    ORDER BY created_at DESC
-                """, (submission_id,))
-
-                isolates = cursor.fetchall()
-
-                return {
-                    'project_id': project_id,
-                    'submission_id': submission_id,
-                    'total_isolates': len(isolates),
-                    'isolates': isolates
-                }
-        except Exception as e:
-            logger.exception(f"Error retrieving isolates for submission {submission_id}: {str(e)}")
-            return {'error': f'Database error: {str(e)}'}, 500
-
-
-@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/isolates/<string:isolate_id>/sequence')
-class ProjectSubmissionIsolate(Resource):
-
-    ### GET /projects/<project_id>/submissions/<submission_id>/isolates/<isolate_id>/sequence ###
-
-    @api.doc('get_isolate_sequence')
-    @require_auth(keycloak_auth)
-    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
-    def get(self, project_id, submission_id, isolate_id):
-
-        """Retrieve a download link for the FASTA file of a specific isolate"""
-
-        try:
-            with get_db_cursor() as cursor:
-                cursor.execute("""
-                    SELECT sf.*
-                    FROM submission_files sf
-                    JOIN isolates i ON sf.isolate_id = i.id
-                    WHERE i.id = %s AND i.submission_id = %s
-                """, (isolate_id, submission_id))
-
-                file_record = cursor.fetchone()
-
-                if not file_record:
-                    return {'error': 'FASTA file for isolate not found'}, 404
-
-                # Get file details from the record
-                file_size = file_record.get('file_size', 0)
-                object_id = file_record['object_id']
-                filename = file_record['filename']
-
-                # Get MinIO client and generate presigned download URL
-                try:
-                    minio_client = get_minio_client(self)
-                    minio_bucket = settings.MINIO_BUCKET
-                    
-                    # Generate presigned download URL (valid for 1 hour)
-                    from datetime import timedelta
-                    file_url = minio_client.presigned_get_object(
-                        bucket_name=minio_bucket,
-                        object_name=object_id,
-                        expires=timedelta(hours=1)
-                    )
-                    
-                    return {
-                        'isolate_id': isolate_id,
-                        'file_url': file_url,
-                        'object_id': object_id,
-                        'filename': filename,
-                        'file_size': file_size
-                    }
-                    
-                except Exception as minio_error:
-                    logger.exception(f"Failed to generate MinIO presigned URL: {str(minio_error)}")
-                    return {'error': f'Failed to generate download link: {str(minio_error)}'}, 500
-
-        except Exception as e:
-            logger.exception(f"Error retrieving download URL for isolate {isolate_id}: {str(e)}")
-            return {'error': f'Failed to get download URL: {str(e)}'}, 500
-
+        pass
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/publish2')
 class ProjectSubmissionPublish2(Resource):
@@ -2326,67 +2078,9 @@ class ProjectSubmissionPublish2(Resource):
 
         """Publish a submission - makes isolates searchable"""
 
-        try:
+        pass
 
-            if not submission_id:
-                return {'error': 'submission_id is required'}, 400
-            
-            with get_db_cursor() as cursor:
-                cursor.execute("""
-                    SELECT * FROM submissions 
-                    WHERE id = %s AND project_id = %s
-                """, (submission_id, project_id))
-                
-                submission = cursor.fetchone()
-                if not submission:
-                    return {'error': 'Submission not found'}, 404
-                
-                if submission['status'] not in ['finalised', 'published']:
-                    return {
-                        'error': f"Cannot publish submission with status '{submission['status']}'."
-                    }, 400
-                
-                with get_db_cursor() as cursor:
-                    cursor.execute("""
-                        UPDATE submissions 
-                        SET status = 'published', updated_at = NOW()
-                        WHERE id = %s
-                    """, (submission_id,))
-
-                # now we need to update the index in elasticsearch for all isolates in this submission
-                # setting status to published
-
-                with get_db_cursor() as cursor:
-                    cursor.execute("""
-                        SELECT * FROM isolates 
-                        WHERE submission_id = %s
-                    """, (submission_id,))
-
-                    isolates = cursor.fetchall()
-
-                    for isolate in isolates:
-                        try:
-                            # Fetch existing document from Elasticsearch
-                            es_doc = get_isolate_from_elastic(isolate['id'])
-                            print(es_doc)
-                            if es_doc:
-                                es_doc['_source']['status'] = 'published'
-                                # Re-index the updated document
-                                send_to_elastic("agari-samples", es_doc)
-                        except Exception as es_error:
-                            logger.exception(f"Failed to update isolate {isolate['id']} in Elasticsearch: {str(es_error)}")
-                
-
-            return {
-                'message': 'Submission published successfully',
-                'submission_id': submission_id,
-                'status': 'published'
-            }, 200
-
-
-        except Exception as e:
-            logger.exception(f"Error publishing submission {submission_id}: {str(e)}")
-            return {'error': f'Publication failed: {str(e)}'}, 500
+       
 
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/unpublish2')
@@ -2401,43 +2095,7 @@ class ProjectSubmissionUnpublish2(Resource):
 
         """Unpublish a submission - makes isolates non-searchable"""
 
-        try:
-
-            if not submission_id:
-                return {'error': 'submission_id is required'}, 400
-            
-            with get_db_cursor() as cursor:
-                cursor.execute("""
-                    SELECT * FROM submissions 
-                    WHERE id = %s AND project_id = %s
-                """, (submission_id, project_id))
-                
-                submission = cursor.fetchone()
-                if not submission:
-                    return {'error': 'Submission not found'}, 404
-                
-                if submission['status'] != 'published':
-                    return {
-                        'error': f"Cannot unpublish submission with status '{submission['status']}'."
-                    }, 400
-                
-                with get_db_cursor() as cursor:
-                    cursor.execute("""
-                        UPDATE submissions 
-                        SET status = 'finalised', updated_at = NOW()
-                        WHERE id = %s
-                    """, (submission_id,))
-
-            return {
-                'message': 'Submission unpublished successfully',
-                'submission_id': submission_id,
-                'status': 'finalised'
-            }, 200
-
-
-        except Exception as e:
-            logger.exception(f"Error unpublishing submission {submission_id}: {str(e)}")
-            return {'error': f'Unpublication failed: {str(e)}'}, 500
+        pass
 
 
 

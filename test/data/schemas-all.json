@@ -90,7 +90,7 @@
           }
         },
         "required": [
-         
+            
         ],
         "properties": {
           "analysisId": {
@@ -10584,7 +10584,7 @@
           },
           "plasmids_identified": {
             "name": "Plasmids Identified",
-            "type": "array",
+            "type": "string",
             "items": {
               "enum": [
                 "IncC1/C2",

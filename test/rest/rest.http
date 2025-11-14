@@ -473,10 +473,10 @@ Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=boundary123
 
 --boundary123
-Content-Disposition: form-data; name="file"; filename="cholera_1.tsv"
+Content-Disposition: form-data; name="file"; filename="cholera_1_corrected.tsv"
 Content-Type: text/tab-separated-values
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_1.tsv
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_1_corrected.tsv
 
 --boundary123--
 
@@ -498,7 +498,7 @@ Content-Type: text/plain
 
 ###
 
-@file_id = 03b7a01d-6930-46fb-aa9e-f865a9634b4f
+@file_id = 5d26f7cd-1719-4bba-9922-c5e408cc6e75
 
 ### Step 2c: Delete uploaded file
 # @name deleteUploadedFile2
