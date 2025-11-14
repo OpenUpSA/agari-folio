@@ -1,1 +1,0 @@
-ALTER TABLE isolates ADD COLUMN tsv_row INT;
