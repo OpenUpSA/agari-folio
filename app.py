@@ -8,6 +8,8 @@ from auth import (
     require_permission,
     user_has_permission,
 )
+import threading
+import asyncio
 from permissions import PERMISSIONS
 from database import get_db_cursor, test_connection
 import json
@@ -27,7 +29,7 @@ from helpers import (
     role_project_member,
     role_org_member,
     validate_against_schema,
-    split_submission,
+    check_for_sequence_data,
     get_isolate_fasta,
     get_isolate_from_elastic,
     extract_invite_roles,
@@ -514,8 +516,6 @@ class UserList(Resource):
 
         keycloak_response = magic_link(email, redirect_uri, expiration_seconds, send_email)
         return keycloak_response
-
-
 @user_ns.route('/<string:user_id>')        
 class User(Resource):
 
@@ -645,8 +645,6 @@ class User(Resource):
         except Exception as e:
             logger.exception(f"Error updating user {user_id}: {str(e)}")
             return {'error': f'Failed to update user: {str(e)}'}, 500
-
-
 @user_ns.route('/email')
 class UserEmail(Resource):
     ### PUT /users/<user_id> ###
@@ -751,7 +749,6 @@ class OrganisationList(Resource):
             logger.exception(f"Error creating organisation: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 
-    
 
 @organisation_ns.route('/<string:org_id>')
 class Organisation(Resource):
@@ -891,8 +888,7 @@ class Organisation(Resource):
             logger.exception(f"Error deleting organisation {org_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 
-        
-    
+
 @organisation_ns.route('/<string:org_id>/members')
 class OrganisationUsers(Resource):
 
@@ -1001,6 +997,7 @@ class OrganisationRoles(Resource):
         except Exception as e:
             logger.exception(f"Error removing user from organisation role: {str(e)}")
             return {'error': f"Failed to remove user from organisation role: {str(e)}"}, 500
+
 
 @organisation_ns.route('/<string:org_id>/owner')
 class OrganisationOwner(Resource):
@@ -1818,7 +1815,6 @@ class ProjectSubmissionFiles2(Resource):
         except Exception as e:
             logger.exception(f"Error uploading file to submission {submission_id}")
             return {'error': f'Upload failed: {str(e)}'}, 500
-
     
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files2/<string:file_id>')
@@ -1902,9 +1898,55 @@ class ReplaceProjectSubmissionFile2(Resource):
             return {'error': f'Deletion failed: {str(e)}'}, 500
 
 
-
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/validate2')
 class ProjectSubmissionValidate2(Resource):
+
+    ### GET /projects/<project_id>/submissions2/<submission_id>/validate2
+
+    @api.doc('get_validation_status_v2')
+    @require_auth(keycloak_auth)
+    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
+    def get(self, project_id, submission_id):
+
+        """Get validation status and errors for a submission"""
+        
+        try:
+          
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM submissions 
+                    WHERE id = %s AND project_id = %s
+                """, (submission_id, project_id))
+                
+                submission = cursor.fetchone()
+                if not submission:
+                    return {'error': 'Submission not found'}, 404
+
+
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM isolates 
+                    WHERE submission_id = %s
+                """, (submission_id,))
+                
+                isolates = cursor.fetchall()
+                
+                validation_errors = [iso["error"] for iso in isolates if iso['status'] == 'error']
+                seq_errors = [iso["seq_error"] for iso in isolates if iso['seq_error'] is not None]
+
+                return {
+                    'submission_id': submission_id,
+                    'project_id': project_id,
+                    'status': submission['status'],
+                    'total_isolates': len(isolates),
+                    'validated': len([iso for iso in isolates if iso['status'] == 'validated']),
+                    'validation_errors': validation_errors,
+                    'sequence_errors': seq_errors
+                }
+          
+        except Exception as e:
+            logger.exception(f"Error retrieving validation status for submission {submission_id}: {str(e)}")
+            return {'error': f'Failed to retrieve validation status: {str(e)}'}, 500
 
     ### POST /projects/<project_id>/submissions2/<submission_id>/validate2
 
@@ -1921,6 +1963,13 @@ class ProjectSubmissionValidate2(Resource):
             schema = post_data.get('schema')
             version = post_data.get('version')
 
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    UPDATE submissions 
+                    SET status = 'validating'
+                    WHERE id = %s
+                """, (submission_id,))
+
             # Get uploaded files for basic validation
             with get_db_cursor() as cursor:
                 cursor.execute("""
@@ -1930,7 +1979,7 @@ class ProjectSubmissionValidate2(Resource):
                 files = cursor.fetchall()
 
             tsv_files = [f for f in files if f['file_type'] == 'tsv']
-            fasta_files = [f for f in files if f['file_type'] == 'fasta']
+            # fasta_files = [f for f in files if f['file_type'] == 'fasta']
 
             # Basic validation: check file counts
             if len(tsv_files) != 1:
@@ -2036,11 +2085,47 @@ class ProjectSubmissionValidate2(Resource):
 
                     isolates_with_errors = [iso["error"] for iso in all_isolates if iso['status'] == 'error']
 
+                    # async job here
+                    def run_async_job():
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            # Run check_for_sequence_data for each isolate
+                            for isolate in all_isolates:
+                                result = loop.run_until_complete(check_for_sequence_data(isolate["tsv_row"], isolate))
+                                
+                                formatted_result = json.dumps({
+                                    "row": isolate["tsv_row"],
+                                    "seq_error": result
+                                }) if result else None
+                                
+                                with get_db_cursor() as cursor:
+                                    cursor.execute("""
+                                        UPDATE isolates 
+                                        SET seq_error = %s, updated_at = NOW()
+                                        WHERE id = %s
+                                    """, (formatted_result, isolate['id']))
+                                print(f"Background async job completed for isolate {isolate['id']} with result: {result}")
+                        finally:
+                            with get_db_cursor() as cursor:
+                                cursor.execute("""
+                                    UPDATE submissions 
+                                    SET status = 'validated'
+                                    WHERE id = %s
+                                """, (submission_id,))
+                            loop.close()
+                    
+
+                    # Start background thread
+                    thread = threading.Thread(target=run_async_job)
+                    thread.start()
+                    # Note: thread.join() would wait for completion, but we're running it in background
+
+
                     return {
                         "validated": len(all_isolates) - len(isolates_with_errors),
-                        "validation_errors": isolates_with_errors,
-                        "missing_sequences": []
-                    }
+                        "validation_errors": isolates_with_errors
+                    }, 200
 
 
             except Exception as e:
@@ -2050,7 +2135,6 @@ class ProjectSubmissionValidate2(Resource):
         except Exception as e:
             logger.exception(f"Error during validation of submission {submission_id}: {str(e)}")
             return {'error': f'Validation failed: {str(e)}'}, 500
-
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/finalise')
 class ProjectSubmissionFinalise(Resource):
@@ -2079,9 +2163,6 @@ class ProjectSubmissionPublish2(Resource):
         """Publish a submission - makes isolates searchable"""
 
         pass
-
-       
-
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/unpublish2')
 class ProjectSubmissionUnpublish2(Resource):
@@ -2177,9 +2258,6 @@ class Search(Resource):
         except Exception as e:
             logger.exception(f"Error searching samples: {str(e)}")
             return {'error': f'Search error: {str(e)}'}, 500
-
-
-
 
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files/<string:object_id>')
@@ -2330,7 +2408,6 @@ class OrgInviteStatus(Resource):
         print(user_invites)
         return user_invites, 200
 
-
 @invite_ns.route('/project/<string:token>/accept')
 class ProjectInviteConfirm(Resource):
     ### POST /invites/project/<token>/accept ###
@@ -2370,7 +2447,6 @@ class ProjectInviteConfirm(Resource):
             'access_token': auth_tokens["access_token"],
             'refresh_token': auth_tokens["refresh_token"]
         }, 200
-
 
 @invite_ns.route('/organisation/<string:token>/accept')
 class OrganisationInviteConfirm(Resource):
@@ -2871,6 +2947,8 @@ class ProjectSubmissionUploadFinalisePart(Resource):
             return {'error': f'Failed to finalise part upload: {str(e)}'}, 500
 
 
+
+
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/upload/finalise')
 class ProjectSubmissionUploadFinalise(Resource):
 
@@ -3180,317 +3258,143 @@ class UnpublishSubmission(Resource):
             return {'error': f'Failed to unpublish analysis: {str(e)}'}, 500
         
 
+
 ##########################
-### STUDIES
+### INVITES
 ##########################
 
+invite_ns = api.namespace('invites', description='Invite management endpoints')
 
-study_ns = api.namespace('studies', description='Study management endpoints')
 
-@study_ns.route('/')
-class StudyList(Resource):
-    
-    ### GET /studies ###
+@invite_ns.route('/project/<string:project_id>')
+class ProjectInviteStatus(Resource):
+    ### GET /invites/project/<project_id> ###
 
-    @study_ns.doc('list_studies')
-    def get(self):
+    @api.doc('get_project_invites')
+    def get(self, project_id):
+        users = keycloak_auth.get_users_by_attribute('invite_project_id', project_id)
+        user_invites = extract_invite_roles(users, "")
+        print(user_invites)
+        return user_invites, 200
 
-        """List all studies (public access)"""
-        
-        try:
-            with get_db_cursor() as cursor:
-                cursor.execute("""
-                    SELECT *
-                    FROM studies 
-                    WHERE deleted_at IS NULL 
-                    ORDER BY name
-                """)
-                
-                studies = cursor.fetchall()
 
-                return studies
+@invite_ns.route('/organisation/<string:org_id>')
+class OrgInviteStatus(Resource):
+    ### GET /invites/organisation/<org_id> ###
 
-        except Exception as e:
-            logger.exception("Error retrieving studies")
-            return {'error': f'Database error: {str(e)}'}, 500
+    @api.doc('get_project_invites')
+    def get(self, org_id):
+        users = keycloak_auth.get_users_by_attribute('invite_org_id', org_id)
+        user_invites = extract_invite_roles(users, "org_")
+        print(user_invites)
+        return user_invites, 200
 
-    ### POST /studies ###
 
-    @study_ns.doc('create_study')
-    @require_auth(keycloak_auth)
-    @require_permission('create_study', resource_type='project', resource_id_arg='projectId')
-    def post(self):
-        """Create a new study"""
-        try:
-            data = request.get_json()
-            if not data:
-                return {'error': 'No JSON data provided'}, 400
-            
-            studyId = data.get('studyId')
-            name = data.get('name')
-            description = data.get('description')
-            projectId = data.get('projectId')
-            info = data.get('info')
-            
-            if not studyId:
-                return {'error': 'StudyId is required'}, 400
-            if not name:
-                return {'error': 'Study name is required'}, 400
-            if not projectId:
-                return {'error': 'Associated projectId is required'}, 400
-    
-            ### CHECK IF STUDYID EXISTS IN SONG ###
-            app.logger.info(f"Checking if studyId '{studyId}' exists in SONG before creating locally...")
-    
-            song_token = keycloak_auth.get_client_token()
-            if not song_token:
-                return {'error': 'Failed to authenticate with SONG service'}, 500
-            else:
-                app.logger.info("Successfully obtained SONG token")
-                print(f"SONG Token: {song_token}")
-    
-            song_headers = {
-                'Authorization': f'Bearer {song_token}',
-                'Content-Type': 'application/json'
-            }
-            
-            song_check_url = f"{SONG_URL}/studies/{studyId}"
-            app.logger.info(f"Checking SONG for existing studyId at {song_check_url} ...")
-            song_response = requests.get(song_check_url, headers=song_headers)
-    
-            app.logger.info(f"SONG: {song_response.json()}")
-    
-            if song_response.status_code == 200:
-                return {'error': f'Study with studyId "{studyId}" already exists in SONG'}, 200
-            elif song_response.status_code == 404:
-                print(f"StudyId '{studyId}' does not exist in SONG, proceeding to create locally...")
-            else:
-                return {'error': f'Error checking study in SONG: {song_response.status_code} - {song_response.text}'}, 500
-    
-            ### CREATE STUDY IN SONG ###
-            song_create_url = f"{SONG_URL}/studies/{studyId}/"
-            song_payload = {
-                'studyId': studyId,
-                'name': name,
-                'description': description,
-                'info': info or {}
-            }
-    
-            song_response = requests.post(song_create_url, headers=song_headers, json=song_payload)
-    
-            if song_response.status_code == 200:
-                print(f"Successfully created study in SONG: {song_response.json()}")
-            else:
-                return {'error': f"Failed to create study in SONG: {song_response.status_code} - {song_response.text}"}
-    
-            ### CREATE STUDY LOCALLY ###
-            with get_db_cursor() as cursor:
-                cursor.execute("""
-                    INSERT INTO studies (study_id, name, description, project_id)
-                    VALUES (%s, %s, %s, %s)
-                    RETURNING *
-                """, (studyId, name, description, projectId))
-    
-                new_study = cursor.fetchone()
-    
-                return {
-                    'message': 'Study created successfully',
-                    'study': new_study
-                }, 201
-    
-        except Exception as e:
-            if 'duplicate key value violates unique constraint' in str(e):
-                return {'error': f'Study with name "{name}" already exists'}, 409
-            logger.exception("Error creating study")
-            return {'error': f'Database error: {str(e)}'}, 500
+@invite_ns.route('/project/<string:token>/accept')
+class ProjectInviteConfirm(Resource):
+    ### POST /invites/project/<token>/accept ###
 
-@study_ns.route('/<string:study_id>/analysis')
-class StudyAnalysis(Resource):
-    
-    ### GET /studies/<study_id>/analysis ###
+    @api.doc('accept_project_invite')
+    def post(self, token):
+        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
+        user_id = user["user_id"]
 
-    @study_ns.doc('get_study_analysis')
-    @require_auth(keycloak_auth)
-    def get(self, study_id):
+        invite_project_id = user["attributes"].get("invite_project_id", [""])[0]
+        invite_role = user["attributes"].get(f"invite_role_{invite_project_id}", [""])[0]
 
-        """
-            Get analysis results for a study from SONG (proxy endpoint)
+        removed_roles = role_project_member(user_id, invite_project_id, invite_role)
+        print(f"Added project_id {invite_project_id} to role {invite_role} for user {user_id}")
+        # If not in an organisation, assign the org-partial role
+        org = keycloak_auth.get_user_org()
+        if not org:
+            project_org_id = keycloak_auth.get_project_parent_org(invite_project_id)
+            role_org_member(user_id, project_org_id, "org-partial")
 
-            Query Parameters:
-                - analysisStates: Comma-separated list of analysis states to filter by
-        """
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_project_id', invite_project_id)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_role_{invite_project_id}', invite_role)
 
-        states = request.args.get('analysisStates')
-        
-        try:
-            # Get client token for SONG API
-            song_token = keycloak_auth.get_client_token()
-            if not song_token:
-                return {'error': 'Failed to authenticate with SONG service'}, 500
+        # Get access token for the user
+        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
+        if not auth_tokens:
+            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
 
-            # Set up headers for SONG request
-            song_headers = {
-                'Authorization': f'Bearer {song_token}',
-                'Content-Type': 'application/json'
-            }
+        return {
+            'message': 'User added to project successfully',
+            'user_id': user_id,
+            'project_id': invite_project_id,
+            'new_role': invite_role,
+            'removed_roles': removed_roles,
+            'access_token': auth_tokens["access_token"],
+            'refresh_token': auth_tokens["refresh_token"]
+        }, 200
 
-            if states:
-                song_analysis_url = f"{SONG_URL}/studies/{study_id}/analysis?analysisStates={states}"
-            else:
-                song_analysis_url = f"{SONG_URL}/studies/{study_id}/analysis"
 
-            song_response = requests.get(song_analysis_url, headers=song_headers)
+@invite_ns.route('/organisation/<string:token>/accept')
+class OrganisationInviteConfirm(Resource):
+    ### POST /invites/organisation/<token>/accept ###
 
-            print(f"SONG analysis response status: {song_response.status_code}")
-            
-            # Forward SONG's response directly
-            try:
-                response_data = song_response.json()
-            except:
-                logger.exception("Error parsing SONG response")
-                response_data = {'message': song_response.text}
-            
-            return response_data, song_response.status_code
+    @api.doc('accept_organisation_invite')
+    def post(self, token):
+        user = keycloak_auth.get_users_by_attribute('invite_org_token', token)[0]
+        user_id = user["user_id"]
 
-        except Exception as e:
-            logger.exception("Error retrieving analysis")
-            return {'error': f'Failed to retrieve analysis results: {str(e)}'}, 500
+        invite_org_id = user["attributes"].get("invite_org_id", [""])[0]
+        invite_org_role = user["attributes"].get(f"invite_org_role_{invite_org_id}", [""])[0]
 
-@study_ns.route('/<string:project_id>/<string:study_id>/analysis/<string:analysis_id>/upload')
-class StudyAnalysisUpload(Resource):
+        result = role_org_member(user_id, invite_org_id, invite_org_role)
 
-    ### POST /studies/<project_id>/<study_id>/analysis/<analysis_id>/upload ###
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_org_id', invite_org_id)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_org_role_{invite_org_id}', invite_org_role)
 
-    @study_ns.doc('upload_analysis_file')
-    @require_auth(keycloak_auth)
-    @require_permission('submit_to_study', resource_type='project', resource_id_arg='project_id')
-    def post(self, project_id, study_id, analysis_id):
+        if invite_org_role == 'org-owner':
+            user_attr = keycloak_auth.get_user_attributes(user_id)
+            # Downgrade previous owner to org-admin
+            role_org_member(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
+            keycloak_auth.remove_attribute_value(user_id, "invite_org_old_owner", user_attr["invite_org_old_owner"][0])
 
-        """Upload a file to an analysis in SCORE and MINIO (proxy endpoint)"""
+        # Get access token for the user
+        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
+        if not auth_tokens:
+            return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
 
-        try:
-            print("Form keys:", request.form.keys())
-            print("Form data:", request.form)
-            # Parse form data
-            object_id = request.form.get('object_id')
-            overwrite = request.form.get('overwrite', 'true').lower() == 'true'
-            
-            if not object_id:
-                return {'error': 'object_id is required'}, 400
-                
-            # Get the uploaded file
-            if 'file' not in request.files:
-                return {'error': 'No file provided'}, 400
-                
-            file = request.files['file']
-            if file.filename == '':
-                return {'error': 'No file selected'}, 400
 
-            # Read file data and calculate size/MD5
-            file_data = file.read()
-            file_size = len(file_data)
-            
-            import hashlib
-            file_md5 = hashlib.md5(file_data).hexdigest()
-            
-            app.logger.info(f"File: {file.filename}, Size: {file_size}, MD5: {file_md5}")
 
-            # Get client token for SCORE API
-            score_token = keycloak_auth.get_client_token()
-            if not score_token:
-                return {'error': 'Failed to authenticate with SCORE service'}, 500
+@invite_ns.route('/email/<string:token>/confirm')
+class EmailChangeConfirm(Resource):
+    ### POST /invites/email/<token>/confirm ###
 
-            score_headers = {
-                'Authorization': f'Bearer {score_token}',
-                'Content-Type': 'application/x-www-form-urlencoded'
-            }
+    @api.doc('accept_project_invite')
+    def post(self, token):
+        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
+        user_id = user["user_id"]
 
-            # Step 1: Initialize upload with SCORE
-            init_upload_url = f"{SCORE_URL}/upload/{object_id}/uploads"
-            init_data = {
-                'fileSize': file_size,
-                'md5': file_md5,
-                'overwrite': overwrite
-            }
-            app.logger.info(f"Score URL {init_upload_url}")
-            init_response = requests.post(init_upload_url, headers=score_headers, data=init_data)
-            app.logger.info(f"Score upload response: {init_response}")
-            if init_response.status_code != 200:
-                return {'error': f'Failed to initialize upload: {init_response.status_code} - {init_response.text}'}, 500
-                
-            init_result = init_response.json()
-            upload_id = init_result['uploadId']
-            presigned_url = init_result['parts'][0]['url']
-            object_md5 = init_result['objectMd5']
-            
-            app.logger.info(f"Upload initialized - Upload ID: {upload_id}")
+        invite_email = user["attributes"].get("invite_new_email", [""])[0]
 
-            # Step 2: Upload file to MinIO using presigned URL
-            upload_headers = {'Content-Type': 'text/plain'}
-            upload_response = requests.put(presigned_url, headers=upload_headers, data=file_data)
-            
-            if upload_response.status_code != 200:
-                return {'error': f'Failed to upload file to storage: {upload_response.status_code}'}, 500
-                
-            etag = upload_response.headers.get('ETag', '').strip('"')
-            app.logger.info(f"File uploaded to MinIO - ETag: {etag}")
+        success = keycloak_auth.change_username(user_id, invite_email)
+        if not success:
+            return success
 
-            # Step 3: Finalize part upload
-            finalize_part_url = f"{SCORE_URL}/upload/{object_id}/parts"
-            finalize_part_params = {
-                'partNumber': 1,
-                'etag': etag,
-                'md5': object_md5,
-                'uploadId': upload_id
-            }
-            
-            score_json_headers = {
-                'Authorization': f'Bearer {score_token}',
-                'Content-Type': 'application/json'
-            }
-            
-            finalize_part_response = requests.post(
-                finalize_part_url, 
-                headers=score_json_headers, 
-                params=finalize_part_params
-            )
-            
-            if finalize_part_response.status_code != 200:
-                return {'error': f'Failed to finalize part upload: {finalize_part_response.status_code}'}, 500
-                
-            app.logger.info("Part upload finalized")
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_new_email', invite_email)
 
-            # Step 4: Finalize complete upload
-            finalize_upload_url = f"{SCORE_URL}/upload/{object_id}"
-            finalize_upload_params = {'uploadId': upload_id}
-            
-            finalize_upload_response = requests.post(
-                finalize_upload_url, 
-                headers=score_json_headers, 
-                params=finalize_upload_params
-            )
-            
-            if finalize_upload_response.status_code != 200:
-                return {'error': f'Failed to finalize upload: {finalize_upload_response.status_code}'}, 500
-                
-            app.logger.info("Upload finalized successfully")
+        # Get access token for the user
+        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
+        if not auth_tokens:
+            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
 
-            return {
-                'message': 'File uploaded successfully',
-                'study_id': study_id,
-                'project_id': project_id,
-                'analysis_id': analysis_id,
-                'object_id': object_id,
-                'filename': file.filename,
-                'file_size': file_size,
-                'md5': file_md5,
-                'upload_id': upload_id,
-                'etag': etag
-            }, 200
-
-        except Exception as e:
-            logger.exception(f"Error uploading file to analysis {analysis_id} in study {study_id}: {str(e)}")
-            return {'error': f'Failed to upload file: {str(e)}'}, 500
+        return {
+            'message': 'User changed email successfully',
+            'user_id': user_id,
+            'new_email': invite_email,
+            'previous_email': user["username"],
+            'access_token': auth_tokens["access_token"],
+            'refresh_token': auth_tokens["refresh_token"]
+        }, 200
 
 
 if __name__ == '__main__':
