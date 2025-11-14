@@ -493,7 +493,8 @@ def validate_against_schema(data, row, schema_info):
             "row": row,
             "field": ".".join(str(x) for x in error.path) if error.path else "root",
             "invalid_value": error.instance,
-            "message": error.message
+            "message": error.message,
+            "description": error.schema.get("description", "")
         }
         all_errors.append(error_info)
  

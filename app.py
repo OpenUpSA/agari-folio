@@ -1947,7 +1947,7 @@ class ReplaceProjectSubmissionFile2(Resource):
                 if not submission:
                     return {'error': 'Submission not found'}, 404
 
-                if submission['status'] not in ['draft', 'error']:
+                if submission['status'] not in ['draft', 'error', 'validating', 'validated']:
                     return {'error': f'Cannot delete files from submission in status: {submission["status"]}.'}, 400
 
                 # Verify file exists in this submission
