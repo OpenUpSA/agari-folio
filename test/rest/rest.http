@@ -1,9 +1,9 @@
-@folio = http://localhost:8000
-# @folio = https://folio-staging.openup.org.za
+# @folio = http://localhost:8000
+@folio = https://folio-staging.openup.org.za
 # @folio = https://folio-ilifu.openup.org.za
 
-@keycloak = http://keycloak.local
-# @keycloak = https://keycloak-staging.openup.org.za
+# @keycloak = http://keycloak.local
+@keycloak = https://keycloak-staging.openup.org.za
 # @keycloak = https://keycloak-ilifu.openup.org.za
 
 # @song = http://song.local
@@ -22,7 +22,7 @@
 @client_id = dms
 @client_secret = VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc
 
-@username = system.admin@agari.tech
+# @username = system.admin@agari.tech
 # @username = owner@org1.ac.za
 # @username = owner@org2.ac.za
 # @username = org-admin@org1.ac.za
@@ -30,7 +30,7 @@
 # @username = test-user1@example.com
 # @username = test-user2@example.com
 # @username = test-user3@example.com
-# @username = dirk@openup.org.za
+@username = dirk@openup.org.za
 
 @password = pass123
 
@@ -433,8 +433,8 @@ Authorization: Bearer {{token}}
 ### SUBMISSIONS2
 ##########################
 
-@project_id = cf8ddc93-5062-424d-964a-54610bcb5c4d
-@submission_id = 6b136fed-ea13-4b35-9193-aa2359081315
+@project_id = c6cf9642-5ae7-45c6-80a8-4194d76c0c50
+@submission_id = 56a07a54-55ed-4534-8915-de3a287420ec
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -452,7 +452,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "submission_name": "cholera_test"
+    "submission_name": "fridday_night_test"
 }
 
 ###

@@ -2188,27 +2188,57 @@ class ProjectSubmissionValidate2(Resource):
                         try:
                             # Run check_for_sequence_data for each isolate
                             for isolate in all_isolates:
-                                result = loop.run_until_complete(check_for_sequence_data(isolate["tsv_row"], isolate))
-                                
-                                formatted_result = json.dumps({
-                                    "row": isolate["tsv_row"],
-                                    "seq_error": result
-                                }) if result else None
+                                success, result = loop.run_until_complete(check_for_sequence_data(isolate))
                                 
                                 with get_db_cursor() as cursor:
-                                    cursor.execute("""
-                                        UPDATE isolates 
-                                        SET seq_error = %s, updated_at = NOW()
-                                        WHERE id = %s
-                                    """, (formatted_result, isolate['id']))
-                                print(f"Background async job completed for isolate {isolate['id']} with result: {result}")
+                                    if success:
+                                        # Success - update with object_id
+                                        cursor.execute("""
+                                            UPDATE isolates 
+                                            SET object_id = %s, updated_at = NOW()
+                                            WHERE id = %s
+                                        """, (result, isolate['id']))
+                                        print(f"Background async job completed for isolate {isolate['id']} - sequence saved: {result}")
+                                    else:
+                                        # Error - set seq_error
+                                        seq_error_data = {
+                                            "row": isolate["tsv_row"],
+                                            "seq_error": result
+                                        }
+                                        cursor.execute("""
+                                            UPDATE isolates 
+                                            SET seq_error = %s, updated_at = NOW()
+                                            WHERE id = %s
+                                        """, (json.dumps(seq_error_data), isolate['id']))
+                                        print(f"Background async job completed for isolate {isolate['id']} with error: {result}")
                         finally:
+                            # Check final status of all isolates before setting submission status
                             with get_db_cursor() as cursor:
                                 cursor.execute("""
-                                    UPDATE submissions 
-                                    SET status = 'validated'
-                                    WHERE id = %s
+                                    SELECT COUNT(*) as total,
+                                        COUNT(*) FILTER (WHERE status = 'error') as validation_errors,
+                                        COUNT(*) FILTER (WHERE seq_error IS NOT NULL) as sequence_errors
+                                    FROM isolates 
+                                    WHERE submission_id = %s
                                 """, (submission_id,))
+                                
+                                counts = cursor.fetchone()
+                                
+                                # Only set to 'validated' if no validation errors AND no sequence errors
+                                if counts['validation_errors'] == 0 and counts['sequence_errors'] == 0:
+                                    final_status = 'validated'
+                                else:
+                                    final_status = 'error'
+                                
+                                cursor.execute("""
+                                    UPDATE submissions 
+                                    SET status = %s, updated_at = NOW()
+                                    WHERE id = %s
+                                """, (final_status, submission_id))
+                                
+                                print(f"Submission {submission_id} final status: {final_status}")
+                                print(f"Total isolates: {counts['total']}, Validation errors: {counts['validation_errors']}, Sequence errors: {counts['sequence_errors']}")
+                            
                             loop.close()
                     
 
