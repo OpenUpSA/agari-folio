@@ -606,7 +606,7 @@ async def check_for_sequence_data(isolate):
             return False, f"No sequence data found for isolate '{isolate_sample_id}'"
         
         # 7. If file and header found, pass to save_sequence_data for processing
-        new_object_id = await save_sequence_data(sequence_data)
+        new_object_id = await save_sequence_data(sequence_data, isolate['submission_id'], isolate['id'])
         
         # 8. Return the object_id of new FASTA file or error
         if new_object_id:
@@ -618,12 +618,14 @@ async def check_for_sequence_data(isolate):
         return False, f"Error processing sequence data: {str(e)}"
 
 
-async def save_sequence_data(sequence):
+async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
     """
     Save sequence data to a FASTA file and upload it to MinIO.
     
     Args:
         sequence: String containing FASTA header and sequence data
+        submission_id: ID of the submission this sequence belongs to
+        isolate_id: ID of the isolate this sequence belongs to
         
     Returns:
         str: Object ID of the uploaded file, or None on error
@@ -646,6 +648,7 @@ async def save_sequence_data(sequence):
             return None
         
         print(f"Saving sequence data to file: {filename}")
+        print(f"Submission ID: {submission_id}, Isolate ID: {isolate_id}")
         
         # 3. Upload the FASTA file to MinIO
         minio_client = Minio(
@@ -686,10 +689,10 @@ async def save_sequence_data(sequence):
             with get_db_cursor() as cursor:
                 cursor.execute(
                     """
-                    INSERT INTO submission_files (filename, object_id, file_type, file_size, created_at)
-                    VALUES (%s, %s, %s, %s, NOW())
+                    INSERT INTO submission_files (submission_id, isolate_id, filename, object_id, file_type, file_size, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, NOW())
                     """,
-                    (filename, object_id, 'fasta', len(fasta_bytes)),
+                    (submission_id, isolate_id, filename, object_id, 'fasta', len(fasta_bytes)),
                 )
                 print(f"File metadata saved to database: {filename}")
         except Exception as db_error:
