@@ -2114,7 +2114,7 @@ class ProjectSubmissionValidate2(Resource):
                             # Update existing isolate
                             cursor.execute("""
                                 UPDATE isolates 
-                                SET isolate_data = %s, status = NULL, error = NULL, updated_at = NOW()
+                                SET isolate_data = %s, status = NULL, error = NULL, seq_error = NULL, updated_at = NOW()
                                 WHERE submission_id = %s AND tsv_row = %s
                             """, (json.dumps(row), submission_id, row_index + 1))
                         else:
