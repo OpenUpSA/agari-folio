@@ -3,6 +3,7 @@
 # @folio = https://folio-ilifu.openup.org.za
 
 @keycloak = http://keycloak.local
+# @keycloak = http://localhost:8080
 # @keycloak = https://keycloak-staging.openup.org.za
 # @keycloak = https://keycloak-ilifu.openup.org.za
 
@@ -278,12 +279,14 @@ Content-Type: application/json
 {
     "name": "Cholera",
     "description": "Cholera Virus",
-    "scientific_name": "Vibrio cholerae"
+    "scientific_name": "Vibrio cholerae",
+    "schema": "cholera_schema",
+    "version": 1
 }
 
 ###
 
-@pathogen_id = 0392eece-ebfe-4a52-ae33-d400d556cd47
+@pathogen_id = 126fce46-82d2-4ceb-b644-b0ca4de4a40d
 
 # @name get_pathogen
 GET {{folio}}/pathogens/{{pathogen_id}}
@@ -338,7 +341,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Dirk Mpox",
+    "name": "Dirk Cholera",
     "description": "",
     "pathogen_id": "{{pathogen_id}}",
     "privacy": "public"
@@ -415,8 +418,8 @@ Authorization: Bearer {{token}}
 ### SUBMISSIONS2
 ##########################
 
-@project_id = cf8ddc93-5062-424d-964a-54610bcb5c4d
-@submission_id = 67287fce-853c-4d7f-90f1-13a7bc8383b2
+@project_id = 29ba11ab-cb9d-4184-a5fa-046340a56674
+@submission_id = 4e038eb5-a384-451f-9514-94afd102e03d
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -434,7 +437,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "submission_name": "fridday_night_test"
+    "submission_name": "test"
 }
 
 ###
@@ -471,16 +474,16 @@ Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=boundary456
 
 --boundary456
-Content-Disposition: form-data; name="file"; filename="cholera_003.fasta"
+Content-Disposition: form-data; name="file"; filename="cholera_001.fasta"
 Content-Type: text/plain
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_003.fasta
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_001.fasta
 
 --boundary456--
 
 ###
 
-@file_id = f5718098-8628-4f7f-a8d8-9cf93fc1b37e
+@file_id = 809bf9a8-19e1-4229-9ed1-8da32f815b07
 
 ### Step 2c: Delete uploaded file
 # @name deleteUploadedFile2

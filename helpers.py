@@ -715,22 +715,36 @@ def json_serial(obj):
         return obj.isoformat()
     raise TypeError(f"Type {type(obj)} not serializable")
 
+
+
+
 # NEW FUNCTION TO SEND TO FIXED INDEX
 def send_to_elastic2(document):
-
-    es_index_url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_doc"
-    method = requests.post
-
     try:
         serialized_document = json.loads(json.dumps(document, default=json_serial))
     except Exception as e:
         print(f"Error serializing document: {e}")
         return False
 
+    # Check if document has an id field 
+    document_id = serialized_document.get('id')
+    if not document_id:
+        print("Warning: Document has no 'id' field, creating new document")
+        es_index_url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_doc"
+        method = requests.post
+    else:
+        # Use the document's UUID as the Elasticsearch document ID
+        # This ensures we always update the same document
+        es_index_url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_doc/{document_id}"
+        method = requests.put
+        print(f"Using document ID {document_id} as Elasticsearch document ID for upsert")
+
     try:
         response = method(es_index_url, json=serialized_document)
         if response.status_code in [200, 201]:
-            print(f"Successfully indexed document to {es_index_url}")
+            action = "updated/created" if method == requests.put else "indexed"
+            print(f"Successfully {action} document to {es_index_url}")
+            print(f"DEBUG: Document {document_id} with data: object_id={serialized_document.get('object_id')}, seq_error={serialized_document.get('seq_error')}")
             return True
         else:
             print(f"Failed to index document: {response.text}")
@@ -738,6 +752,9 @@ def send_to_elastic2(document):
     except Exception as e:
         print(f"Error sending document to Elasticsearch: {e}")
         return False
+
+
+
 
 
 ##############################

@@ -2198,6 +2198,21 @@ class ProjectSubmissionValidate2(Resource):
                                             WHERE id = %s
                                         """, (result, isolate['id']))
                                         print(f"Background async job completed for isolate {isolate['id']} - sequence saved: {result}")
+                                        
+                                        # Get updated isolate data and send to Elasticsearch
+                                        cursor.execute("""
+                                            SELECT i.*, s.project_id, p.pathogen_id
+                                            FROM isolates i
+                                            LEFT JOIN submissions s ON i.submission_id = s.id
+                                            LEFT JOIN projects p ON s.project_id = p.id
+                                            WHERE i.id = %s
+                                        """, (isolate['id'],))
+                                        
+                                        updated_isolate = cursor.fetchone()
+                                        if updated_isolate:
+                                            send_to_elastic2(updated_isolate)
+                                            print(f"Updated isolate {isolate['id']} sent to Elasticsearch")
+                                            
                                     else:
                                         # Error - set seq_error
                                         seq_error_data = {
@@ -2210,6 +2225,20 @@ class ProjectSubmissionValidate2(Resource):
                                             WHERE id = %s
                                         """, (json.dumps(seq_error_data), isolate['id']))
                                         print(f"Background async job completed for isolate {isolate['id']} with error: {result}")
+                                        
+                                        # Get updated isolate data and send to Elasticsearch
+                                        cursor.execute("""
+                                            SELECT i.*, s.project_id, p.pathogen_id
+                                            FROM isolates i
+                                            LEFT JOIN submissions s ON i.submission_id = s.id
+                                            LEFT JOIN projects p ON s.project_id = p.id
+                                            WHERE i.id = %s
+                                        """, (isolate['id'],))
+                                        
+                                        updated_isolate = cursor.fetchone()
+                                        if updated_isolate:
+                                            send_to_elastic2(updated_isolate)
+                                            print(f"Updated isolate {isolate['id']} with seq_error sent to Elasticsearch")
                         finally:
                             # Check final status of all isolates before setting submission status
                             with get_db_cursor() as cursor:
