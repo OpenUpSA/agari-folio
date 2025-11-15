@@ -519,6 +519,22 @@ async def check_for_sequence_data(isolate):
                - On error: (False, error_message)
     """
     try:
+        # 1. First, check if this isolate already has an object_id
+        isolate_id = isolate.get('id')
+        if isolate_id:
+            with get_db_cursor() as cursor:
+                cursor.execute(
+                    "SELECT object_id FROM isolates WHERE id = %s AND object_id IS NOT NULL",
+                    (isolate_id,),
+                )
+                existing_record = cursor.fetchone()
+                
+                if existing_record:
+                    existing_object_id = existing_record["object_id"]
+                    print(f"Isolate {isolate_id} already has object_id: {existing_object_id}")
+                    return True, existing_object_id
+        
+        # 2. If no existing object_id, proceed with sequence extraction
         # Get the isolate data - it should be a dictionary already
         isolate_data = isolate.get('isolate_data', {})
         if isinstance(isolate_data, str):
@@ -533,7 +549,7 @@ async def check_for_sequence_data(isolate):
         
         print(f"Looking for FASTA File: {fasta_file}, Header: {fasta_header}")
         
-        # 2. Get the object_id from submission_files table where filename matches
+        # 3. Get the object_id from submission_files table where filename matches
         with get_db_cursor() as cursor:
             cursor.execute(
                 """
@@ -695,6 +711,19 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
                     (submission_id, isolate_id, filename, object_id, 'fasta', len(fasta_bytes)),
                 )
                 print(f"File metadata saved to database: {filename}")
+                
+                # Also update the isolates table with the object_id
+                if isolate_id:
+                    cursor.execute(
+                        """
+                        UPDATE isolates 
+                        SET object_id = %s, updated_at = NOW() 
+                        WHERE id = %s
+                        """,
+                        (object_id, isolate_id),
+                    )
+                    print(f"Updated isolate {isolate_id} with object_id: {object_id}")
+                    
         except Exception as db_error:
             print(f"Warning: Could not save file metadata to database: {db_error}")
             # Continue anyway, as the file was uploaded successfully
@@ -706,6 +735,7 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
         print(f"Error saving sequence data: {str(e)}")
         return None
 
+
 ##############################
 ### ELASTICSEARCH HELPERS
 ##############################
@@ -714,8 +744,6 @@ def json_serial(obj):
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
     raise TypeError(f"Type {type(obj)} not serializable")
-
-
 
 
 # NEW FUNCTION TO SEND TO FIXED INDEX
@@ -754,6 +782,30 @@ def send_to_elastic2(document):
         return False
 
 
+def query_elastic(query_body):
+    es_url = settings.ELASTICSEARCH_URL
+    es_query_url = f"{es_url}/agari-samples/_search"
+
+    try:
+        response = requests.post(
+            es_query_url, json=query_body, headers={"Content-Type": "application/json"}
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Failed to query Elasticsearch: {response.text}")
+            return None
+    except Exception as e:
+        print(f"Error querying Elasticsearch: {e}")
+        return None
+
+
+
+
+
+
+
+
 
 
 
@@ -768,19 +820,19 @@ def send_to_elastic2(document):
 
 
 
-    # for i in range(1, 201):
-    #     await asyncio.sleep(0.03)
-    #     if i % 20 == 0:
-    #         print(f"Counted to {i}")
-    
-    # errors = [
-    #     "No sequence data found",
-    #     "Sequence data is corrupted",
-    #     "FASTA header does not match isolate ID"
-    # ]
+# for i in range(1, 201):
+#     await asyncio.sleep(0.03)
+#     if i % 20 == 0:
+#         print(f"Counted to {i}")
 
-    # if random.choice([True, False]):
-    #     return random.choice(errors)
+# errors = [
+#     "No sequence data found",
+#     "Sequence data is corrupted",
+#     "FASTA header does not match isolate ID"
+# ]
+
+# if random.choice([True, False]):
+#     return random.choice(errors)
 
 
 
@@ -827,22 +879,3 @@ def send_to_elastic(index, document):
         return False
 
 
-
-
-
-def query_elastic(query_body):
-    es_url = settings.ELASTICSEARCH_URL
-    es_query_url = f"{es_url}/agari-samples/_search"
-
-    try:
-        response = requests.post(
-            es_query_url, json=query_body, headers={"Content-Type": "application/json"}
-        )
-        if response.status_code == 200:
-            return response.json()
-        else:
-            print(f"Failed to query Elasticsearch: {response.text}")
-            return None
-    except Exception as e:
-        print(f"Error querying Elasticsearch: {e}")
-        return None

@@ -2287,19 +2287,6 @@ class ProjectSubmissionValidate2(Resource):
             logger.exception(f"Error during validation of submission {submission_id}: {str(e)}")
             return {'error': f'Validation failed: {str(e)}'}, 500
 
-@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/finalise')
-class ProjectSubmissionFinalise(Resource):
-
-    ### POST /projects/<project_id>/submissions/<submission_id>/finalise
-
-    @api.doc('finalise_submission')
-    @require_auth(keycloak_auth)
-    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
-    def post(self, project_id, submission_id):
-
-        """Finalise submission after validation - splits fasta files isolates"""
-        
-        pass
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/publish2')
 class ProjectSubmissionPublish2(Resource):
@@ -2313,7 +2300,32 @@ class ProjectSubmissionPublish2(Resource):
 
         """Publish a submission - makes isolates searchable"""
 
-        pass
+        # this function needs to:
+        # 1. Set all isolate status to 'published' where status is 'validated' and seq_error is NULL and error is NULL and object_id is NOT NULL 
+        # 2. send_to_elastic2 for each published isolate
+
+        with get_db_cursor() as cursor:
+            cursor.execute("""
+                UPDATE isolates
+                SET status = 'published'
+                WHERE submission_id = %s
+                AND status = 'validated'
+                AND seq_error IS NULL
+                AND error IS NULL
+                AND object_id IS NOT NULL
+            """, (submission_id,))
+
+            cursor.execute("""
+                SELECT * FROM isolates
+                WHERE submission_id = %s
+                AND status = 'published'
+            """, (submission_id,))
+            published_isolates = cursor.fetchall()
+
+            for isolate in published_isolates:
+                send_to_elastic2(isolate)
+
+        return {'message': 'Submission published successfully'}, 200
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/unpublish2')
 class ProjectSubmissionUnpublish2(Resource):
@@ -2327,7 +2339,27 @@ class ProjectSubmissionUnpublish2(Resource):
 
         """Unpublish a submission - makes isolates non-searchable"""
 
-        pass
+        #this functio needs to:
+        # 1. Set all isolate status to 'validated' where status is 'published'
+        # 2. send_to_elastic2 for each unpublished isolate
+
+        with get_db_cursor() as cursor:
+            cursor.execute("""
+                UPDATE isolates
+                SET status = 'validated'
+                WHERE submission_id = %s
+                AND status = 'published'
+            """, (submission_id,))
+
+            cursor.execute("""
+                SELECT * FROM isolates
+                WHERE submission_id = %s
+                AND status = 'validated'
+            """, (submission_id,))
+            unpublished_isolates = cursor.fetchall()
+
+            for isolate in unpublished_isolates:
+                send_to_elastic2(isolate)
 
 
 
@@ -2410,6 +2442,14 @@ class Search(Resource):
             logger.exception(f"Error searching samples: {str(e)}")
             return {'error': f'Search error: {str(e)}'}, 500
 
+
+
+
+
+
+
+
+
 ##########################
 ### DOWNLOAD
 ##########################
@@ -2423,6 +2463,7 @@ class DownloadSamples(Resource):
 
     @api.doc('download_isolates')
     @require_auth(keycloak_auth)
+    @require_permission('download_submission', resource_type='project', resource_id_arg='project_id')
     def post(self):
 
         """Download isolates data as TSV"""

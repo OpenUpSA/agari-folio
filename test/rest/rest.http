@@ -419,7 +419,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 @project_id = 29ba11ab-cb9d-4184-a5fa-046340a56674
-@submission_id = 4e038eb5-a384-451f-9514-94afd102e03d
+@submission_id = 58f5e59a-9a5c-475b-96a4-361fcb0474f5
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -474,10 +474,10 @@ Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=boundary456
 
 --boundary456
-Content-Disposition: form-data; name="file"; filename="cholera_001.fasta"
+Content-Disposition: form-data; name="file"; filename="cholera_002.fasta"
 Content-Type: text/plain
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_001.fasta
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_002.fasta
 
 --boundary456--
 
