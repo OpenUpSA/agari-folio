@@ -38,7 +38,6 @@ from helpers import (
 )
 import uuid
 import hashlib
-from io import BytesIO
 import settings  # module import allows override via conftest.py
 from logging import getLogger
 
@@ -395,24 +394,42 @@ class Pathogen(Resource):
             if not data:
                 return {'error': 'No JSON data provided'}, 400
             
-            name = data.get('name')
-            scientific_name = data.get('scientific_name')
-            description = data.get('description')
-            schema = data.get('schema')
-            schema_version = data.get('schema_version')
+            # Build dynamic update query based on provided fields
+            update_fields = []
+            update_values = []
             
-            if not name:
-                return {'error': 'Pathogen name is required'}, 400
-            if not scientific_name:
-                return {'error': 'Scientific name is required'}, 400
+            if 'name' in data:
+                update_fields.append('name = %s')
+                update_values.append(data['name'])
+                
+            if 'scientific_name' in data:
+                update_fields.append('scientific_name = %s')
+                update_values.append(data['scientific_name'])
+                
+            if 'description' in data:
+                update_fields.append('description = %s')
+                update_values.append(data['description'])
+                
+            if 'schema_id' in data:
+                update_fields.append('schema_id = %s')
+                update_values.append(data['schema_id'])
+            
+            if not update_fields:
+                return {'error': 'No valid fields provided for update'}, 400
+            
+            # Always update the updated_at timestamp
+            update_fields.append('updated_at = NOW()')
+            update_values.append(pathogen_id)
 
             with get_db_cursor() as cursor:
-                cursor.execute("""
+                query = f"""
                     UPDATE pathogens 
-                    SET name = %s, scientific_name = %s, description = %s, schema = %s, schema_version = %s, updated_at = NOW()
+                    SET {', '.join(update_fields)}
                     WHERE id = %s AND deleted_at IS NULL
-                    RETURNING id, name, scientific_name, description, schema, schema_version, updated_at
-                """, (name, scientific_name, description, schema, schema_version, pathogen_id))
+                    RETURNING id, name, scientific_name, description, schema_id, created_at, updated_at
+                """
+                
+                cursor.execute(query, update_values)
 
                 updated_pathogen = cursor.fetchone()
                 
@@ -426,7 +443,9 @@ class Pathogen(Resource):
                 
         except Exception as e:
             if 'duplicate key value violates unique constraint' in str(e):
-                return {'error': f'Pathogen with name "{name}" already exists'}, 409
+                # Extract the field name from the error for better error message
+                field_name = data.get('name', 'unknown')
+                return {'error': f'Pathogen with name "{field_name}" already exists'}, 409
             logger.exception(f"Error updating pathogen {pathogen_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 

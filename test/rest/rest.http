@@ -311,10 +311,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Cholera",
-    "description": "Cholera virus",
-    "scientific_name": "Vibrio cholerae",
-    "version": 2
+    "schema_id": "62a0a507-2b4f-4db7-aae9-4f1b18cf9447"
 }
 
 ###
