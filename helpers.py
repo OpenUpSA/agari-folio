@@ -464,24 +464,52 @@ def get_minio_client(self):
 ### VALIDATION HELPERS
 ##############################
 
-def validate_against_schema(data, row, schema_info):
-    schemas = load_json_schema("schemas-all.json")
+def validate_against_schema(data, row, project_id):
 
-    schema_name = schema_info.get("schema")
-    schema_version = schema_info.get("version")
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT pathogen_id
+            FROM projects
+            WHERE id = %s AND deleted_at IS NULL
+            """,
+            (project_id,),
+        )
+        project_record = cursor.fetchone()
+        if not project_record:
+            return False, f"Project ID {project_id} not found"
+        
+        pathogen_id = project_record["pathogen_id"]
+        
+        cursor.execute(
+            """
+            SELECT schema_id
+            FROM pathogens
+            WHERE id = %s AND deleted_at IS NULL
+            """,
+            (pathogen_id,),
+        )
+        pathogen_record = cursor.fetchone()
+        if not pathogen_record:
+            return False, f"Pathogen ID {pathogen_id} not found"
+        
+        schema_id = pathogen_record["schema_id"]
+        
+        cursor.execute(
+            """
+            SELECT schema
+            FROM schemas
+            WHERE id = %s AND deleted_at IS NULL
+            """,
+            (schema_id,),
+        )
+        schema = cursor.fetchone()
 
-
-    resultset = schemas["schemas"]
-
-    resultset_schema = [
-        s for s in resultset 
-        if s.get("name") == schema_name and s.get("version") == schema_version
-    ]
     
-    if not resultset_schema:
-        return False, f"Schema '{schema_name}' version {schema_version} not found"
-    
-    schema_obj = resultset_schema[0]["schema"]
+    if not schema:
+        return False, f"Schema ID {schema_id} not found"
+
+    schema_obj = schema[0]["schema"]
 
     all_errors = []
     
@@ -800,39 +828,35 @@ def query_elastic(query_body):
         return None
 
 
+def check_isolate_in_elastic(isolate_id):
+    es_url = settings.ELASTICSEARCH_URL
+    es_query_url = f"{es_url}/agari-samples/_search"
+
+    query_body = {
+        "query": {
+            "term": {
+                "isolate_id.keyword": isolate_id
+            }
+        }
+    }
+
+    try:
+        response = requests.post(
+            es_query_url, json=query_body, headers={"Content-Type": "application/json"}
+        )
+        if response.status_code == 200:
+            result = response.json()
+            hits = result.get("hits", {}).get("total", {}).get("value", 0)
+            return hits > 0
+        else:
+            print(f"Failed to query Elasticsearch: {response.text}")
+            return False
+    except Exception as e:
+        print(f"Error querying Elasticsearch: {e}")
+        return False
 
 
 
-
-
-
-
-
-
-##############################
-### DOWNLOAD
-##############################
-
-
-
-
-
-
-
-
-# for i in range(1, 201):
-#     await asyncio.sleep(0.03)
-#     if i % 20 == 0:
-#         print(f"Counted to {i}")
-
-# errors = [
-#     "No sequence data found",
-#     "Sequence data is corrupted",
-#     "FASTA header does not match isolate ID"
-# ]
-
-# if random.choice([True, False]):
-#     return random.choice(errors)
 
 
 
