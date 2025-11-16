@@ -467,6 +467,142 @@ class PathogenRestore(Resource):
                 return {'error': 'Cannot restore: A pathogen with this name already exists'}, 409
             logger.exception(f"Error restoring pathogen {pathogen_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
+        
+##########################
+### SCHEMAS
+##########################
+
+schema_ns = api.namespace('schemas', description='Schema management endpoints')
+
+@schema_ns.route('/')
+class SchemaList(Resource):
+
+    ### GET /schemas ###
+
+    @schema_ns.doc('list_schemas')
+    def get(self):
+
+        """List all available schemas (public access)"""
+        
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT s.id, s.name, s.description, s.version, p.name AS pathogen_name
+                    FROM schemas s
+                    JOIN pathogens p ON s.pathogen_id = p.id
+                """)
+                schemas = cursor.fetchall()
+                return schemas
+
+        except Exception as e:
+            logger.exception(f"Error retrieving schemas: {str(e)}")
+            return {'error': f'Database error: {str(e)}'}, 500
+        
+
+    ### POST /schemas ###
+    @schema_ns.doc('register_schema')
+    @require_auth(keycloak_auth)
+    @require_permission('create_pathogen')
+    def post(self):
+
+        """Register a new schema (system-admin only)"""
+
+        # Check if we have multipart form data
+        if 'metadata' not in request.form or 'file' not in request.files:
+            return {'error': 'Missing metadata or file in multipart form data'}, 400
+
+        # Parse metadata from form data
+        try:
+            metadata = json.loads(request.form['metadata'])
+        except json.JSONDecodeError as e:
+            return {'error': f'Invalid JSON in metadata: {str(e)}'}, 400
+
+        # Validate and extract schema details from metadata
+        schema_name = metadata.get('name')
+        pathogen_id = metadata.get('pathogen_id')
+        description = metadata.get('description')
+
+        if not schema_name:
+            return {'error': 'Schema name is required'}, 400
+        
+        if not pathogen_id:
+            return {'error': 'Pathogen ID is required'}, 400
+
+        # Get the uploaded file
+        uploaded_file = request.files['file']
+        if uploaded_file.filename == '':
+            return {'error': 'No file selected'}, 400
+
+        # Read and validate schema JSON from the uploaded file
+        try:
+            file_content = uploaded_file.read()
+            schema = json.loads(file_content.decode('utf-8'))
+        except json.JSONDecodeError as e:
+            return {'error': f'Invalid JSON in uploaded file: {str(e)}'}, 400
+        except UnicodeDecodeError as e:
+            return {'error': f'Invalid file encoding: {str(e)}'}, 400
+
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO schemas (name, schema, pathogen_id, description)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id, name, schema, description, pathogen_id, created_at, updated_at
+                """, (schema_name, json.dumps(schema), pathogen_id, description))
+                new_schema = cursor.fetchone()
+                
+                # Convert the schema back to dict for response if it's a string
+                response_schema = dict(new_schema)
+                if isinstance(response_schema.get('schema'), str):
+                    try:
+                        response_schema['schema'] = json.loads(response_schema['schema'])
+                    except json.JSONDecodeError:
+                        pass  # Keep as string if can't parse
+                
+                return {
+                    'message': 'Schema created successfully',
+                    'schema': response_schema
+                }, 201
+
+        except Exception as e:
+            logger.exception(f"Error creating schema: {str(e)}")
+            return {'error': f'Database error: {str(e)}'}, 500
+        
+    
+@schema_ns.route('/<string:schema_id>')
+class Schema(Resource):
+    ### GET /schemas/<schema_id> ###
+
+    @schema_ns.doc('get_schema')
+    def get(self, schema_id):
+
+        """Get schema details by ID (public access)"""
+        
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT s.id, s.name, s.description, s.version, p.name AS pathogen_name, s.created_at, s.schema
+                    FROM schemas s
+                    JOIN pathogens p ON s.pathogen_id = p.id
+                    WHERE s.id = %s
+                """, (schema_id,))
+                
+                schema = cursor.fetchone()
+                
+                if not schema:
+                    return {'error': 'Schema not found'}, 404
+                
+                return schema
+                
+        except Exception as e:
+            logger.exception(f"Error retrieving schema {schema_id}: {str(e)}")
+            return {'error': f'Database error: {str(e)}'}, 500
+
+
+
+
+
+
 
 ##########################
 ### USERS
@@ -2450,32 +2586,120 @@ class Search(Resource):
 
 
 
+
 ##########################
 ### DOWNLOAD
 ##########################
 
 download_ns = api.namespace('download', description='Download endpoints')
 
-@download_ns.route('/isoaltes')
+@download_ns.route('/isolates')
 class DownloadSamples(Resource):
 
     ### POST /download/isolates ###
 
     @api.doc('download_isolates')
     @require_auth(keycloak_auth)
-    @require_permission('download_submission', resource_type='project', resource_id_arg='project_id')
     def post(self):
-
-        """Download isolates data as TSV"""
 
         try:
             data = request.get_json()
-            isolate_ids = data.get('isolate_ids', [])
+            isolate_ids = data.get('isolates', [])
 
             if not isolate_ids:
-                return {'error': 'isolate_ids list is required'}, 400
+                return {'error': 'isolates list is required'}, 400
+            
+            # Get isolate data and validate permissions
+            with get_db_cursor() as cursor:
+                # Get isolates with their associated project information for permission checking
+                placeholders = ','.join(['%s'] * len(isolate_ids))
+                cursor.execute(f"""
+                    SELECT i.id, i.isolate_id, i.object_id, i.isolate_data, 
+                           s.project_id, p.name as project_name
+                    FROM isolates i
+                    JOIN submissions s ON i.submission_id = s.id
+                    JOIN projects p ON s.project_id = p.id
+                    WHERE i.id IN ({placeholders})
+                    AND i.status = 'validated'
+                    AND i.object_id IS NOT NULL
+                    AND i.isolate_data IS NOT NULL
+                """, isolate_ids)
+                
+                isolates = cursor.fetchall()
 
-            return 
+            if not isolates:
+                return {'error': 'No valid isolates found'}, 404
+
+            # # Validate user has download permission for all projects
+            # user_info = extract_user_info(request.user)
+            # projects_to_check = list(set([isolate['project_id'] for isolate in isolates]))
+            
+            # for project_id in projects_to_check:
+            #     if not user_has_permission(user_info, 'download_isolates', resource_type='project', resource_id=project_id):
+            #         return {'error': f'Permission denied for project {project_id}'}, 403
+
+            # Compile isolate data into TSV format
+            if not isolates[0]['isolate_data']:
+                return {'error': 'No isolate data available'}, 400
+                
+            # Get headers from the first isolate's data
+            headers = list(isolates[0]['isolate_data'].keys())
+            tsv_lines = ['\t'.join(headers)]
+            
+            # Add data rows
+            for isolate in isolates:
+                row = []
+                for header in headers:
+                    value = isolate['isolate_data'].get(header, '')
+                    # Convert to string and handle None values
+                    row.append(str(value) if value is not None else '')
+                tsv_lines.append('\t'.join(row))
+            
+            tsv_content = '\n'.join(tsv_lines)
+
+            # Download sequence files from MinIO
+            minio_bucket = settings.MINIO_BUCKET
+            minio_client = get_minio_client(self)
+            
+            import zipfile
+            from io import BytesIO
+            
+            # Create ZIP file in memory
+            zip_buffer = BytesIO()
+            
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                # Add TSV file to ZIP
+                zip_file.writestr('isolates_metadata.tsv', tsv_content)
+                
+                # Add each sequence file to ZIP
+                for isolate in isolates:
+                    try:
+                        # Download file from MinIO
+                        seq_object = minio_client.get_object(
+                            bucket_name=minio_bucket,
+                            object_name=str(isolate['object_id'])
+                        )
+                        seq_content = seq_object.read()
+                        
+                        # Add to ZIP with isolate_id as filename
+                        filename = f"{isolate['isolate_id']}.fasta"
+                        zip_file.writestr(filename, seq_content)
+                        
+                    except Exception as seq_error:
+                        logger.warning(f"Failed to download sequence for isolate {isolate['isolate_id']}: {str(seq_error)}")
+                        # Add a placeholder file indicating the error
+                        error_content = f"Error downloading sequence: {str(seq_error)}"
+                        zip_file.writestr(f"{isolate['isolate_id']}_ERROR.txt", error_content)
+
+            # Prepare ZIP response
+            zip_buffer.seek(0)
+            
+            from flask import make_response
+            response = make_response(zip_buffer.getvalue())
+            response.headers['Content-Type'] = 'application/zip'
+            response.headers['Content-Disposition'] = f'attachment; filename="isolates_download_{len(isolates)}_samples.zip"'
+            
+            return response
 
         except Exception as e:
             logger.exception(f"Error downloading isolates: {str(e)}")

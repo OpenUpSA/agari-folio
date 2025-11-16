@@ -23,7 +23,7 @@
 @client_id = dms
 @client_secret = VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc
 
-# @username = system.admin@agari.tech
+@username = system.admin@agari.tech
 # @username = owner@org1.ac.za
 # @username = owner@org2.ac.za
 # @username = org-admin@org1.ac.za
@@ -31,7 +31,7 @@
 # @username = test-user1@example.com
 # @username = test-user2@example.com
 # @username = test-user3@example.com
-@username = dirk@openup.org.za
+# @username = dirk@openup.org.za
 
 @password = pass123
 
@@ -323,7 +323,49 @@ Content-Type: application/json
 POST {{folio}}/pathogens/{{pathogen_id}}/restore
 Authorization: Bearer {{token}}
 
+##########################
+### SCHEMAS
+##########################
 
+# @name list_schemas
+GET {{folio}}/schemas
+Authorization: Bearer {{token}} 
+
+###
+
+# @name register_schema
+POST {{folio}}/schemas/
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary456
+
+------WebKitFormBoundary456
+Content-Disposition: form-data; name="metadata"
+
+{
+    "pathogen_id": "{{pathogen_id}}",
+    "name": "cholera_schema",
+    "description": "Schema for Cholera pathogen"
+}
+
+------WebKitFormBoundary456
+Content-Disposition: form-data; name="file"; filename="cholera-v5.json"
+Content-Type: application/json
+
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/schemas/cholera-v5.json
+
+------WebKitFormBoundary456--
+
+
+
+###
+
+@schema_id = 62a0a507-2b4f-4db7-aae9-4f1b18cf9447
+
+# @name get_schema
+GET {{folio}}/schemas/{{schema_id}}
+Authorization: Bearer {{token}} 
+
+###
 
 ##########################
 ### PROJECTS
@@ -549,6 +591,16 @@ Authorization: Bearer {{token}}
 
 ###
 
+
+### Step 9: Download Submission Isolates
+# @name downloadSubmissionIsolates2
+POST {{folio}}/download/isolates
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "isolates": ["75a1f507-2d36-49c3-ab5c-d98da76c633a","99cb1c69-7ac6-49d1-a396-b7384aaa9e9a"]
+}
 
 ##########################
 ### ELASTICSEARCH
