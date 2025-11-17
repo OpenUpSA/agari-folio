@@ -1830,6 +1830,8 @@ class ProjectSubmissions2(Resource):
                 """, (project_id, submission_name, current_user_id))
                 
                 new_submission = cursor.fetchone()
+
+                log_event("submission_created", new_submission['id'], new_submission)
                 
                 return {
                     'message': 'Submission created successfully',
@@ -2165,6 +2167,8 @@ class ReplaceProjectSubmissionFile2(Resource):
                     DELETE FROM submission_files 
                     WHERE id = %s
                 """, (file_id,))
+
+            
             
             return {
                 'message': 'File deleted successfully',
@@ -2474,6 +2478,8 @@ class ProjectSubmissionValidate2(Resource):
                     thread = threading.Thread(target=run_async_job)
                     thread.start()
 
+                    log_event("submission_validated", submission_id, {"validated_isolates": len(all_isolates) - len(isolates_with_errors)})
+
                     return {
                         "validated": len(all_isolates) - len(isolates_with_errors),
                         "validation_errors": isolates_with_errors
@@ -2549,6 +2555,7 @@ class ProjectSubmissionPublish2(Resource):
             for isolate in published_isolates:
                 send_to_elastic2(isolate)
 
+        log_event("submission_published", submission_id, {"published_isolates": len(published_isolates)})
         return {'message': f'Submission published successfully with {len(published_isolates)} isolates'}, 200
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/unpublish2')
@@ -2592,6 +2599,7 @@ class ProjectSubmissionUnpublish2(Resource):
             for isolate in unpublished_isolates:
                 send_to_elastic2(isolate)
 
+        log_event("submission_unpublished", submission_id, {"unpublished_isolates": len(unpublished_isolates)})
         return {'message': f'Submission unpublished successfully. {len(unpublished_isolates)} isolates reverted to validated status'}, 200
 
 
