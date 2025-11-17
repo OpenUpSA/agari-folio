@@ -2,11 +2,9 @@
 import os
 import sys
 import psycopg2
-from pathlib import Path
 
 
 def get_db_config():
-    """Get database configuration from environment variables."""
     return {
         "user": os.getenv("DB_USER", "admin"),
         "host": os.getenv("DB_HOST", "localhost"),
@@ -17,7 +15,6 @@ def get_db_config():
 
 
 def run_migration(conn, file_path):
-    """Run a single migration file."""
     print(f"Running {file_path}...")
 
     try:
@@ -28,7 +25,7 @@ def run_migration(conn, file_path):
             cursor.execute(sql)
 
         conn.commit()
-        print(f"✓ Successfully executed {file_path}")
+        print(f"✓ Executed {file_path}")
         return True
 
     except FileNotFoundError:
@@ -60,7 +57,7 @@ def main():
             f"Connecting to database {db_config['database']} at {db_config['host']}:{db_config['port']}..."
         )
         conn = psycopg2.connect(**db_config)
-        print("✓ Connected successfully\n")
+        print("Connected successfully\n")
 
         # Run migrations
         success_count = 0
