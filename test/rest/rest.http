@@ -7,14 +7,6 @@
 # @keycloak = https://keycloak-staging.openup.org.za
 # @keycloak = https://keycloak-ilifu.openup.org.za
 
-# @song = http://song.local
-# @song = https://song-staging.openup.org.za
-# @song = https://song-ilifu.openup.org.za
-
-# @score = http://score.local
-# @score = https://score-staging.openup.org.za
-# @score = https://score-ilifu.openup.org.za
-
 # @minio = http://minio.local
 # @minio = http://localhost:9000
 
@@ -311,7 +303,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "schema_id": "62a0a507-2b4f-4db7-aae9-4f1b18cf9447"
+    "schema_id": "a3f6d276-9e88-43ce-8f79-419c29d82270"
 }
 
 ###
@@ -380,7 +372,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Dirk Cholera",
+    "name": "Dirk Cholera Monday Test",
     "description": "",
     "pathogen_id": "{{pathogen_id}}",
     "privacy": "public"
@@ -458,7 +450,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 @project_id = 29ba11ab-cb9d-4184-a5fa-046340a56674
-@submission_id = 58f5e59a-9a5c-475b-96a4-361fcb0474f5
+@submission_id = e5f229a4-b5b3-45ce-8046-2ab98a5a7966
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -536,11 +528,6 @@ Authorization: Bearer {{token}}
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/validate2
 Authorization: Bearer {{token}}
 Content-Type: application/json
-
-{
-  "schema": "cholera_schema",
-  "version": 1
-}
 
 ###
 
@@ -642,8 +629,8 @@ Content-Type: application/json
 {
   "query": {
     "term": {
-      "submission_id.keyword": "cdd8f664-e3af-47da-8822-5e985d348353"
-    },
+      "submission_id.keyword": "e0678d59-20d8-45c0-a8c1-5a2e4e9d2586"
+    }
   }
 }
 
