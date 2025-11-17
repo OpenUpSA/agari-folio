@@ -3,6 +3,7 @@
 # @folio = https://folio-ilifu.openup.org.za
 
 @keycloak = http://keycloak.local
+# @keycloak = http://localhost:8080
 # @keycloak = https://keycloak-staging.openup.org.za
 # @keycloak = https://keycloak-ilifu.openup.org.za
 
@@ -278,12 +279,14 @@ Content-Type: application/json
 {
     "name": "Cholera",
     "description": "Cholera Virus",
-    "scientific_name": "Vibrio cholerae"
+    "scientific_name": "Vibrio cholerae",
+    "schema": "cholera_schema",
+    "version": 1
 }
 
 ###
 
-@pathogen_id = 0392eece-ebfe-4a52-ae33-d400d556cd47
+@pathogen_id = 126fce46-82d2-4ceb-b644-b0ca4de4a40d
 
 # @name get_pathogen
 GET {{folio}}/pathogens/{{pathogen_id}}
@@ -308,10 +311,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Cholera",
-    "description": "Cholera virus",
-    "scientific_name": "Vibrio cholerae",
-    "version": 2
+    "schema_id": "62a0a507-2b4f-4db7-aae9-4f1b18cf9447"
 }
 
 ###
@@ -320,25 +320,49 @@ Content-Type: application/json
 POST {{folio}}/pathogens/{{pathogen_id}}/restore
 Authorization: Bearer {{token}}
 
+##########################
+### SCHEMAS
+##########################
+
+# @name list_schemas
+GET {{folio}}/schemas
+Authorization: Bearer {{token}} 
 
 ###
 
 # @name register_schema
-POST {{song}}/schemas
+POST {{folio}}/schemas/
 Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary456
+
+------WebKitFormBoundary456
+Content-Disposition: form-data; name="metadata"
+
+{
+    "pathogen_id": "{{pathogen_id}}",
+    "name": "cholera_schema",
+    "description": "Schema for Cholera pathogen"
+}
+
+------WebKitFormBoundary456
+Content-Disposition: form-data; name="file"; filename="cholera-v5.json"
 Content-Type: application/json
 
-< /home/dimee/Work/OpenUp/SANBI/agari-helm-2/metadata/schemas/cholera/cholera-v4.json
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/schemas/cholera-v5.json
+
+------WebKitFormBoundary456--
+
+
 
 ###
 
-# @name list_schemas
-GET {{song}}/schemas
-Authorization: Bearer {{token}}
+@schema_id = 62a0a507-2b4f-4db7-aae9-4f1b18cf9447
 
+# @name get_schema
+GET {{folio}}/schemas/{{schema_id}}
+Authorization: Bearer {{token}} 
 
 ###
-
 
 ##########################
 ### PROJECTS
@@ -356,7 +380,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Dirk Mpox",
+    "name": "Dirk Cholera",
     "description": "",
     "pathogen_id": "{{pathogen_id}}",
     "privacy": "public"
@@ -433,8 +457,8 @@ Authorization: Bearer {{token}}
 ### SUBMISSIONS2
 ##########################
 
-@project_id = cf8ddc93-5062-424d-964a-54610bcb5c4d
-@submission_id = 6b136fed-ea13-4b35-9193-aa2359081315
+@project_id = 29ba11ab-cb9d-4184-a5fa-046340a56674
+@submission_id = 58f5e59a-9a5c-475b-96a4-361fcb0474f5
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -452,7 +476,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "submission_name": "cholera_test"
+    "submission_name": "test"
 }
 
 ###
@@ -498,7 +522,7 @@ Content-Type: text/plain
 
 ###
 
-@file_id = f5718098-8628-4f7f-a8d8-9cf93fc1b37e
+@file_id = 809bf9a8-19e1-4229-9ed1-8da32f815b07
 
 ### Step 2c: Delete uploaded file
 # @name deleteUploadedFile2
@@ -564,6 +588,16 @@ Authorization: Bearer {{token}}
 
 ###
 
+
+### Step 9: Download Submission Isolates
+# @name downloadSubmissionIsolates2
+POST {{folio}}/download/isolates
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "isolates": ["75a1f507-2d36-49c3-ab5c-d98da76c633a","99cb1c69-7ac6-49d1-a396-b7384aaa9e9a"]
+}
 
 ##########################
 ### ELASTICSEARCH

@@ -30,7 +30,6 @@ from helpers import (
     role_org_member,
     validate_against_schema,
     check_for_sequence_data,
-    get_isolate_fasta,
     extract_invite_roles,
     send_to_elastic,
     send_to_elastic2,
@@ -39,7 +38,6 @@ from helpers import (
 )
 import uuid
 import hashlib
-from io import BytesIO
 import settings  # module import allows override via conftest.py
 from logging import getLogger
 
@@ -396,24 +394,42 @@ class Pathogen(Resource):
             if not data:
                 return {'error': 'No JSON data provided'}, 400
             
-            name = data.get('name')
-            scientific_name = data.get('scientific_name')
-            description = data.get('description')
-            schema = data.get('schema')
-            schema_version = data.get('schema_version')
+            # Build dynamic update query based on provided fields
+            update_fields = []
+            update_values = []
             
-            if not name:
-                return {'error': 'Pathogen name is required'}, 400
-            if not scientific_name:
-                return {'error': 'Scientific name is required'}, 400
+            if 'name' in data:
+                update_fields.append('name = %s')
+                update_values.append(data['name'])
+                
+            if 'scientific_name' in data:
+                update_fields.append('scientific_name = %s')
+                update_values.append(data['scientific_name'])
+                
+            if 'description' in data:
+                update_fields.append('description = %s')
+                update_values.append(data['description'])
+                
+            if 'schema_id' in data:
+                update_fields.append('schema_id = %s')
+                update_values.append(data['schema_id'])
+            
+            if not update_fields:
+                return {'error': 'No valid fields provided for update'}, 400
+            
+            # Always update the updated_at timestamp
+            update_fields.append('updated_at = NOW()')
+            update_values.append(pathogen_id)
 
             with get_db_cursor() as cursor:
-                cursor.execute("""
+                query = f"""
                     UPDATE pathogens 
-                    SET name = %s, scientific_name = %s, description = %s, schema = %s, schema_version = %s, updated_at = NOW()
+                    SET {', '.join(update_fields)}
                     WHERE id = %s AND deleted_at IS NULL
-                    RETURNING id, name, scientific_name, description, schema, schema_version, updated_at
-                """, (name, scientific_name, description, schema, schema_version, pathogen_id))
+                    RETURNING id, name, scientific_name, description, schema_id, created_at, updated_at
+                """
+                
+                cursor.execute(query, update_values)
 
                 updated_pathogen = cursor.fetchone()
                 
@@ -427,7 +443,9 @@ class Pathogen(Resource):
                 
         except Exception as e:
             if 'duplicate key value violates unique constraint' in str(e):
-                return {'error': f'Pathogen with name "{name}" already exists'}, 409
+                # Extract the field name from the error for better error message
+                field_name = data.get('name', 'unknown')
+                return {'error': f'Pathogen with name "{field_name}" already exists'}, 409
             logger.exception(f"Error updating pathogen {pathogen_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 
@@ -468,6 +486,142 @@ class PathogenRestore(Resource):
                 return {'error': 'Cannot restore: A pathogen with this name already exists'}, 409
             logger.exception(f"Error restoring pathogen {pathogen_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
+        
+##########################
+### SCHEMAS
+##########################
+
+schema_ns = api.namespace('schemas', description='Schema management endpoints')
+
+@schema_ns.route('/')
+class SchemaList(Resource):
+
+    ### GET /schemas ###
+
+    @schema_ns.doc('list_schemas')
+    def get(self):
+
+        """List all available schemas (public access)"""
+        
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT s.id, s.name, s.description, s.version, p.name AS pathogen_name
+                    FROM schemas s
+                    JOIN pathogens p ON s.pathogen_id = p.id
+                """)
+                schemas = cursor.fetchall()
+                return schemas
+
+        except Exception as e:
+            logger.exception(f"Error retrieving schemas: {str(e)}")
+            return {'error': f'Database error: {str(e)}'}, 500
+        
+
+    ### POST /schemas ###
+    @schema_ns.doc('register_schema')
+    @require_auth(keycloak_auth)
+    @require_permission('create_pathogen')
+    def post(self):
+
+        """Register a new schema (system-admin only)"""
+
+        # Check if we have multipart form data
+        if 'metadata' not in request.form or 'file' not in request.files:
+            return {'error': 'Missing metadata or file in multipart form data'}, 400
+
+        # Parse metadata from form data
+        try:
+            metadata = json.loads(request.form['metadata'])
+        except json.JSONDecodeError as e:
+            return {'error': f'Invalid JSON in metadata: {str(e)}'}, 400
+
+        # Validate and extract schema details from metadata
+        schema_name = metadata.get('name')
+        pathogen_id = metadata.get('pathogen_id')
+        description = metadata.get('description')
+
+        if not schema_name:
+            return {'error': 'Schema name is required'}, 400
+        
+        if not pathogen_id:
+            return {'error': 'Pathogen ID is required'}, 400
+
+        # Get the uploaded file
+        uploaded_file = request.files['file']
+        if uploaded_file.filename == '':
+            return {'error': 'No file selected'}, 400
+
+        # Read and validate schema JSON from the uploaded file
+        try:
+            file_content = uploaded_file.read()
+            schema = json.loads(file_content.decode('utf-8'))
+        except json.JSONDecodeError as e:
+            return {'error': f'Invalid JSON in uploaded file: {str(e)}'}, 400
+        except UnicodeDecodeError as e:
+            return {'error': f'Invalid file encoding: {str(e)}'}, 400
+
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO schemas (name, schema, pathogen_id, description)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id, name, schema, description, pathogen_id, created_at, updated_at
+                """, (schema_name, json.dumps(schema), pathogen_id, description))
+                new_schema = cursor.fetchone()
+                
+                # Convert the schema back to dict for response if it's a string
+                response_schema = dict(new_schema)
+                if isinstance(response_schema.get('schema'), str):
+                    try:
+                        response_schema['schema'] = json.loads(response_schema['schema'])
+                    except json.JSONDecodeError:
+                        pass  # Keep as string if can't parse
+                
+                return {
+                    'message': 'Schema created successfully',
+                    'schema': response_schema
+                }, 201
+
+        except Exception as e:
+            logger.exception(f"Error creating schema: {str(e)}")
+            return {'error': f'Database error: {str(e)}'}, 500
+        
+    
+@schema_ns.route('/<string:schema_id>')
+class Schema(Resource):
+    ### GET /schemas/<schema_id> ###
+
+    @schema_ns.doc('get_schema')
+    def get(self, schema_id):
+
+        """Get schema details by ID (public access)"""
+        
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT s.id, s.name, s.description, s.version, p.name AS pathogen_name, s.created_at, s.schema
+                    FROM schemas s
+                    JOIN pathogens p ON s.pathogen_id = p.id
+                    WHERE s.id = %s
+                """, (schema_id,))
+                
+                schema = cursor.fetchone()
+                
+                if not schema:
+                    return {'error': 'Schema not found'}, 404
+                
+                return schema
+                
+        except Exception as e:
+            logger.exception(f"Error retrieving schema {schema_id}: {str(e)}")
+            return {'error': f'Database error: {str(e)}'}, 500
+
+
+
+
+
+
 
 ##########################
 ### USERS
@@ -2115,7 +2269,7 @@ class ProjectSubmissionValidate2(Resource):
                             # Update existing isolate
                             cursor.execute("""
                                 UPDATE isolates 
-                                SET isolate_data = %s, status = NULL, error = NULL, updated_at = NOW()
+                                SET isolate_data = %s, status = NULL, error = NULL, seq_error = NULL, updated_at = NOW()
                                 WHERE submission_id = %s AND tsv_row = %s
                             """, (json.dumps(row), submission_id, row_index + 1))
                         else:
@@ -2188,27 +2342,86 @@ class ProjectSubmissionValidate2(Resource):
                         try:
                             # Run check_for_sequence_data for each isolate
                             for isolate in all_isolates:
-                                result = loop.run_until_complete(check_for_sequence_data(isolate["tsv_row"], isolate))
-                                
-                                formatted_result = json.dumps({
-                                    "row": isolate["tsv_row"],
-                                    "seq_error": result
-                                }) if result else None
+                                success, result = loop.run_until_complete(check_for_sequence_data(isolate))
                                 
                                 with get_db_cursor() as cursor:
-                                    cursor.execute("""
-                                        UPDATE isolates 
-                                        SET seq_error = %s, updated_at = NOW()
-                                        WHERE id = %s
-                                    """, (formatted_result, isolate['id']))
-                                print(f"Background async job completed for isolate {isolate['id']} with result: {result}")
+                                    if success:
+                                        # Success - update with object_id
+                                        cursor.execute("""
+                                            UPDATE isolates 
+                                            SET object_id = %s, updated_at = NOW()
+                                            WHERE id = %s
+                                        """, (result, isolate['id']))
+                                        print(f"Background async job completed for isolate {isolate['id']} - sequence saved: {result}")
+                                        
+                                        # Get updated isolate data and send to Elasticsearch
+                                        cursor.execute("""
+                                            SELECT i.*, s.project_id, p.pathogen_id
+                                            FROM isolates i
+                                            LEFT JOIN submissions s ON i.submission_id = s.id
+                                            LEFT JOIN projects p ON s.project_id = p.id
+                                            WHERE i.id = %s
+                                        """, (isolate['id'],))
+                                        
+                                        updated_isolate = cursor.fetchone()
+                                        if updated_isolate:
+                                            send_to_elastic2(updated_isolate)
+                                            print(f"Updated isolate {isolate['id']} sent to Elasticsearch")
+                                            
+                                    else:
+                                        # Error - set seq_error
+                                        seq_error_data = {
+                                            "row": isolate["tsv_row"],
+                                            "seq_error": result
+                                        }
+                                        cursor.execute("""
+                                            UPDATE isolates 
+                                            SET seq_error = %s, updated_at = NOW()
+                                            WHERE id = %s
+                                        """, (json.dumps(seq_error_data), isolate['id']))
+                                        print(f"Background async job completed for isolate {isolate['id']} with error: {result}")
+                                        
+                                        # Get updated isolate data and send to Elasticsearch
+                                        cursor.execute("""
+                                            SELECT i.*, s.project_id, p.pathogen_id
+                                            FROM isolates i
+                                            LEFT JOIN submissions s ON i.submission_id = s.id
+                                            LEFT JOIN projects p ON s.project_id = p.id
+                                            WHERE i.id = %s
+                                        """, (isolate['id'],))
+                                        
+                                        updated_isolate = cursor.fetchone()
+                                        if updated_isolate:
+                                            send_to_elastic2(updated_isolate)
+                                            print(f"Updated isolate {isolate['id']} with seq_error sent to Elasticsearch")
                         finally:
+                            # Check final status of all isolates before setting submission status
                             with get_db_cursor() as cursor:
                                 cursor.execute("""
-                                    UPDATE submissions 
-                                    SET status = 'validated'
-                                    WHERE id = %s
+                                    SELECT COUNT(*) as total,
+                                        COUNT(*) FILTER (WHERE status = 'error') as validation_errors,
+                                        COUNT(*) FILTER (WHERE seq_error IS NOT NULL) as sequence_errors
+                                    FROM isolates 
+                                    WHERE submission_id = %s
                                 """, (submission_id,))
+                                
+                                counts = cursor.fetchone()
+                                
+                                # Only set to 'validated' if no validation errors AND no sequence errors
+                                if counts['validation_errors'] == 0 and counts['sequence_errors'] == 0:
+                                    final_status = 'validated'
+                                else:
+                                    final_status = 'error'
+                                
+                                cursor.execute("""
+                                    UPDATE submissions 
+                                    SET status = %s, updated_at = NOW()
+                                    WHERE id = %s
+                                """, (final_status, submission_id))
+                                
+                                print(f"Submission {submission_id} final status: {final_status}")
+                                print(f"Total isolates: {counts['total']}, Validation errors: {counts['validation_errors']}, Sequence errors: {counts['sequence_errors']}")
+                            
                             loop.close()
                     
 
@@ -2229,19 +2442,6 @@ class ProjectSubmissionValidate2(Resource):
             logger.exception(f"Error during validation of submission {submission_id}: {str(e)}")
             return {'error': f'Validation failed: {str(e)}'}, 500
 
-@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/finalise')
-class ProjectSubmissionFinalise(Resource):
-
-    ### POST /projects/<project_id>/submissions/<submission_id>/finalise
-
-    @api.doc('finalise_submission')
-    @require_auth(keycloak_auth)
-    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
-    def post(self, project_id, submission_id):
-
-        """Finalise submission after validation - splits fasta files isolates"""
-        
-        pass
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/publish2')
 class ProjectSubmissionPublish2(Resource):
@@ -2255,7 +2455,32 @@ class ProjectSubmissionPublish2(Resource):
 
         """Publish a submission - makes isolates searchable"""
 
-        pass
+        # this function needs to:
+        # 1. Set all isolate status to 'published' where status is 'validated' and seq_error is NULL and error is NULL and object_id is NOT NULL 
+        # 2. send_to_elastic2 for each published isolate
+
+        with get_db_cursor() as cursor:
+            cursor.execute("""
+                UPDATE isolates
+                SET status = 'published'
+                WHERE submission_id = %s
+                AND status = 'validated'
+                AND seq_error IS NULL
+                AND error IS NULL
+                AND object_id IS NOT NULL
+            """, (submission_id,))
+
+            cursor.execute("""
+                SELECT * FROM isolates
+                WHERE submission_id = %s
+                AND status = 'published'
+            """, (submission_id,))
+            published_isolates = cursor.fetchall()
+
+            for isolate in published_isolates:
+                send_to_elastic2(isolate)
+
+        return {'message': 'Submission published successfully'}, 200
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/unpublish2')
 class ProjectSubmissionUnpublish2(Resource):
@@ -2269,7 +2494,27 @@ class ProjectSubmissionUnpublish2(Resource):
 
         """Unpublish a submission - makes isolates non-searchable"""
 
-        pass
+        #this functio needs to:
+        # 1. Set all isolate status to 'validated' where status is 'published'
+        # 2. send_to_elastic2 for each unpublished isolate
+
+        with get_db_cursor() as cursor:
+            cursor.execute("""
+                UPDATE isolates
+                SET status = 'validated'
+                WHERE submission_id = %s
+                AND status = 'published'
+            """, (submission_id,))
+
+            cursor.execute("""
+                SELECT * FROM isolates
+                WHERE submission_id = %s
+                AND status = 'validated'
+            """, (submission_id,))
+            unpublished_isolates = cursor.fetchall()
+
+            for isolate in unpublished_isolates:
+                send_to_elastic2(isolate)
 
 
 
@@ -2352,13 +2597,22 @@ class Search(Resource):
             logger.exception(f"Error searching samples: {str(e)}")
             return {'error': f'Search error: {str(e)}'}, 500
 
+
+
+
+
+
+
+
+
+
 ##########################
 ### DOWNLOAD
 ##########################
 
 download_ns = api.namespace('download', description='Download endpoints')
 
-@download_ns.route('/isoaltes')
+@download_ns.route('/isolates')
 class DownloadSamples(Resource):
 
     ### POST /download/isolates ###
@@ -2367,16 +2621,104 @@ class DownloadSamples(Resource):
     @require_auth(keycloak_auth)
     def post(self):
 
-        """Download isolates data as TSV"""
-
         try:
             data = request.get_json()
-            isolate_ids = data.get('isolate_ids', [])
+            isolate_ids = data.get('isolates', [])
 
             if not isolate_ids:
-                return {'error': 'isolate_ids list is required'}, 400
+                return {'error': 'isolates list is required'}, 400
+            
+            # Get isolate data and validate permissions
+            with get_db_cursor() as cursor:
+                # Get isolates with their associated project information for permission checking
+                placeholders = ','.join(['%s'] * len(isolate_ids))
+                cursor.execute(f"""
+                    SELECT i.id, i.isolate_id, i.object_id, i.isolate_data, 
+                           s.project_id, p.name as project_name
+                    FROM isolates i
+                    JOIN submissions s ON i.submission_id = s.id
+                    JOIN projects p ON s.project_id = p.id
+                    WHERE i.id IN ({placeholders})
+                    AND i.status = 'validated'
+                    AND i.object_id IS NOT NULL
+                    AND i.isolate_data IS NOT NULL
+                """, isolate_ids)
+                
+                isolates = cursor.fetchall()
 
-            return 
+            if not isolates:
+                return {'error': 'No valid isolates found'}, 404
+
+            # # Validate user has download permission for all projects
+            # user_info = extract_user_info(request.user)
+            # projects_to_check = list(set([isolate['project_id'] for isolate in isolates]))
+            
+            # for project_id in projects_to_check:
+            #     if not user_has_permission(user_info, 'download_isolates', resource_type='project', resource_id=project_id):
+            #         return {'error': f'Permission denied for project {project_id}'}, 403
+
+            # Compile isolate data into TSV format
+            if not isolates[0]['isolate_data']:
+                return {'error': 'No isolate data available'}, 400
+                
+            # Get headers from the first isolate's data
+            headers = list(isolates[0]['isolate_data'].keys())
+            tsv_lines = ['\t'.join(headers)]
+            
+            # Add data rows
+            for isolate in isolates:
+                row = []
+                for header in headers:
+                    value = isolate['isolate_data'].get(header, '')
+                    # Convert to string and handle None values
+                    row.append(str(value) if value is not None else '')
+                tsv_lines.append('\t'.join(row))
+            
+            tsv_content = '\n'.join(tsv_lines)
+
+            # Download sequence files from MinIO
+            minio_bucket = settings.MINIO_BUCKET
+            minio_client = get_minio_client(self)
+            
+            import zipfile
+            from io import BytesIO
+            
+            # Create ZIP file in memory
+            zip_buffer = BytesIO()
+            
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                # Add TSV file to ZIP
+                zip_file.writestr('isolates_metadata.tsv', tsv_content)
+                
+                # Add each sequence file to ZIP
+                for isolate in isolates:
+                    try:
+                        # Download file from MinIO
+                        seq_object = minio_client.get_object(
+                            bucket_name=minio_bucket,
+                            object_name=str(isolate['object_id'])
+                        )
+                        seq_content = seq_object.read()
+                        
+                        # Add to ZIP with isolate_id as filename
+                        filename = f"{isolate['isolate_id']}.fasta"
+                        zip_file.writestr(filename, seq_content)
+                        
+                    except Exception as seq_error:
+                        logger.warning(f"Failed to download sequence for isolate {isolate['isolate_id']}: {str(seq_error)}")
+                        # Add a placeholder file indicating the error
+                        error_content = f"Error downloading sequence: {str(seq_error)}"
+                        zip_file.writestr(f"{isolate['isolate_id']}_ERROR.txt", error_content)
+
+            # Prepare ZIP response
+            zip_buffer.seek(0)
+            
+            from flask import make_response
+            response = make_response(zip_buffer.getvalue())
+            response.headers['Content-Type'] = 'application/zip'
+            response.headers['Content-Disposition'] = f'attachment; filename="isolates_download_{len(isolates)}_samples.zip"'
+            
+            return response
 
         except Exception as e:
             logger.exception(f"Error downloading isolates: {str(e)}")
