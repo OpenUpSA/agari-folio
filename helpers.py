@@ -509,7 +509,7 @@ def validate_against_schema(data, row, project_id):
     if not schema:
         return False, f"Schema ID {schema_id} not found"
 
-    schema_obj = schema[0]["schema"]
+    schema_obj = schema["schema"]
 
     all_errors = []
     
