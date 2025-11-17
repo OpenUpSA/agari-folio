@@ -2081,7 +2081,7 @@ class ProjectSubmissionFiles2(Resource):
                 file_record = cursor.fetchone()
 
             action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
-            log_event("file_uploaded", project_id, {"submission_id": {submission_id}, "files": file.filename, "action_email": user_info["username"], "action_name": action_name})
+            log_event("file_uploaded", project_id, {"submission_id": {submission_id}, "files": file_record, "action_email": user_info["username"], "action_name": action_name})
             return {
                 'message': 'File uploaded successfully',
                 'submission_id': file_record['submission_id'],
