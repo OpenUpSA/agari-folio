@@ -669,6 +669,8 @@ class UserList(Resource):
 
         keycloak_response = magic_link(email, redirect_uri, expiration_seconds, send_email)
         return keycloak_response
+
+
 @user_ns.route('/<string:user_id>')        
 class User(Resource):
 
@@ -814,6 +816,8 @@ class User(Resource):
         except Exception as e:
             logger.exception(f"Error updating user {user_id}: {str(e)}")
             return {'error': f'Failed to update user: {str(e)}'}, 500
+
+
 @user_ns.route('/email')
 class UserEmail(Resource):
     ### PUT /users/<user_id> ###

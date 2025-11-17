@@ -402,10 +402,7 @@ def log_event(log_type, resource_id, log_entry):
                 INSERT INTO logs (log_type, resource_id, log_entry)
                 VALUES (%s, %s, %s)
                 """,
-                (log_type, resource_id, log_entry),
-            )
-            return True
-
+                (log_type, resource_id, json.dumps(log_entry) if log_entry else None))
     except Exception as e:
         print(f"Error saving submission log: {e}")
         return False
