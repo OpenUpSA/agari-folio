@@ -21,11 +21,11 @@ from helpers import (
     invite_user_to_project,
     invite_user_to_org,
     invite_email_change,
-    access_revoked_notification,
     extract_invite_roles,
     role_project_member,
     role_org_member,
     check_user_id,
+    access_toggled_notification,
     log_event,
     log_submission,
     get_minio_client,
@@ -709,15 +709,31 @@ class User(Resource):
     @require_permission('manage_users')
     def delete(self, user_id):
         """Delete a user by ID (system-admin only)"""
-
         try:
-            keycloak_auth.delete_user(user_id)
-            access_revoked_notification(user_id)
-            return {'message': 'User deleted successfully'}, 204
+            keycloak_auth.toggle_user_enabled(user_id, enabled=False)
+            access_toggled_notification(user_id, enabled=False)
+            return {'message': 'User disabled successfully'}
         except Exception as e:
             logger.exception(f"Error deleting user {user_id}: {str(e)}")
             return {'error': f'Failed to delete user: {str(e)}'}, 500
-        
+
+
+    ### POST /users/<user_id> ###
+
+    @user_ns.doc('enable_user')
+    @require_auth(keycloak_auth)
+    @require_permission('manage_users')
+    def post(self, user_id):
+        """Enable a disabled user by ID (system-admin only)"""
+        try:
+            keycloak_auth.toggle_user_enabled(user_id, enabled=True)
+            access_toggled_notification(user_id, enabled=True)
+            return {'message': 'User enabled successfully'}
+        except Exception as e:
+            logger.exception(f"Error enabling user {user_id}: {str(e)}")
+            return {'error': f'Failed to enable user: {str(e)}'}, 500
+
+
     ### PUT /users/<user_id> ###
 
     @user_ns.doc('update_user')

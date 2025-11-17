@@ -63,7 +63,7 @@
     <mj-section padding="0 0 16px 0">
       <mj-column>
         <mj-text>
-          This is a notification that your access to the AGARI platform has been disabled.
+          This is a notification that your access to the AGARI platform has been {{ toggle_status }}.
 For more information, please contact your organisation's administrator. Do not reply to this email.
         </mj-text>
       </mj-column>

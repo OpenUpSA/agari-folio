@@ -337,15 +337,20 @@ def role_org_member(user_id, org_id, role):
     return result
 
 
-def access_revoked_notification(user_id):
+def access_toggled_notification(user_id, enabled):
     user = keycloak_auth.get_user(user_id)
 
     to_email = user["email"]
     to_name = ""
     subject = "Regarding your AGARI account"
 
-    html_template = mjml_to_html("revoke_access")
-    html_content = render_template_string(html_template)
+    if enabled:
+        toggle_status = "enabled"
+    else:
+        toggle_status = "disabled"
+
+    html_template = mjml_to_html("toggle_access")
+    html_content = render_template_string(html_template, toggle_status=toggle_status)
 
     sendgrid_email(to_email, to_name, subject, html_content)
 

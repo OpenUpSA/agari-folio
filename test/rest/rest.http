@@ -169,7 +169,20 @@ Content-Type: application/json
 
 @inv_token = a1b06b98ea6f9715c81b4be4e0f8956a
 # @name confirm_email_change
-POST {{folio}}/invites/email/{{inv_token}}/confirm
+POST {{folio}}/invites/email//confirm
+
+###
+
+@users_id = e9f23458-7fb1-484a-bf30-82db540c362e
+# @name revoke_user_access
+DELETE {{folio}}/users/{{users_id}}
+Authorization: Bearer {{token}}
+
+###
+
+# @name enable_user_access
+POST {{folio}}/users/{{users_id}}
+Authorization: Bearer {{token}}
 
 
 ##########################
