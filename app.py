@@ -708,15 +708,30 @@ class User(Resource):
     @require_permission('manage_users')
     def delete(self, user_id):
         """Delete a user by ID (system-admin only)"""
-
         try:
-            keycloak_auth.delete_user(user_id)
+            keycloak_auth.toggle_user_enabled(user_id, enabled=False)
             access_revoked_notification(user_id)
             return {'message': 'User deleted successfully'}, 204
         except Exception as e:
             logger.exception(f"Error deleting user {user_id}: {str(e)}")
             return {'error': f'Failed to delete user: {str(e)}'}, 500
-        
+
+
+    ### POST /users/<user_id> ###
+
+    @user_ns.doc('enable_user')
+    @require_auth(keycloak_auth)
+    @require_permission('manage_users')
+    def post(self, user_id):
+        """Enable a disabled user by ID (system-admin only)"""
+        try:
+            keycloak_auth.toggle_user_enabled(user_id, enabled=True)
+            return {'message': 'User enabled successfully'}
+        except Exception as e:
+            logger.exception(f"Error enabling user {user_id}: {str(e)}")
+            return {'error': f'Failed to enable user: {str(e)}'}, 500
+
+
     ### PUT /users/<user_id> ###
 
     @user_ns.doc('update_user')
