@@ -1123,14 +1123,15 @@ class OrganisationUsers(Resource):
             if not user:
                 return {'error': 'User not found in Keycloak'}, 404
 
+            action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
             # Update user's organisation_id and org_role attributes in Keycloak
             if 'force_role' in data:
                 role_org_member(user["id"], org_id, role)
-                log_event("org_user_added", org_id, {"email": user["username"], "role": ORG_ROLE_MAPPING[role]})
+                log_event("org_user_added", org_id, {"email": user["username"], "role": ORG_ROLE_MAPPING[role], "action_email": user_info["username"], "action_name": action_name})
                 return f"User role updated for organisation {org_id}"
             else:
                 response = invite_user_to_org(user, redirect_uri, org_id, role)
-                log_event("org_user_invited", org_id, {"email": user["username"], "role": ORG_ROLE_MAPPING[role]})
+                log_event("org_user_invited", org_id, {"email": user["username"], "role": ORG_ROLE_MAPPING[role], "action_email": user_info["username"], "action_name": action_name})
             return response
 
         except Exception as e:
@@ -1387,7 +1388,8 @@ class ProjectList(Resource):
 
                 new_project = cursor.fetchone()
                 role_project_member(user_id, new_project["id"], "project-admin")
-                log_event("project_created", organisation_id, name)
+                action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+                log_event("project_created", organisation_id, {"project_name": name, "action_email": user_info["username"], "action_name": action_name})
 
                 return {
                     'message': 'Project created successfully',
@@ -1532,7 +1534,7 @@ class Project(Resource):
         Query Parameters: 
         - hard: true/false (default: false) - If true, permanently delete from database
         """
-
+        user_info = extract_user_info(request.user)
         try:
             # Check if hard delete is requested
             hard_delete = request.args.get('hard', 'false').lower() == 'true'
@@ -1568,8 +1570,8 @@ class Project(Resource):
 
                     if not deleted_project:
                         return {'error': 'Project not found or already deleted'}, 404
-
-                    log_event("project_deleted", deleted_project["organisation_id"], deleted_project["name"])
+                    action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+                    log_event("project_deleted", deleted_project["organisation_id"], {"project_name": deleted_project["name"], "action_email": user_info["username"], "action_name": action_name})
                     return {
                         'message': f'Project "{deleted_project["name"]}" deleted (can be restored)',
                         'delete_type': 'soft'
@@ -1673,7 +1675,7 @@ class ProjectUsers(Resource):
     @require_permission('manage_project_users', resource_type='project', resource_id_arg='project_id')
     def post(self, project_id):
         """Add a user to a project with a specific role"""
-
+        user_info = extract_user_info(request.user)
         try:
             data = request.get_json()
             if not data:
@@ -1694,13 +1696,14 @@ class ProjectUsers(Resource):
             if not user:
                 return {'error': 'User not found in Keycloak'}, 404
 
+            action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
             if 'force_role' in data:
                 role_project_member(user["id"], project_id, role)
-                log_event("user_added", project_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[role]})
+                log_event("user_added", project_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[role], "action_email": user_info["username"], "action_name": action_name})
                 return f"User role updated for project {project_id}"
             else:
                 response = invite_user_to_project(user, redirect_uri, project_id, role)
-                log_event("user_invited", project_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[role]})
+                log_event("user_invited", project_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[role], "action_email": user_info["username"], "action_name": action_name})
             return response
         except Exception as e:
             logger.exception(f"Error adding user to project: {str(e)}")
@@ -1718,7 +1721,7 @@ class DeleteProjectUsers(Resource):
     def delete(self, project_id, user_id):
 
         """Remove a user from a project"""
-
+        user_info = extract_user_info(request.user)
         try:
             # Check if user exists in Keycloak
             user = keycloak_auth.get_user(user_id)
@@ -1739,7 +1742,8 @@ class DeleteProjectUsers(Resource):
             if not removed_roles:
                 return {'message': 'User was not associated with the project'}, 200
             users_name = f"{user['attributes']['name']} {user['attributes']['surname']}"
-            log_event("project_user_deleted", project_id, {"email": user["username"], "name": users_name})
+            action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+            log_event("project_user_deleted", project_id, {"email": user["username"], "name": users_name, "action_email": user_info["username"], "action_name": action_name})
             return {
                 'message': 'User removed from project successfully',
                 'user_id': user_id,
@@ -1827,8 +1831,9 @@ class ProjectSubmissions2(Resource):
                 
                 new_submission = cursor.fetchone()
 
-                log_event("submission_created", new_submission['id'], new_submission)
-                
+                action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+                log_event("submission_created", new_submission['id'], {"sumbission": new_submission, "action_email": user_info["username"], "action_name": action_name})
+
                 return {
                     'message': 'Submission created successfully',
                     'submission': new_submission
@@ -1988,7 +1993,7 @@ class ProjectSubmissionFiles2(Resource):
         """Upload a file to submission with streaming to MinIO"""
 
         try:
-            
+            user_info = extract_user_info(request.user)
             with get_db_cursor() as cursor:
                 cursor.execute("""
                     SELECT * FROM submissions 
@@ -2075,7 +2080,8 @@ class ProjectSubmissionFiles2(Resource):
                 
                 file_record = cursor.fetchone()
 
-            log_event("file_uploaded", project_id, {"submission_id": {submission_id}, "files": file.filename})
+            action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+            log_event("file_uploaded", project_id, {"submission_id": {submission_id}, "files": file.filename, "action_email": user_info["username"], "action_name": action_name})
             return {
                 'message': 'File uploaded successfully',
                 'submission_id': file_record['submission_id'],
@@ -2237,6 +2243,7 @@ class ProjectSubmissionValidate2(Resource):
         """Validate submission files"""
         
         try:
+            user_info = extract_user_info(request.user)
             # Check if validation is already running and prevent concurrent validation
             with get_db_cursor() as cursor:
                 cursor.execute("""
@@ -2474,7 +2481,8 @@ class ProjectSubmissionValidate2(Resource):
                     thread = threading.Thread(target=run_async_job)
                     thread.start()
 
-                    log_event("submission_validated", submission_id, {"validated_isolates": len(all_isolates) - len(isolates_with_errors)})
+                    action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+                    log_event("submission_validated", submission_id, {"validated_isolates": len(all_isolates) - len(isolates_with_errors), "action_email": user_info["username"], "action_name": action_name})
 
                     return {
                         "validated": len(all_isolates) - len(isolates_with_errors),
@@ -2502,7 +2510,7 @@ class ProjectSubmissionPublish2(Resource):
     def post(self, project_id, submission_id):
 
         """Publish a submission - makes isolates searchable"""
-
+        user_info = extract_user_info(request.user)
         with get_db_cursor() as cursor:
             # First check if ALL isolates in the submission are validated
             cursor.execute("""
@@ -2551,7 +2559,8 @@ class ProjectSubmissionPublish2(Resource):
             for isolate in published_isolates:
                 send_to_elastic2(isolate)
 
-        log_event("submission_published", submission_id, {"published_isolates": len(published_isolates)})
+        action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+        log_event("submission_published", submission_id, {"published_isolates": len(published_isolates), "action_email": user_info["username"], "action_name": action_name})
         return {'message': f'Submission published successfully with {len(published_isolates)} isolates'}, 200
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/unpublish2')
@@ -2565,7 +2574,7 @@ class ProjectSubmissionUnpublish2(Resource):
     def post(self, project_id, submission_id):
 
         """Unpublish a submission - makes isolates non-searchable"""
-
+        user_info = extract_user_info(request.user)
         with get_db_cursor() as cursor:
             # Revert isolates from published back to validated
             cursor.execute("""
@@ -2595,7 +2604,8 @@ class ProjectSubmissionUnpublish2(Resource):
             for isolate in unpublished_isolates:
                 send_to_elastic2(isolate)
 
-        log_event("submission_unpublished", submission_id, {"unpublished_isolates": len(unpublished_isolates)})
+        action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+        log_event("submission_unpublished", submission_id, {"unpublished_isolates": len(unpublished_isolates), "action_email": user_info["username"], "action_name": action_name})
         return {'message': f'Submission unpublished successfully. {len(unpublished_isolates)} isolates reverted to validated status'}, 200
 
 
@@ -2737,6 +2747,7 @@ class DownloadSamples(Resource):
     def post(self):
 
         try:
+            user_info = extract_user_info(request.user)
             data = request.get_json()
             isolate_ids = data.get('isolates', [])
 
@@ -2789,7 +2800,8 @@ class DownloadSamples(Resource):
                     'download_url': download_url
                 })
 
-            log_event("data_download", isolates[0]['project_id'], {"sample_count": len(isolates)})
+            action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+            log_event("data_download", isolates[0]['project_id'], {"sample_count": len(isolates), "action_email": user_info["username"], "action_name": action_name})
             return {
                 'tsv_data': tsv_content,
                 'download_links': download_links
@@ -2878,6 +2890,7 @@ class ProjectInviteConfirm(Resource):
 
     @api.doc('accept_project_invite')
     def post(self, token):
+        user_info = extract_user_info(request.user)
         user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
         user_id = user["user_id"]
 
@@ -2902,7 +2915,8 @@ class ProjectInviteConfirm(Resource):
         if not auth_tokens:
             return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
 
-        log_event("user_accepted", invite_project_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_role]})
+        action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+        log_event("user_accepted", invite_project_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_role], "action_email": user_info["username"], "action_name": action_name})
         return {
             'message': 'User added to project successfully',
             'user_id': user_id,
@@ -2920,6 +2934,7 @@ class OrganisationInviteConfirm(Resource):
 
     @api.doc('accept_organisation_invite')
     def post(self, token):
+        user_info = extract_user_info(request.user)
         user = keycloak_auth.get_users_by_attribute('invite_org_token', token)[0]
         user_id = user["user_id"]
 
@@ -2945,7 +2960,8 @@ class OrganisationInviteConfirm(Resource):
             return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
 
         if result.get('success'):
-            log_event("org_user_accepted", invite_org_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_org_role]})
+            action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+            log_event("org_user_accepted", invite_org_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_org_role], "action_email": user_info["username"], "action_name": action_name})
             return {
                 'message': f'User added to organisation with role "{invite_org_role}"',
                 'user_id': user_id,
