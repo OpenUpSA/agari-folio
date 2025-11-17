@@ -2731,8 +2731,48 @@ class DownloadSamples(Resource):
             logger.exception(f"Error downloading isolates: {str(e)}")
             return {'error': f'Download error: {str(e)}'}, 500
             
+@download_ns.route('/query')
+class DownloadSamplesByQuery(Resource):
 
+    ### POST /download/query ###
 
+    @api.doc('download_isolates_by_query')
+    @require_auth(keycloak_auth)
+    def post(self):
+        try:
+            data = request.get_json()
+
+            if not data:
+                return {'error': 'No JSON data provided'}, 400
+
+            results = query_elastic(data)
+
+            hits = results.get('hits', {}).get('hits', [])
+            if not hits:
+                return {'error': 'No matching isolates found'}, 404
+
+            # Compile isolate data into TSV format
+            tsv_content = ""
+            tsv_lines = []
+            header_written = False
+            for hit in hits:
+                source = hit.get('_source', {})
+                sample_data = source.get('sample_data', {})  
+                if not header_written:
+                    headers = sample_data.keys()  
+                    tsv_lines.append('\t'.join(headers))
+                    header_written = True
+                values = [str(sample_data.get(h, '')) for h in headers]  
+                tsv_lines.append('\t'.join(values))
+            tsv_content = '\n'.join(tsv_lines)
+
+            return {
+                'tsv_data': tsv_content
+            }, 200
+
+        except Exception as e:
+            logger.exception(f"Error downloading isolates by query: {str(e)}")
+            return {'error': f'Download error: {str(e)}'}, 500
 
 ##########################
 ### INVITES
