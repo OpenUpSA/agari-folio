@@ -427,23 +427,6 @@ def check_user_id(data, param_id):
 #############################
 
 
-def log_submission(submission_id, user_id, status, message):
-    try:
-        with get_db_cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO submissions_log (submission_id, user_id, status, message)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (submission_id, user_id, status, json.dumps(message)),
-            )
-            return True
-
-    except Exception as e:
-        print(f"Error saving submission log: {e}")
-        return False
-
-
 def tsv_to_json(tsv_string, project_id):
     import re
     
@@ -915,6 +898,8 @@ def get_object_id_url(object_id, expires_in_hours=24):
 def json_serial(obj):
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
+    if isinstance(obj, set):
+        return list(obj)
     raise TypeError(f"Type {type(obj)} not serializable")
 
 
