@@ -391,9 +391,10 @@ def log_event(log_type, resource_id, log_entry):
     """
     Event types:
     - project_created, project_deleted
-    - user_added, user_invited, user_accepted
+    - user_added, user_invited, user_accepted, project_user_deleted
     - org_user_added, org_user_invited, org_user_accepted
     - file_uploaded, submission_finalised, submission_published
+    - data_download
     """
     try:
         with get_db_cursor() as cursor:
