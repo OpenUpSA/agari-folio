@@ -22,20 +22,21 @@ from helpers import (
     invite_user_to_org,
     invite_email_change,
     access_revoked_notification,
+    extract_invite_roles,
+    role_project_member,
+    role_org_member,
+    check_user_id,
     log_event,
     log_submission,
     get_minio_client,
     tsv_to_json,
-    role_project_member,
-    role_org_member,
     validate_against_schema,
     check_for_sequence_data,
-    extract_invite_roles,
     send_to_elastic,
     send_to_elastic2,
     check_isolate_in_elastic,
-    check_user_id,
-    query_elastic
+    query_elastic,
+    get_object_id_url
 )
 import uuid
 import hashlib
@@ -2599,11 +2600,6 @@ class Reindex(Resource):
 
         """Reindex all published samples in Elasticsearch"""
 
-        # this function needs to:
-        # 1. Get all the isolates where status is 'published'
-        # 2. Check if the isolate exists in Elasticsearch
-        # 3. If it does not exist, send_to_elastic2 for each missing isolate
-
         try:
             with get_db_cursor() as cursor:
                 cursor.execute("""
@@ -2657,7 +2653,6 @@ class DownloadSamples(Resource):
             
             # Get isolate data and validate permissions
             with get_db_cursor() as cursor:
-                # Get isolates with their associated project information for permission checking
                 placeholders = ','.join(['%s'] * len(isolate_ids))
                 cursor.execute(f"""
                     SELECT i.id, i.isolate_id, i.object_id, i.isolate_data, 
@@ -2666,7 +2661,7 @@ class DownloadSamples(Resource):
                     JOIN submissions s ON i.submission_id = s.id
                     JOIN projects p ON s.project_id = p.id
                     WHERE i.id IN ({placeholders})
-                    AND i.status = 'validated'
+                    AND i.status = 'published'
                     AND i.object_id IS NOT NULL
                     AND i.isolate_data IS NOT NULL
                 """, isolate_ids)
@@ -2676,80 +2671,41 @@ class DownloadSamples(Resource):
             if not isolates:
                 return {'error': 'No valid isolates found'}, 404
 
-            # # Validate user has download permission for all projects
-            # user_info = extract_user_info(request.user)
-            # projects_to_check = list(set([isolate['project_id'] for isolate in isolates]))
-            
-            # for project_id in projects_to_check:
-            #     if not user_has_permission(user_info, 'download_isolates', resource_type='project', resource_id=project_id):
-            #         return {'error': f'Permission denied for project {project_id}'}, 403
-
             # Compile isolate data into TSV format
-            if not isolates[0]['isolate_data']:
-                return {'error': 'No isolate data available'}, 400
-                
-            # Get headers from the first isolate's data
-            headers = list(isolates[0]['isolate_data'].keys())
-            tsv_lines = ['\t'.join(headers)]
-            
-            # Add data rows
+            tsv_content = ""
+            tsv_lines = []
+            header_written = False
             for isolate in isolates:
-                row = []
-                for header in headers:
-                    value = isolate['isolate_data'].get(header, '')
-                    # Convert to string and handle None values
-                    row.append(str(value) if value is not None else '')
-                tsv_lines.append('\t'.join(row))
-            
-            tsv_content = '\n'.join(tsv_lines)
+                isolate_data = isolate['isolate_data']
+                if not header_written:
+                    headers = isolate_data.keys()
+                    tsv_lines.append('\t'.join(headers))
+                    header_written = True
+                values = [str(isolate_data.get(h, '')) for h in headers]
+                tsv_lines.append('\t'.join(values))
+                tsv_content = '\n'.join(tsv_lines)
 
-            # Download sequence files from MinIO
-            minio_bucket = settings.MINIO_BUCKET
-            minio_client = get_minio_client(self)
-            
-            import zipfile
-            from io import BytesIO
-            
-            # Create ZIP file in memory
-            zip_buffer = BytesIO()
-            
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                # Add TSV file to ZIP
-                zip_file.writestr('isolates_metadata.tsv', tsv_content)
-                
-                # Add each sequence file to ZIP
-                for isolate in isolates:
-                    try:
-                        # Download file from MinIO
-                        seq_object = minio_client.get_object(
-                            bucket_name=minio_bucket,
-                            object_name=str(isolate['object_id'])
-                        )
-                        seq_content = seq_object.read()
-                        
-                        # Add to ZIP with isolate_id as filename
-                        filename = f"{isolate['isolate_id']}.fasta"
-                        zip_file.writestr(filename, seq_content)
-                        
-                    except Exception as seq_error:
-                        logger.warning(f"Failed to download sequence for isolate {isolate['isolate_id']}: {str(seq_error)}")
-                        # Add a placeholder file indicating the error
-                        error_content = f"Error downloading sequence: {str(seq_error)}"
-                        zip_file.writestr(f"{isolate['isolate_id']}_ERROR.txt", error_content)
+            # get every object_id and generate download URLs with get_object_id_url(object_id)
+            download_links = []
+            for isolate in isolates:
+                object_id = isolate['object_id']
+                download_url = get_object_id_url(object_id)
+                download_links.append({
+                    'isolate_id': isolate['isolate_id'],
+                    'project_id': isolate['project_id'],
+                    'project_name': isolate['project_name'],
+                    'download_url': download_url
+                })
 
-            # Prepare ZIP response
-            zip_buffer.seek(0)
-            
-            from flask import make_response
-            response = make_response(zip_buffer.getvalue())
-            response.headers['Content-Type'] = 'application/zip'
-            response.headers['Content-Disposition'] = f'attachment; filename="isolates_download_{len(isolates)}_samples.zip"'
-            
-            return response
-
+            return {
+                'tsv_data': tsv_content,
+                'download_links': download_links
+            }, 200
         except Exception as e:
             logger.exception(f"Error downloading isolates: {str(e)}")
             return {'error': f'Download error: {str(e)}'}, 500
+            
+
 
 
 ##########################

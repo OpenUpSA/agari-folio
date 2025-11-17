@@ -855,6 +855,35 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
         return None
 
 
+def get_object_id_url(object_id, expires_in_hours=24):
+    """Generate a presigned MinIO URL for the given object ID."""
+    try:
+        # Get MinIO client
+        minio_client = Minio(
+            endpoint=settings.MINIO_ENDPOINT,
+            access_key=settings.MINIO_ACCESS_KEY,
+            secret_key=settings.MINIO_SECRET_KEY,
+            secure=settings.MINIO_SECURE
+        )
+        
+        bucket_name = settings.MINIO_BUCKET
+        
+        # Generate presigned URL with expiration
+        from datetime import timedelta
+        expires = timedelta(hours=expires_in_hours)
+        
+        presigned_url = minio_client.presigned_get_object(
+            bucket_name=bucket_name,
+            object_name=object_id,
+            expires=expires
+        )
+        
+        return presigned_url
+        
+    except Exception as e:
+        print(f"Error generating presigned URL for object {object_id}: {e}")
+        return None
+
 ##############################
 ### ELASTICSEARCH HELPERS
 ##############################
