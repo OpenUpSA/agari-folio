@@ -393,7 +393,7 @@ def log_event(log_type, resource_id, log_entry):
     - project_created, project_deleted
     - user_added, user_invited, user_accepted, project_user_deleted
     - org_user_added, org_user_invited, org_user_accepted
-    - file_uploaded, submission_finalised, submission_published
+    - submission_created, file_uploaded, submission_validated, submission_published, submission_unpublished
     - data_download
     """
     try:
@@ -403,7 +403,7 @@ def log_event(log_type, resource_id, log_entry):
                 INSERT INTO logs (log_type, resource_id, log_entry)
                 VALUES (%s, %s, %s)
                 """,
-                (log_type, resource_id, json.dumps(log_entry) if log_entry else None))
+                (log_type, resource_id, json.dumps(log_entry, default=json_serial) if log_entry else None))
     except Exception as e:
         print(f"Error saving submission log: {e}")
         return False
