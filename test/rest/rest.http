@@ -7,14 +7,6 @@
 # @keycloak = https://keycloak-staging.openup.org.za
 # @keycloak = https://keycloak-ilifu.openup.org.za
 
-# @song = http://song.local
-# @song = https://song-staging.openup.org.za
-# @song = https://song-ilifu.openup.org.za
-
-# @score = http://score.local
-# @score = https://score-staging.openup.org.za
-# @score = https://score-ilifu.openup.org.za
-
 # @minio = http://minio.local
 # @minio = http://localhost:9000
 
@@ -324,7 +316,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "schema_id": "62a0a507-2b4f-4db7-aae9-4f1b18cf9447"
+    "schema_id": "a3f6d276-9e88-43ce-8f79-419c29d82270"
 }
 
 ###
@@ -393,7 +385,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Dirk Cholera",
+    "name": "Dirk Cholera Monday Test",
     "description": "",
     "pathogen_id": "{{pathogen_id}}",
     "privacy": "public"
@@ -471,7 +463,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 @project_id = 29ba11ab-cb9d-4184-a5fa-046340a56674
-@submission_id = 58f5e59a-9a5c-475b-96a4-361fcb0474f5
+@submission_id = 901ff547-e465-4fc9-bc17-a2378a9bd548
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -510,10 +502,10 @@ Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=boundary123
 
 --boundary123
-Content-Disposition: form-data; name="file"; filename="cholera_1.tsv"
+Content-Disposition: form-data; name="file"; filename="cholera_1_corrected2.tsv"
 Content-Type: text/tab-separated-values
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_1.tsv
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_1_corrected2.tsv
 
 --boundary123--
 
@@ -535,7 +527,7 @@ Content-Type: text/plain
 
 ###
 
-@file_id = 809bf9a8-19e1-4229-9ed1-8da32f815b07
+@file_id = 8b4db002-7b07-4219-be32-09cdf2d711ef
 
 ### Step 2c: Delete uploaded file
 # @name deleteUploadedFile2
@@ -549,11 +541,6 @@ Authorization: Bearer {{token}}
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/validate2
 Authorization: Bearer {{token}}
 Content-Type: application/json
-
-{
-  "schema": "cholera_schema",
-  "version": 1
-}
 
 ###
 
@@ -655,14 +642,71 @@ Content-Type: application/json
 {
   "query": {
     "term": {
-      "submission_id.keyword": "cdd8f664-e3af-47da-8822-5e985d348353"
-    },
+      "submission_id.keyword": "e0678d59-20d8-45c0-a8c1-5a2e4e9d2586"
+    }
   }
 }
 
+###
 
+# @name search_by_submission_id_no_errors
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
 
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "term": {
+            "submission_id.keyword": "<id>"
+          }
+        }
+      ],
+      "must_not": [
+        {
+          "exists": {
+            "field": "seq_error"
+          }
+        },
+        {
+          "exists": {
+            "field": "error"
+          }
+        }
+      ]
+    }
+  }
+}
 
+###
+
+# @name search_by_submission_id_with_seq_errors
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "term": {
+            "submission_id.keyword": "<id>"
+          }
+        },
+        {
+          "exists": {
+            "field": "seq_error"
+          }
+        }
+      ]
+    }
+  }
+}
+
+###
 
 
 #############################################################################
