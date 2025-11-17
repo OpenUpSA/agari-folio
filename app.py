@@ -2075,7 +2075,7 @@ class ProjectSubmissionFiles2(Resource):
                 
                 file_record = cursor.fetchone()
 
-            log_event("file_uploaded", project_id, {"submission_id": {submission_id}, "files": file.filename})
+            log_event("file_uploaded", project_id, {"submission_id": {submission_id}, "files": file_record})
             return {
                 'message': 'File uploaded successfully',
                 'submission_id': file_record['submission_id'],
