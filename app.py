@@ -2496,6 +2496,27 @@ class ProjectSubmissionValidate2(Resource):
                     validated_isolates = [iso for iso in all_isolates if iso['status'] == 'validated']
                     schema_errors = [iso for iso in all_isolates if iso['status'] == 'error']
                     
+                    # Set submission status based on immediate results (schema validation)
+                    if schema_errors:
+                        # If there are schema errors, set submission status to 'error' immediately
+                        cursor.execute("""
+                            UPDATE submissions 
+                            SET status = 'error', updated_at = NOW()
+                            WHERE id = %s
+                        """, (submission_id,))
+                        print(f"Schema validation found {len(schema_errors)} errors - setting submission status to 'error'")
+                    elif validated_isolates:
+                        # If no schema errors but have validated isolates, keep as 'validating' until async job completes
+                        print(f"Schema validation passed for {len(validated_isolates)} isolates - keeping submission status as 'validating' until sequence checking completes")
+                    else:
+                        # Edge case: no isolates at all
+                        cursor.execute("""
+                            UPDATE submissions 
+                            SET status = 'error', updated_at = NOW()
+                            WHERE id = %s
+                        """, (submission_id,))
+                        print("No isolates found - setting submission status to 'error'")
+                    
                     if validated_isolates:
                         thread = threading.Thread(target=run_async_job)
                         thread.start()
@@ -2513,16 +2534,30 @@ class ProjectSubmissionValidate2(Resource):
                         "total_isolates": len(all_isolates),
                         "schema_errors": len(schema_errors), 
                         "validated_isolates": len(validated_isolates),
-                        "validation_errors": [json.loads(iso['error']) if iso['error'] else None for iso in schema_errors]
+                        "validation_errors": [iso['error'] if iso['error'] else None for iso in schema_errors]
                     }, 200
 
 
             except Exception as e:
                 logger.exception(f"Error validating submission {submission_id}: {str(e)}")
+                # Reset submission status from 'validating' to allow retry
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE submissions 
+                        SET status = 'error', updated_at = NOW()
+                        WHERE id = %s
+                    """, (submission_id,))
                 return {'error': f'Validation failed: {str(e)}'}, 500
 
         except Exception as e:
             logger.exception(f"Error during validation of submission {submission_id}: {str(e)}")
+            # Reset submission status from 'validating' to allow retry
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    UPDATE submissions 
+                    SET status = 'error', updated_at = NOW()
+                    WHERE id = %s
+                """, (submission_id,))
             return {'error': f'Validation failed: {str(e)}'}, 500
 
 
