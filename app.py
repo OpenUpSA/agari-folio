@@ -2209,8 +2209,24 @@ class ProjectSubmissionValidate2(Resource):
                 
                 isolates = cursor.fetchall()
                 
-                validation_errors = [iso["error"] for iso in isolates if iso['status'] == 'error']
-                sequence_errors = [iso["seq_error"] for iso in isolates if iso['status'] == 'sequence_error']
+                # Separate different types of errors and parse JSON fields
+                validation_errors = []
+                sequence_errors = []
+                
+                for iso in isolates:
+                    if iso['status'] == 'error' and iso['error']:
+                        try:
+                            parsed_error = json.loads(iso['error']) if isinstance(iso['error'], str) else iso['error']
+                            validation_errors.append(parsed_error)
+                        except (json.JSONDecodeError, TypeError):
+                            validation_errors.append(iso['error'])
+                    
+                    if iso['status'] == 'sequence_error' and iso['seq_error']:
+                        try:
+                            parsed_seq_error = json.loads(iso['seq_error']) if isinstance(iso['seq_error'], str) else iso['seq_error']
+                            sequence_errors.append(parsed_seq_error)
+                        except (json.JSONDecodeError, TypeError):
+                            sequence_errors.append(iso['seq_error'])
 
                 return {
                     'submission_id': submission_id,
@@ -2218,8 +2234,10 @@ class ProjectSubmissionValidate2(Resource):
                     'status': submission['status'],
                     'total_isolates': len(isolates),
                     'validated': len([iso for iso in isolates if iso['status'] == 'validated']),
+                    'schema_errors': len([iso for iso in isolates if iso['status'] == 'error']),
+                    'sequence_errors': len([iso for iso in isolates if iso['status'] == 'sequence_error']),
                     'validation_errors': validation_errors,
-                    'sequence_errors': sequence_errors,
+                    'sequence_errors_details': sequence_errors,
                     'error_count': len([iso for iso in isolates if iso['status'] in ['error', 'sequence_error']])
                 }
           
@@ -2385,8 +2403,11 @@ class ProjectSubmissionValidate2(Resource):
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
                         try:
-                            # Run check_for_sequence_data for each isolate
-                            for isolate in all_isolates:
+                            # Only run sequence checking on isolates that passed schema validation
+                            validated_isolates = [iso for iso in all_isolates if iso['status'] == 'validated']
+                            print(f"Running sequence checking on {len(validated_isolates)} validated isolates (out of {len(all_isolates)} total)")
+                            
+                            for isolate in validated_isolates:
                                 success, result = loop.run_until_complete(check_for_sequence_data(isolate))
                                 
                                 with get_db_cursor() as cursor:
@@ -2395,7 +2416,7 @@ class ProjectSubmissionValidate2(Resource):
                                         cursor.execute("""
                                             UPDATE isolates 
                                             SET object_id = %s, status = 'validated', updated_at = NOW()
-                                            WHERE id = %s
+                                            WHERE id = %s AND status = 'validated'
                                         """, (result, isolate['id']))
                                         print(f"Background async job completed for isolate {isolate['id']} - sequence saved: {result}")
                                         
@@ -2415,6 +2436,7 @@ class ProjectSubmissionValidate2(Resource):
                                             
                                     else:
                                         # Error - set seq_error and change status to sequence_error
+                                        # Only update isolates that are still 'validated' (don't touch schema error isolates)
                                         seq_error_data = {
                                             "row": isolate["tsv_row"],
                                             "seq_error": result
@@ -2422,7 +2444,7 @@ class ProjectSubmissionValidate2(Resource):
                                         cursor.execute("""
                                             UPDATE isolates 
                                             SET seq_error = %s, status = 'sequence_error', updated_at = NOW()
-                                            WHERE id = %s
+                                            WHERE id = %s AND status = 'validated'
                                         """, (json.dumps(seq_error_data), isolate['id']))
                                         print(f"Background async job completed for isolate {isolate['id']} with error: {result}")
                                         
@@ -2470,15 +2492,28 @@ class ProjectSubmissionValidate2(Resource):
                             
                             loop.close()
                     
+                    # Only start async job if there are validated isolates to check
+                    validated_isolates = [iso for iso in all_isolates if iso['status'] == 'validated']
+                    schema_errors = [iso for iso in all_isolates if iso['status'] == 'error']
+                    
+                    if validated_isolates:
+                        thread = threading.Thread(target=run_async_job)
+                        thread.start()
+                        print(f"Started async sequence checking job for {len(validated_isolates)} validated isolates")
+                    else:
+                        print("No validated isolates found - skipping sequence checking")
 
-                    thread = threading.Thread(target=run_async_job)
-                    thread.start()
-
-                    log_event("submission_validated", submission_id, {"validated_isolates": len(all_isolates) - len(isolates_with_errors)})
+                    log_event("submission_validated", submission_id, {
+                        "total_isolates": len(all_isolates),
+                        "schema_errors": len(schema_errors),
+                        "validated_isolates": len(validated_isolates)
+                    })
 
                     return {
-                        "validated": len(all_isolates) - len(isolates_with_errors),
-                        "validation_errors": isolates_with_errors
+                        "total_isolates": len(all_isolates),
+                        "schema_errors": len(schema_errors), 
+                        "validated_isolates": len(validated_isolates),
+                        "validation_errors": [json.loads(iso['error']) if iso['error'] else None for iso in schema_errors]
                     }, 200
 
 
