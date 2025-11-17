@@ -1742,7 +1742,8 @@ class DeleteProjectUsers(Resource):
 
             if not removed_roles:
                 return {'message': 'User was not associated with the project'}, 200
-            log_event("project_user_deleted", project_id, {"email": user["username"], "name": f"{user["attributes"]["name"]} {user["attributes"]["surname"]}"})
+            users_name = f"{user['attributes']['name']} {user['attributes']['surname']}"
+            log_event("project_user_deleted", project_id, {"email": user["username"], "name": users_name})
             return {
                 'message': 'User removed from project successfully',
                 'user_id': user_id,
