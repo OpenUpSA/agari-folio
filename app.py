@@ -2249,8 +2249,8 @@ class ProjectSubmissionValidate2(Resource):
                     object_name=tsv_file_record['object_id']
                 )
                 tsv_content = tsv_object.read().decode('utf-8')
-                
-                tsv_json = tsv_to_json(tsv_content)
+
+                tsv_json = tsv_to_json(tsv_content, project_id)
 
                 for row_index, row in enumerate(tsv_json):
                     with get_db_cursor() as cursor:
@@ -2452,10 +2452,6 @@ class ProjectSubmissionPublish2(Resource):
 
         """Publish a submission - makes isolates searchable"""
 
-        # this function needs to:
-        # 1. Set all isolate status to 'published' where status is 'validated' and seq_error is NULL and error is NULL and object_id is NOT NULL 
-        # 2. send_to_elastic2 for each published isolate
-
         with get_db_cursor() as cursor:
             cursor.execute("""
                 UPDATE isolates
@@ -2490,10 +2486,6 @@ class ProjectSubmissionUnpublish2(Resource):
     def post(self, project_id, submission_id):
 
         """Unpublish a submission - makes isolates non-searchable"""
-
-        #this functio needs to:
-        # 1. Set all isolate status to 'validated' where status is 'published'
-        # 2. send_to_elastic2 for each unpublished isolate
 
         with get_db_cursor() as cursor:
             cursor.execute("""

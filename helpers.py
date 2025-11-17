@@ -420,18 +420,108 @@ def log_submission(submission_id, user_id, status, message):
         return False
 
 
-def tsv_to_json(tsv_string):
-    lines = tsv_string.strip().split("\n")
-    headers = lines[0].split("\t")
-    json_list = []
+def tsv_to_json(tsv_string, project_id):
+    import re
+    
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT pathogen_id
+            FROM projects
+            WHERE id = %s AND deleted_at IS NULL
+            """,
+            (project_id,),
+        )
+        project_record = cursor.fetchone()
+        if not project_record:
+            raise ValueError(f"Project ID {project_id} not found")
+        
+        pathogen_id = project_record["pathogen_id"]
+        
+        cursor.execute(
+            """
+            SELECT schema_id
+            FROM pathogens
+            WHERE id = %s AND deleted_at IS NULL
+            """,
+            (pathogen_id,),
+        )
+        pathogen_record = cursor.fetchone()
+        if not pathogen_record:
+            raise ValueError(f"Pathogen ID {pathogen_id} not found")
+        
+        schema_id = pathogen_record["schema_id"]
+        
+        cursor.execute(
+            """
+            SELECT schema
+            FROM schemas
+            WHERE id = %s AND deleted_at IS NULL
+            """,
+            (schema_id,),
+        )
+        schema_record = cursor.fetchone()
+        if not schema_record:
+            raise ValueError(f"Schema ID {schema_id} not found")
+        
+        schema = schema_record["schema"]
 
-    for line in lines[1:]:
-        values = line.split("\t")
-        record = {headers[i]: values[i] for i in range(len(headers))}
-        json_list.append(record)
+        lines = tsv_string.strip().split("\n")
+        headers = lines[0].split("\t")
+        json_list = []
 
-    return json_list
+        for line in lines[1:]:
+            values = line.split("\t")
+            
+            # Process each value according to its schema definition
+            for i in range(min(len(values), len(headers))):
+                header = headers[i]
+                value = values[i]
+                
+                if not value or value.strip() == "":
+                    values[i] = None
+                    continue
+                
+                # Get field schema definition
+                field_schema = schema.get("properties", {}).get(header, {})
+                field_type = field_schema.get("type")
+                split_regex = field_schema.get("x-split-regex")
+                
+                # Handle regex splitting first (for arrays)
+                if split_regex and value:
+                    # Use the regex pattern from schema to split the value
+                    split_values = re.split(split_regex, value)
+                    # Strip whitespace and filter out empty strings
+                    values[i] = [v.strip() for v in split_values if v.strip()]
+                
+                # Handle type conversion for non-array fields
+                elif field_type == "number":
+                    try:
+                        # Try to convert to int first, then float
+                        if '.' in value:
+                            values[i] = float(value.strip())
+                        else:
+                            values[i] = int(value.strip())
+                    except ValueError:
+                        # If conversion fails, keep as string (validation will catch this later)
+                        values[i] = value.strip()
+                
+                # Keep strings as strings, but strip whitespace
+                else:
+                    values[i] = value.strip()
 
+            # Create record ensuring we handle cases where there are fewer values than headers
+            record = {}
+            for i in range(len(headers)):
+                if i < len(values):
+                    record[headers[i]] = values[i]
+                else:
+                    record[headers[i]] = None
+            
+            json_list.append(record)
+
+        return json_list
+    
 def get_minio_client(self):
     """Get MinIO client instance"""
     try:
@@ -521,6 +611,7 @@ def validate_against_schema(data, row, project_id):
             "row": row,
             "field": ".".join(str(x) for x in error.path) if error.path else "root",
             "invalid_value": error.instance,
+            "x-hint": error.schema.get("x-hint", ""),
             "message": error.message,
             "description": error.schema.get("description", "")
         }
