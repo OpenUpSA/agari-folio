@@ -2204,10 +2204,7 @@ class ProjectSubmissionValidate2(Resource):
         """Validate submission files"""
         
         try:
-
-            post_data = request.get_json()
-            schema = post_data.get('schema')
-            version = post_data.get('version')
+            
 
             with get_db_cursor() as cursor:
                 cursor.execute("""
