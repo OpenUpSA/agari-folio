@@ -32,6 +32,20 @@ from typing import Any, Dict
 
 SCHEMAS_DIR = os.path.join(os.path.dirname(__file__), "test", "data")
 
+PROJECT_ROLE_MAPPING = {
+    "project-admin": "Admin",
+    "project-contributor": "Contributor",
+    "project-viewer": "Viewer",
+}
+
+ORG_ROLE_MAPPING = {
+    "org-owner": "Owner",
+    "org-admin": "Admin",
+    "org-viewer": "viewer",
+    "org-partial": "Partial member",
+}
+
+
 def load_json_schema(filename: str) -> Dict[str, Any]:
     
     """
@@ -374,6 +388,13 @@ def extract_invite_roles(users_list, invite_type):
 
 
 def log_event(log_type, resource_id, log_entry):
+    """
+    Event types:
+    - project_created, project_deleted
+    - user_added, user_invited, user_accepted
+    - org_user_added, org_user_invited, org_user_accepted
+    - file_uploaded, submission_finalised, submission_published
+    """
     try:
         with get_db_cursor() as cursor:
             cursor.execute(

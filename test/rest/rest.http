@@ -428,6 +428,11 @@ Authorization: Bearer {{token}}
 POST {{folio}}/projects/{{project_id}}/restore
 Authorization: Bearer {{token}}
 
+###
+
+# @name get_activity_log
+GET {{folio}}/activity-log/{{project_id}}
+
 ##########################
 ### PROJECT USERS
 ##########################
