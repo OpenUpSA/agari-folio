@@ -1534,8 +1534,9 @@ class Project(Resource):
         Query Parameters: 
         - hard: true/false (default: false) - If true, permanently delete from database
         """
-        user_info = extract_user_info(request.user)
+
         try:
+            user_info = extract_user_info(request.user)
             # Check if hard delete is requested
             hard_delete = request.args.get('hard', 'false').lower() == 'true'
             
@@ -1675,8 +1676,9 @@ class ProjectUsers(Resource):
     @require_permission('manage_project_users', resource_type='project', resource_id_arg='project_id')
     def post(self, project_id):
         """Add a user to a project with a specific role"""
-        user_info = extract_user_info(request.user)
+
         try:
+            user_info = extract_user_info(request.user)
             data = request.get_json()
             if not data:
                 return {'error': 'No JSON data provided'}, 400
@@ -1721,8 +1723,9 @@ class DeleteProjectUsers(Resource):
     def delete(self, project_id, user_id):
 
         """Remove a user from a project"""
-        user_info = extract_user_info(request.user)
+
         try:
+            user_info = extract_user_info(request.user)
             # Check if user exists in Keycloak
             user = keycloak_auth.get_user(user_id)
             if not user:
