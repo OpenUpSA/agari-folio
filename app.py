@@ -35,7 +35,9 @@ from helpers import (
     send_to_elastic2,
     check_isolate_in_elastic,
     check_user_id,
-    query_elastic
+    query_elastic,
+    PROJECT_ROLE_MAPPING,
+    ORG_ROLE_MAPPING
 )
 import uuid
 import hashlib
@@ -1122,9 +1124,11 @@ class OrganisationUsers(Resource):
             # Update user's organisation_id and org_role attributes in Keycloak
             if 'force_role' in data:
                 role_org_member(user["id"], org_id, role)
+                log_event("org_user_added", org_id, {"email": user["username"], "role": ORG_ROLE_MAPPING[role]})
                 return f"User role updated for organisation {org_id}"
             else:
                 response = invite_user_to_org(user, redirect_uri, org_id, role)
+                log_event("org_user_invited", org_id, {"email": user["username"], "role": ORG_ROLE_MAPPING[role]})
             return response
 
         except Exception as e:
@@ -1381,6 +1385,7 @@ class ProjectList(Resource):
 
                 new_project = cursor.fetchone()
                 role_project_member(user_id, new_project["id"], "project-admin")
+                log_event("project_created", organisation_id, name)
 
                 return {
                     'message': 'Project created successfully',
@@ -1556,12 +1561,13 @@ class Project(Resource):
                         WHERE id = %s AND deleted_at IS NULL
                         RETURNING id, name
                     """, (project_id,))
-                    
+
                     deleted_project = cursor.fetchone()
-                    
+
                     if not deleted_project:
                         return {'error': 'Project not found or already deleted'}, 404
-                    
+
+                    log_event("project_deleted", deleted_project["organisation_id"], deleted_project["name"])
                     return {
                         'message': f'Project "{deleted_project["name"]}" deleted (can be restored)',
                         'delete_type': 'soft'
@@ -1688,9 +1694,11 @@ class ProjectUsers(Resource):
 
             if 'force_role' in data:
                 role_project_member(user["id"], project_id, role)
+                log_event("user_added", project_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[role]})
                 return f"User role updated for project {project_id}"
             else:
                 response = invite_user_to_project(user, redirect_uri, project_id, role)
+                log_event("user_invited", project_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[role]})
             return response
         except Exception as e:
             logger.exception(f"Error adding user to project: {str(e)}")
@@ -2061,7 +2069,8 @@ class ProjectSubmissionFiles2(Resource):
                 """, (submission_id, file.filename, file_type, object_id, file_size, file_md5))
                 
                 file_record = cursor.fetchone()
-            
+
+            log_event("file_uploaded", project_id, {"submission_id": {submission_id}, "files": file.filename})
             return {
                 'message': 'File uploaded successfully',
                 'submission_id': file_record['submission_id'],
@@ -2798,6 +2807,7 @@ class OrgInviteStatus(Resource):
         print(user_invites)
         return user_invites, 200
 
+
 @invite_ns.route('/project/<string:token>/accept')
 class ProjectInviteConfirm(Resource):
     ### POST /invites/project/<token>/accept ###
@@ -2828,6 +2838,7 @@ class ProjectInviteConfirm(Resource):
         if not auth_tokens:
             return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
 
+        log_event("user_accepted", invite_project_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_role]})
         return {
             'message': 'User added to project successfully',
             'user_id': user_id,
@@ -2837,6 +2848,7 @@ class ProjectInviteConfirm(Resource):
             'access_token': auth_tokens["access_token"],
             'refresh_token': auth_tokens["refresh_token"]
         }, 200
+
 
 @invite_ns.route('/organisation/<string:token>/accept')
 class OrganisationInviteConfirm(Resource):
@@ -2869,6 +2881,7 @@ class OrganisationInviteConfirm(Resource):
             return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
 
         if result.get('success'):
+            log_event("org_user_accepted", invite_org_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_org_role]})
             return {
                 'message': f'User added to organisation with role "{invite_org_role}"',
                 'user_id': user_id,
@@ -2920,150 +2933,35 @@ class EmailChangeConfirm(Resource):
         }, 200
 
 
-
-
 ##########################
-### INVITES
+### ACTIVITY LOG
 ##########################
 
-invite_ns = api.namespace('invites', description='Invite management endpoints')
 
+study_ns = api.namespace('activity-log', description='Activity logs')
 
-@invite_ns.route('/project/<string:project_id>')
-class ProjectInviteStatus(Resource):
-    ### GET /invites/project/<project_id> ###
+@study_ns.route('/<string:resource_id>')
+class StudyList(Resource):
+    ### GET /activity-log/<resource_id> ###
 
-    @api.doc('get_project_invites')
-    def get(self, project_id):
-        users = keycloak_auth.get_users_by_attribute('invite_project_id', project_id)
-        user_invites = extract_invite_roles(users, "")
-        print(user_invites)
-        return user_invites, 200
+    @study_ns.doc('list_logs')
+    def get(self, resource_id):
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT *
+                    FROM logs
+                    WHERE resource_id = %s
+                    ORDER BY created_at DESC
+                """, (resource_id,))
 
+                logs = cursor.fetchall()
 
-@invite_ns.route('/organisation/<string:org_id>')
-class OrgInviteStatus(Resource):
-    ### GET /invites/organisation/<org_id> ###
+                return logs
 
-    @api.doc('get_project_invites')
-    def get(self, org_id):
-        users = keycloak_auth.get_users_by_attribute('invite_org_id', org_id)
-        user_invites = extract_invite_roles(users, "org_")
-        print(user_invites)
-        return user_invites, 200
-
-
-@invite_ns.route('/project/<string:token>/accept')
-class ProjectInviteConfirm(Resource):
-    ### POST /invites/project/<token>/accept ###
-
-    @api.doc('accept_project_invite')
-    def post(self, token):
-        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
-        user_id = user["user_id"]
-
-        invite_project_id = user["attributes"].get("invite_project_id", [""])[0]
-        invite_role = user["attributes"].get(f"invite_role_{invite_project_id}", [""])[0]
-
-        removed_roles = role_project_member(user_id, invite_project_id, invite_role)
-        print(f"Added project_id {invite_project_id} to role {invite_role} for user {user_id}")
-        # If not in an organisation, assign the org-partial role
-        org = keycloak_auth.get_user_org()
-        if not org:
-            project_org_id = keycloak_auth.get_project_parent_org(invite_project_id)
-            role_org_member(user_id, project_org_id, "org-partial")
-
-        # Remove temp attributes
-        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_project_id', invite_project_id)
-        keycloak_auth.remove_attribute_value(user_id, f'invite_role_{invite_project_id}', invite_role)
-
-        # Get access token for the user
-        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
-        if not auth_tokens:
-            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
-
-        return {
-            'message': 'User added to project successfully',
-            'user_id': user_id,
-            'project_id': invite_project_id,
-            'new_role': invite_role,
-            'removed_roles': removed_roles,
-            'access_token': auth_tokens["access_token"],
-            'refresh_token': auth_tokens["refresh_token"]
-        }, 200
-
-
-@invite_ns.route('/organisation/<string:token>/accept')
-class OrganisationInviteConfirm(Resource):
-    ### POST /invites/organisation/<token>/accept ###
-
-    @api.doc('accept_organisation_invite')
-    def post(self, token):
-        user = keycloak_auth.get_users_by_attribute('invite_org_token', token)[0]
-        user_id = user["user_id"]
-
-        invite_org_id = user["attributes"].get("invite_org_id", [""])[0]
-        invite_org_role = user["attributes"].get(f"invite_org_role_{invite_org_id}", [""])[0]
-
-        result = role_org_member(user_id, invite_org_id, invite_org_role)
-
-        # Remove temp attributes
-        keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', token)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_org_id', invite_org_id)
-        keycloak_auth.remove_attribute_value(user_id, f'invite_org_role_{invite_org_id}', invite_org_role)
-
-        if invite_org_role == 'org-owner':
-            user_attr = keycloak_auth.get_user_attributes(user_id)
-            # Downgrade previous owner to org-admin
-            role_org_member(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
-            keycloak_auth.remove_attribute_value(user_id, "invite_org_old_owner", user_attr["invite_org_old_owner"][0])
-
-        # Get access token for the user
-        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
-        if not auth_tokens:
-            return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
-
-
-
-@invite_ns.route('/email/<string:token>/confirm')
-class EmailChangeConfirm(Resource):
-    ### POST /invites/email/<token>/confirm ###
-
-    @api.doc('accept_project_invite')
-    def post(self, token):
-        user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
-        user_id = user["user_id"]
-
-        invite_email = user["attributes"].get("invite_new_email", [""])[0]
-
-        success = keycloak_auth.change_username(user_id, invite_email)
-        if not success:
-            return success
-
-        # Remove temp attributes
-        keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
-        keycloak_auth.remove_attribute_value(user_id, 'invite_new_email', invite_email)
-
-        # Get access token for the user
-        auth_tokens = keycloak_auth.get_user_auth_tokens(user_id)
-        if not auth_tokens:
-            return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
-
-        return {
-            'message': 'User changed email successfully',
-            'user_id': user_id,
-            'new_email': invite_email,
-            'previous_email': user["username"],
-            'access_token': auth_tokens["access_token"],
-            'refresh_token': auth_tokens["refresh_token"]
-        }, 200
-
-
-
-
-
-
+        except Exception as e:
+            logger.exception("Error retrieving activity logs")
+            return {'error': f'Database error: {str(e)}'}, 500
 
 
 
@@ -3692,7 +3590,8 @@ class PublishSubmission(Resource):
                 except Exception as es_error:
                     logger.exception(f"Error indexing analysis to Elasticsearch: {str(es_error)}")
                     # Don't fail the publish operation if Elasticsearch indexing fails            
-                
+            
+            log_event("submission_published", project_id, {"submission_id": {submission_id}})
             return response_data, song_response.status_code
 
         except Exception as e:
