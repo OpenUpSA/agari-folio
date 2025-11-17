@@ -33,6 +33,7 @@ from helpers import (
     extract_invite_roles,
     send_to_elastic,
     send_to_elastic2,
+    check_isolate_in_elastic,
     check_user_id,
     query_elastic
 )
@@ -266,8 +267,7 @@ class PathogenList(Resource):
             name = data.get('name')
             scientific_name = data.get('scientific_name')
             description = data.get('description')
-            schema = data.get('schema')
-            schema_version = data.get('schema_version')
+            schema_id = data.get('schema_id') or None
             
             if not name:
                 return {'error': 'Pathogen name is required'}, 400
@@ -276,10 +276,10 @@ class PathogenList(Resource):
 
             with get_db_cursor() as cursor:
                 cursor.execute("""
-                    INSERT INTO pathogens (name, scientific_name, description, schema, schema_version)
+                    INSERT INTO pathogens (name, scientific_name, description, schema_id)
                     VALUES (%s, %s, %s, %s, %s)
                     RETURNING id, name, scientific_name, description, created_at
-                """, (name, scientific_name, description, schema, schema_version))
+                """, (name, scientific_name, description, schema_id))
 
                 new_pathogen = cursor.fetchone()
                 
@@ -307,7 +307,7 @@ class Pathogen(Resource):
         try:
             with get_db_cursor() as cursor:
                 cursor.execute("""
-                    SELECT id, name, scientific_name, description, schema, schema_version, created_at, updated_at
+                    SELECT id, name, scientific_name, description, schema_id, created_at, updated_at
                     FROM pathogens 
                     WHERE id = %s AND deleted_at IS NULL
                 """, (pathogen_id,))
@@ -468,7 +468,7 @@ class PathogenRestore(Resource):
                     UPDATE pathogens 
                     SET deleted_at = NULL, updated_at = NOW()
                     WHERE id = %s AND deleted_at IS NOT NULL
-                    RETURNING id, name, scientific_name, description, schema, schema_version, created_at, updated_at
+                    RETURNING id, name, scientific_name, description, schema_id, created_at, updated_at
                 """, (pathogen_id,))
                 
                 restored_pathogen = cursor.fetchone()
@@ -2292,7 +2292,7 @@ class ProjectSubmissionValidate2(Resource):
                         isolate_data = isolate.get('isolate_data', {})
                         
                         # Run validation against schema
-                        is_valid, errors = validate_against_schema(isolate_data, isolate['tsv_row'], {'schema': schema, 'version': version})
+                        is_valid, errors = validate_against_schema(isolate_data, isolate['tsv_row'], project_id)
 
                         if not is_valid:
                             cursor.execute("""
@@ -2598,11 +2598,49 @@ class Search(Resource):
             return {'error': f'Search error: {str(e)}'}, 500
 
 
+@search_ns.route('/reindex')
+class Reindex(Resource):
 
+    ### POST /search/reindex ###
 
+    @api.doc('reindex_samples')
+    @require_auth(keycloak_auth)
+    @require_permission('system_admin_access')
+    def post(self):
 
+        """Reindex all published samples in Elasticsearch"""
 
+        # this function needs to:
+        # 1. Get all the isolates where status is 'published'
+        # 2. Check if the isolate exists in Elasticsearch
+        # 3. If it does not exist, send_to_elastic2 for each missing isolate
 
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT i.*
+                    FROM isolates i
+                    WHERE i.status = 'published'
+                """)
+                
+                published_isolates = cursor.fetchall()
+
+                reindexed_count = 0
+
+                for isolate in published_isolates:
+                    # Check if isolate exists in Elasticsearch
+                    es_exists = check_isolate_in_elastic(isolate['id'])
+                    if not es_exists:
+                        send_to_elastic2(isolate)
+                        reindexed_count += 1
+
+            return {
+                'message': f'Reindexing completed. {reindexed_count} isolates reindexed.'
+            }, 200
+        
+        except Exception as e:
+            logger.exception(f"Error during reindexing: {str(e)}")
+            return {'error': f'Reindexing error: {str(e)}'}, 500
 
 
 
