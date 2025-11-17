@@ -27,7 +27,6 @@ from helpers import (
     check_user_id,
     access_toggled_notification,
     log_event,
-    log_submission,
     get_minio_client,
     tsv_to_json,
     validate_against_schema,
