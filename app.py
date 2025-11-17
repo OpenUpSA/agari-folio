@@ -1739,10 +1739,10 @@ class DeleteProjectUsers(Resource):
                         print(f"Removed project_id {project_id} from role {role} for user {user_id}")
                     else:
                         return {'error': f'Failed to remove role {role}'}, 500
-            
+
             if not removed_roles:
                 return {'message': 'User was not associated with the project'}, 200
-
+            log_event("project_user_deleted", project_id, {"email": user["username"], "name": f"{user["attributes"]["name"]} {user["attributes"]["surname"]}"})
             return {
                 'message': 'User removed from project successfully',
                 'user_id': user_id,
@@ -2784,6 +2784,7 @@ class DownloadSamples(Resource):
                     'download_url': download_url
                 })
 
+            log_event("data_download", isolates[0]['project_id'], {"sample_count": len(isolates)})
             return {
                 'tsv_data': tsv_content,
                 'download_links': download_links
