@@ -21,7 +21,7 @@ from helpers import (
     invite_user_to_project,
     invite_user_to_org,
     invite_email_change,
-    access_revoked_notification,
+    access_toggled_notification,
     log_event,
     log_submission,
     get_minio_client,
@@ -710,8 +710,8 @@ class User(Resource):
         """Delete a user by ID (system-admin only)"""
         try:
             keycloak_auth.toggle_user_enabled(user_id, enabled=False)
-            access_revoked_notification(user_id)
-            return {'message': 'User deleted successfully'}, 204
+            access_toggled_notification(user_id, enabled=False)
+            return {'message': 'User disabled successfully'}
         except Exception as e:
             logger.exception(f"Error deleting user {user_id}: {str(e)}")
             return {'error': f'Failed to delete user: {str(e)}'}, 500
@@ -726,6 +726,7 @@ class User(Resource):
         """Enable a disabled user by ID (system-admin only)"""
         try:
             keycloak_auth.toggle_user_enabled(user_id, enabled=True)
+            access_toggled_notification(user_id, enabled=True)
             return {'message': 'User enabled successfully'}
         except Exception as e:
             logger.exception(f"Error enabling user {user_id}: {str(e)}")
