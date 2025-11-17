@@ -2209,7 +2209,7 @@ class ProjectSubmissionValidate2(Resource):
                 isolates = cursor.fetchall()
                 
                 validation_errors = [iso["error"] for iso in isolates if iso['status'] == 'error']
-                seq_errors = [iso["seq_error"] for iso in isolates if iso['seq_error'] is not None]
+                sequence_errors = [iso["seq_error"] for iso in isolates if iso['status'] == 'sequence_error']
 
                 return {
                     'submission_id': submission_id,
@@ -2218,7 +2218,8 @@ class ProjectSubmissionValidate2(Resource):
                     'total_isolates': len(isolates),
                     'validated': len([iso for iso in isolates if iso['status'] == 'validated']),
                     'validation_errors': validation_errors,
-                    'sequence_errors': seq_errors
+                    'sequence_errors': sequence_errors,
+                    'error_count': len([iso for iso in isolates if iso['status'] in ['error', 'sequence_error']])
                 }
           
         except Exception as e:
@@ -2235,14 +2236,29 @@ class ProjectSubmissionValidate2(Resource):
         """Validate submission files"""
         
         try:
-            
-
+            # Check if validation is already running and prevent concurrent validation
             with get_db_cursor() as cursor:
                 cursor.execute("""
-                    UPDATE submissions 
-                    SET status = 'validating'
+                    SELECT status FROM submissions 
                     WHERE id = %s
                 """, (submission_id,))
+                
+                submission = cursor.fetchone()
+                if not submission:
+                    return {'error': 'Submission not found'}, 404
+                
+                if submission['status'] == 'validating':
+                    return {'error': 'Validation already in progress for this submission'}, 409
+                
+                # Set status to validating to prevent concurrent validation
+                cursor.execute("""
+                    UPDATE submissions 
+                    SET status = 'validating', updated_at = NOW()
+                    WHERE id = %s AND status != 'validating'
+                """, (submission_id,))
+                
+                if cursor.rowcount == 0:
+                    return {'error': 'Validation already in progress for this submission'}, 409
 
             # Get uploaded files for basic validation
             with get_db_cursor() as cursor:
@@ -2374,10 +2390,10 @@ class ProjectSubmissionValidate2(Resource):
                                 
                                 with get_db_cursor() as cursor:
                                     if success:
-                                        # Success - update with object_id
+                                        # Success - update with object_id, keep status as 'validated'
                                         cursor.execute("""
                                             UPDATE isolates 
-                                            SET object_id = %s, updated_at = NOW()
+                                            SET object_id = %s, status = 'validated', updated_at = NOW()
                                             WHERE id = %s
                                         """, (result, isolate['id']))
                                         print(f"Background async job completed for isolate {isolate['id']} - sequence saved: {result}")
@@ -2397,14 +2413,14 @@ class ProjectSubmissionValidate2(Resource):
                                             print(f"Updated isolate {isolate['id']} sent to Elasticsearch")
                                             
                                     else:
-                                        # Error - set seq_error
+                                        # Error - set seq_error and change status to sequence_error
                                         seq_error_data = {
                                             "row": isolate["tsv_row"],
                                             "seq_error": result
                                         }
                                         cursor.execute("""
                                             UPDATE isolates 
-                                            SET seq_error = %s, updated_at = NOW()
+                                            SET seq_error = %s, status = 'sequence_error', updated_at = NOW()
                                             WHERE id = %s
                                         """, (json.dumps(seq_error_data), isolate['id']))
                                         print(f"Background async job completed for isolate {isolate['id']} with error: {result}")
@@ -2428,15 +2444,16 @@ class ProjectSubmissionValidate2(Resource):
                                 cursor.execute("""
                                     SELECT COUNT(*) as total,
                                         COUNT(*) FILTER (WHERE status = 'error') as validation_errors,
-                                        COUNT(*) FILTER (WHERE seq_error IS NOT NULL) as sequence_errors
+                                        COUNT(*) FILTER (WHERE status = 'sequence_error') as sequence_errors,
+                                        COUNT(*) FILTER (WHERE status = 'validated') as validated_isolates
                                     FROM isolates 
                                     WHERE submission_id = %s
                                 """, (submission_id,))
                                 
                                 counts = cursor.fetchone()
                                 
-                                # Only set to 'validated' if no validation errors AND no sequence errors
-                                if counts['validation_errors'] == 0 and counts['sequence_errors'] == 0:
+                                # Only set to 'validated' if ALL isolates are validated (all-or-nothing approach)
+                                if counts['validated_isolates'] == counts['total'] and counts['total'] > 0:
                                     final_status = 'validated'
                                 else:
                                     final_status = 'error'
@@ -2448,7 +2465,7 @@ class ProjectSubmissionValidate2(Resource):
                                 """, (final_status, submission_id))
                                 
                                 print(f"Submission {submission_id} final status: {final_status}")
-                                print(f"Total isolates: {counts['total']}, Validation errors: {counts['validation_errors']}, Sequence errors: {counts['sequence_errors']}")
+                                print(f"Total isolates: {counts['total']}, Validation errors: {counts['validation_errors']}, Sequence errors: {counts['sequence_errors']}, Validated: {counts['validated_isolates']}")
                             
                             loop.close()
                     
@@ -2484,6 +2501,23 @@ class ProjectSubmissionPublish2(Resource):
         """Publish a submission - makes isolates searchable"""
 
         with get_db_cursor() as cursor:
+            # First check if ALL isolates in the submission are validated
+            cursor.execute("""
+                SELECT COUNT(*) as total,
+                    COUNT(*) FILTER (WHERE status = 'validated' AND error IS NULL AND seq_error IS NULL AND object_id IS NOT NULL) as ready_for_publish
+                FROM isolates 
+                WHERE submission_id = %s
+            """, (submission_id,))
+            
+            counts = cursor.fetchone()
+            
+            # All-or-nothing approach: only publish if ALL isolates are ready
+            if counts['ready_for_publish'] != counts['total'] or counts['total'] == 0:
+                return {
+                    'error': f'Cannot publish: {counts["ready_for_publish"]} of {counts["total"]} isolates are ready. All isolates must be validated with no errors to publish.'
+                }, 400
+            
+            # All isolates are ready, proceed with publishing
             cursor.execute("""
                 UPDATE isolates
                 SET status = 'published'
@@ -2494,17 +2528,27 @@ class ProjectSubmissionPublish2(Resource):
                 AND object_id IS NOT NULL
             """, (submission_id,))
 
+            # Update submission status to published
             cursor.execute("""
-                SELECT * FROM isolates
-                WHERE submission_id = %s
-                AND status = 'published'
+                UPDATE submissions
+                SET status = 'published', updated_at = NOW()
+                WHERE id = %s
+            """, (submission_id,))
+
+            # Get published isolates to re-index in Elasticsearch
+            cursor.execute("""
+                SELECT i.*, s.project_id, p.pathogen_id FROM isolates i
+                LEFT JOIN submissions s ON i.submission_id = s.id
+                LEFT JOIN projects p ON s.project_id = p.id
+                WHERE i.submission_id = %s
+                AND i.status = 'published'
             """, (submission_id,))
             published_isolates = cursor.fetchall()
 
             for isolate in published_isolates:
                 send_to_elastic2(isolate)
 
-        return {'message': 'Submission published successfully'}, 200
+        return {'message': f'Submission published successfully with {len(published_isolates)} isolates'}, 200
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/unpublish2')
 class ProjectSubmissionUnpublish2(Resource):
@@ -2519,6 +2563,7 @@ class ProjectSubmissionUnpublish2(Resource):
         """Unpublish a submission - makes isolates non-searchable"""
 
         with get_db_cursor() as cursor:
+            # Revert isolates from published back to validated
             cursor.execute("""
                 UPDATE isolates
                 SET status = 'validated'
@@ -2526,15 +2571,27 @@ class ProjectSubmissionUnpublish2(Resource):
                 AND status = 'published'
             """, (submission_id,))
 
+            # Update submission status back to validated
             cursor.execute("""
-                SELECT * FROM isolates
-                WHERE submission_id = %s
-                AND status = 'validated'
+                UPDATE submissions
+                SET status = 'validated', updated_at = NOW()
+                WHERE id = %s
+            """, (submission_id,))
+
+            # Get unpublished isolates to re-index in Elasticsearch with updated status
+            cursor.execute("""
+                SELECT i.*, s.project_id, p.pathogen_id FROM isolates i
+                LEFT JOIN submissions s ON i.submission_id = s.id
+                LEFT JOIN projects p ON s.project_id = p.id
+                WHERE i.submission_id = %s
+                AND i.status = 'validated'
             """, (submission_id,))
             unpublished_isolates = cursor.fetchall()
 
             for isolate in unpublished_isolates:
                 send_to_elastic2(isolate)
+
+        return {'message': f'Submission unpublished successfully. {len(unpublished_isolates)} isolates reverted to validated status'}, 200
 
 
 
