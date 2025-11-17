@@ -1123,7 +1123,7 @@ class OrganisationUsers(Resource):
             if not user:
                 return {'error': 'User not found in Keycloak'}, 404
 
-            action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+            action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
             # Update user's organisation_id and org_role attributes in Keycloak
             if 'force_role' in data:
                 role_org_member(user["id"], org_id, role)
@@ -1388,7 +1388,7 @@ class ProjectList(Resource):
 
                 new_project = cursor.fetchone()
                 role_project_member(user_id, new_project["id"], "project-admin")
-                action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+                action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
                 log_event("project_created", organisation_id, {"project_name": name, "action_email": user_info["username"], "action_name": action_name})
 
                 return {
@@ -1571,7 +1571,7 @@ class Project(Resource):
 
                     if not deleted_project:
                         return {'error': 'Project not found or already deleted'}, 404
-                    action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+                    action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
                     log_event("project_deleted", deleted_project["organisation_id"], {"project_name": deleted_project["name"], "action_email": user_info["username"], "action_name": action_name})
                     return {
                         'message': f'Project "{deleted_project["name"]}" deleted (can be restored)',
@@ -1698,7 +1698,7 @@ class ProjectUsers(Resource):
             if not user:
                 return {'error': 'User not found in Keycloak'}, 404
 
-            action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+            action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
             if 'force_role' in data:
                 role_project_member(user["id"], project_id, role)
                 log_event("user_added", project_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[role], "action_email": user_info["username"], "action_name": action_name})
@@ -1745,7 +1745,7 @@ class DeleteProjectUsers(Resource):
             if not removed_roles:
                 return {'message': 'User was not associated with the project'}, 200
             users_name = f"{user['attributes']['name']} {user['attributes']['surname']}"
-            action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+            action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
             log_event("project_user_deleted", project_id, {"email": user["username"], "name": users_name, "action_email": user_info["username"], "action_name": action_name})
             return {
                 'message': 'User removed from project successfully',
@@ -1834,7 +1834,7 @@ class ProjectSubmissions2(Resource):
                 
                 new_submission = cursor.fetchone()
 
-                action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+                action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
                 log_event("submission_created", new_submission['id'], {"sumbission": new_submission, "action_email": user_info["username"], "action_name": action_name})
 
                 return {
@@ -2083,7 +2083,7 @@ class ProjectSubmissionFiles2(Resource):
                 
                 file_record = cursor.fetchone()
 
-            action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+            action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
             log_event("file_uploaded", project_id, {"submission_id": {submission_id}, "files": file_record, "action_email": user_info["username"], "action_name": action_name})
             return {
                 'message': 'File uploaded successfully',
@@ -2534,7 +2534,7 @@ class ProjectSubmissionValidate2(Resource):
                     else:
                         print("No validated isolates found - skipping sequence checking")
 
-                    action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+                    action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
                     log_event("submission_validated", submission_id, {
                        "total_isolates": len(all_isolates),
                        "schema_errors": len(schema_errors),
@@ -2633,7 +2633,7 @@ class ProjectSubmissionPublish2(Resource):
             for isolate in published_isolates:
                 send_to_elastic2(isolate)
 
-        action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+        action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
         log_event("submission_published", submission_id, {"published_isolates": len(published_isolates), "action_email": user_info["username"], "action_name": action_name})
         return {'message': f'Submission published successfully with {len(published_isolates)} isolates'}, 200
 
@@ -2678,7 +2678,7 @@ class ProjectSubmissionUnpublish2(Resource):
             for isolate in unpublished_isolates:
                 send_to_elastic2(isolate)
 
-        action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+        action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
         log_event("submission_unpublished", submission_id, {"unpublished_isolates": len(unpublished_isolates), "action_email": user_info["username"], "action_name": action_name})
         return {'message': f'Submission unpublished successfully. {len(unpublished_isolates)} isolates reverted to validated status'}, 200
 
@@ -2874,7 +2874,7 @@ class DownloadSamples(Resource):
                     'download_url': download_url
                 })
 
-            action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+            action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
             log_event("data_download", isolates[0]['project_id'], {"sample_count": len(isolates), "action_email": user_info["username"], "action_name": action_name})
             return {
                 'tsv_data': tsv_content,
@@ -2989,7 +2989,7 @@ class ProjectInviteConfirm(Resource):
         if not auth_tokens:
             return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
 
-        action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+        action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
         log_event("user_accepted", invite_project_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_role], "action_email": user_info["username"], "action_name": action_name})
         return {
             'message': 'User added to project successfully',
@@ -3034,7 +3034,7 @@ class OrganisationInviteConfirm(Resource):
             return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
 
         if result.get('success'):
-            action_name = f"{user_info["name"]} {user_info["surname"]}" if user_info.get("name") and user_info.get("surname") else user_info["username"]
+            action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
             log_event("org_user_accepted", invite_org_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_org_role], "action_email": user_info["username"], "action_name": action_name})
             return {
                 'message': f'User added to organisation with role "{invite_org_role}"',
