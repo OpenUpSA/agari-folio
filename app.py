@@ -281,7 +281,7 @@ class PathogenList(Resource):
             with get_db_cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO pathogens (name, scientific_name, description, schema_id)
-                    VALUES (%s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s)
                     RETURNING id, name, scientific_name, description, created_at
                 """, (name, scientific_name, description, schema_id))
 
