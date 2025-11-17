@@ -849,7 +849,7 @@ class KeycloakAuth:
             return {'success': False, 'error': f"Error fetching user {user_id}: {e}"}
         
 
-    def delete_user(self, user_id):
+    def toggle_user_enabled(self, user_id, enabled):
         admin_token = self.get_admin_token()
         if not admin_token:
             return {'success': False, 'error': 'Could not get admin token'}
@@ -866,7 +866,7 @@ class KeycloakAuth:
         response.raise_for_status()
         user = response.json()
 
-        user['enabled'] = False
+        user['enabled'] = enabled
         requests.put(user_url, headers=headers, json=user)
 
 
