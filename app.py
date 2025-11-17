@@ -2774,6 +2774,7 @@ class DownloadSamples(Resource):
             response.headers['Content-Type'] = 'application/zip'
             response.headers['Content-Disposition'] = f'attachment; filename="isolates_download_{len(isolates)}_samples.zip"'
             
+            log_event("data_download", isolates[0]['project_id'], {"sample_count": len(isolates)})
             return response
 
         except Exception as e:

@@ -394,6 +394,7 @@ def log_event(log_type, resource_id, log_entry):
     - user_added, user_invited, user_accepted
     - org_user_added, org_user_invited, org_user_accepted
     - file_uploaded, submission_finalised, submission_published
+    - data_download
     """
     try:
         with get_db_cursor() as cursor:
