@@ -8,7 +8,6 @@ from auth import (
     require_permission,
     user_has_permission,
 )
-import threading
 import asyncio
 from permissions import PERMISSIONS
 from database import get_db_cursor, test_connection
@@ -2405,104 +2404,7 @@ class ProjectSubmissionValidate2(Resource):
                     isolates_with_errors = [iso["error"] for iso in all_isolates if iso['status'] == 'error']
 
 
-                    ###############################################
-                    #### ASYNC SEQUENCE DATA CHECKING JOB 
-                    ###############################################
-
-                    def run_async_job():
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            # Only run sequence checking on isolates that passed schema validation
-                            validated_isolates = [iso for iso in all_isolates if iso['status'] == 'validated']
-                            print(f"Running sequence checking on {len(validated_isolates)} validated isolates (out of {len(all_isolates)} total)")
-                            
-                            for isolate in validated_isolates:
-                                success, result = loop.run_until_complete(check_for_sequence_data(isolate))
-                                
-                                with get_db_cursor() as cursor:
-                                    if success:
-                                        # Success - update with object_id, keep status as 'validated'
-                                        cursor.execute("""
-                                            UPDATE isolates 
-                                            SET object_id = %s, status = 'validated', updated_at = NOW()
-                                            WHERE id = %s AND status = 'validated'
-                                        """, (result, isolate['id']))
-                                        print(f"Background async job completed for isolate {isolate['id']} - sequence saved: {result}")
-                                        
-                                        # Get updated isolate data and send to Elasticsearch
-                                        cursor.execute("""
-                                            SELECT i.*, s.project_id, p.pathogen_id
-                                            FROM isolates i
-                                            LEFT JOIN submissions s ON i.submission_id = s.id
-                                            LEFT JOIN projects p ON s.project_id = p.id
-                                            WHERE i.id = %s
-                                        """, (isolate['id'],))
-                                        
-                                        updated_isolate = cursor.fetchone()
-                                        if updated_isolate:
-                                            send_to_elastic2(updated_isolate)
-                                            print(f"Updated isolate {isolate['id']} sent to Elasticsearch")
-                                            
-                                    else:
-                                        # Error - set seq_error and change status to sequence_error
-                                        # Only update isolates that are still 'validated' (don't touch schema error isolates)
-                                        seq_error_data = {
-                                            "row": isolate["tsv_row"],
-                                            "seq_error": result
-                                        }
-                                        cursor.execute("""
-                                            UPDATE isolates 
-                                            SET seq_error = %s, status = 'sequence_error', updated_at = NOW()
-                                            WHERE id = %s AND status = 'validated'
-                                        """, (json.dumps(seq_error_data), isolate['id']))
-                                        print(f"Background async job completed for isolate {isolate['id']} with error: {result}")
-                                        
-                                        # Get updated isolate data and send to Elasticsearch
-                                        cursor.execute("""
-                                            SELECT i.*, s.project_id, p.pathogen_id
-                                            FROM isolates i
-                                            LEFT JOIN submissions s ON i.submission_id = s.id
-                                            LEFT JOIN projects p ON s.project_id = p.id
-                                            WHERE i.id = %s
-                                        """, (isolate['id'],))
-                                        
-                                        updated_isolate = cursor.fetchone()
-                                        if updated_isolate:
-                                            send_to_elastic2(updated_isolate)
-                                            print(f"Updated isolate {isolate['id']} with seq_error sent to Elasticsearch")
-                        finally:
-                            # Check final status of all isolates before setting submission status
-                            with get_db_cursor() as cursor:
-                                cursor.execute("""
-                                    SELECT COUNT(*) as total,
-                                        COUNT(*) FILTER (WHERE status = 'error') as validation_errors,
-                                        COUNT(*) FILTER (WHERE status = 'sequence_error') as sequence_errors,
-                                        COUNT(*) FILTER (WHERE status = 'validated') as validated_isolates
-                                    FROM isolates 
-                                    WHERE submission_id = %s
-                                """, (submission_id,))
-                                
-                                counts = cursor.fetchone()
-                                
-                                # Only set to 'validated' if ALL isolates are validated (all-or-nothing approach)
-                                if counts['validated_isolates'] == counts['total'] and counts['total'] > 0:
-                                    final_status = 'validated'
-                                else:
-                                    final_status = 'error'
-                                
-                                cursor.execute("""
-                                    UPDATE submissions 
-                                    SET status = %s, updated_at = NOW()
-                                    WHERE id = %s
-                                """, (final_status, submission_id))
-                                
-                                print(f"Submission {submission_id} final status: {final_status}")
-                                print(f"Total isolates: {counts['total']}, Validation errors: {counts['validation_errors']}, Sequence errors: {counts['sequence_errors']}, Validated: {counts['validated_isolates']}")
-                            
-                            loop.close()
-                    
-                    # Only start async job if there are validated isolates to check
+                    # Only start job for sequence checking if there are validated isolates
                     validated_isolates = [iso for iso in all_isolates if iso['status'] == 'validated']
                     schema_errors = [iso for iso in all_isolates if iso['status'] == 'error']
                     
@@ -2516,8 +2418,17 @@ class ProjectSubmissionValidate2(Resource):
                         """, (submission_id,))
                         print(f"Schema validation found {len(schema_errors)} errors - setting submission status to 'error'")
                     elif validated_isolates:
-                        # If no schema errors but have validated isolates, keep as 'validating' until async job completes
+                        # If no schema errors but have validated isolates, keep as 'validating' until job completes
                         print(f"Schema validation passed for {len(validated_isolates)} isolates - keeping submission status as 'validating' until sequence checking completes")
+                        
+                        # Queue sequence validation job
+                        from jobs import add_job
+                        job_data = {
+                            'submission_id': submission_id,
+                            'isolate_ids': [iso['id'] for iso in validated_isolates]
+                        }
+                        job_id = add_job('validate_sequences', job_data)
+                        print(f"Queued sequence validation job {job_id} for {len(validated_isolates)} validated isolates")
                     else:
                         # Edge case: no isolates at all
                         cursor.execute("""
@@ -2526,13 +2437,6 @@ class ProjectSubmissionValidate2(Resource):
                             WHERE id = %s
                         """, (submission_id,))
                         print("No isolates found - setting submission status to 'error'")
-                    
-                    if validated_isolates:
-                        thread = threading.Thread(target=run_async_job)
-                        thread.start()
-                        print(f"Started async sequence checking job for {len(validated_isolates)} validated isolates")
-                    else:
-                        print("No validated isolates found - skipping sequence checking")
 
                     action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
                     log_event("submission_validated", submission_id, {

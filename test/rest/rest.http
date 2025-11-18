@@ -468,7 +468,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 @project_id = 29ba11ab-cb9d-4184-a5fa-046340a56674
-@submission_id = 901ff547-e465-4fc9-bc17-a2378a9bd548
+@submission_id = a6218af8-26d7-4151-b484-282337a25a1c
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -507,10 +507,10 @@ Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=boundary123
 
 --boundary123
-Content-Disposition: form-data; name="file"; filename="cholera_1_corrected2.tsv"
+Content-Disposition: form-data; name="file"; filename="cholera-multiple.tsv"
 Content-Type: text/tab-separated-values
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_1_corrected2.tsv
+< //home/dimee/Work/OpenUp/SANBI/data/cholera/cholera-multiple.tsv
 
 --boundary123--
 
@@ -532,7 +532,7 @@ Content-Type: text/plain
 
 ###
 
-@file_id = 8b4db002-7b07-4219-be32-09cdf2d711ef
+@file_id = 5b0fe5c7-cdd7-486f-b767-a1f26661ac0f
 
 ### Step 2c: Delete uploaded file
 # @name deleteUploadedFile2
@@ -647,7 +647,7 @@ Content-Type: application/json
 {
   "query": {
     "term": {
-      "submission_id.keyword": "e0678d59-20d8-45c0-a8c1-5a2e4e9d2586"
+      "status.keyword": "validated"
     }
   }
 }
@@ -712,6 +712,22 @@ Content-Type: application/json
 }
 
 ###
+
+
+# @name search_pagination
+
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "from": 0,
+  "size": 50,
+  "query": {
+    "match_all": {}
+  }
+}
+
 
 
 #############################################################################
