@@ -3085,6 +3085,8 @@ class ActivityLogs(Resource):
     ### GET /activity-log/<resource_id> ###
 
     @study_ns.doc('list_logs')
+    @require_auth(keycloak_auth)
+    @require_permission('manage_project_users')
     def get(self, resource_id):
         try:
             with get_db_cursor() as cursor:
@@ -3102,7 +3104,6 @@ class ActivityLogs(Resource):
         except Exception as e:
             logger.exception("Error retrieving activity logs")
             return {'error': f'Database error: {str(e)}'}, 500
-
 
 
 if __name__ == '__main__':
