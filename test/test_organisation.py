@@ -395,4 +395,88 @@ def test_create_organisation_long_name(client, system_admin_token):
             cursor.execute("DELETE FROM organisations WHERE name = %s", (long_name,))
 
 
+def test_create_organisation_invalid_sharing_policy(client, system_admin_token):
+    """
+    Test that organisation creation validates sharing_policy values.
+
+    Verifies:
+    - Invalid sharing_policy values are rejected
+    - Only 'public', 'private', and 'semi-private' are accepted
+    """
+    invalid_policies = ["invalid", "PUBLIC", "restricted", "", "none", "123"]
+
+    for invalid_policy in invalid_policies:
+        org_data = {
+            "name": f"Test Org {invalid_policy}",
+            "sharing_policy": invalid_policy,
+        }
+
+        response = client.post(
+            "/organisations/",
+            data=json.dumps(org_data),
+            headers={
+                "Authorization": f"Bearer {system_admin_token}",
+                "Content-Type": "application/json",
+            },
+        )
+
+        # Should reject with 400 Bad Requests
+        assert response.status_code == 400, (
+            f"Invalid sharing_policy '{invalid_policy}' should be rejected, "
+            f"got {response.status_code}: {response.get_json()}"
+        )
+
+        # Cleanup in case it somehow got created
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM organisations WHERE name = %s",
+                    (f"Test Org {invalid_policy}",),
+                )
+        except Exception:
+            pass  # Ignore cleanup errors
+
+
+def test_create_organisation_valid_sharing_policies(client, system_admin_token):
+    """
+    Test that all valid sharing_policy values are accepted.
+
+    Verifies:
+    - 'public' sharing_policy is accepted
+    - 'private' sharing_policy is accepted
+    - 'semi-private' sharing_policy is accepted
+    """
+    valid_policies = ["public", "private", "semi-private"]
+
+    for policy in valid_policies:
+        org_data = {
+            "name": f"Test Org {policy.title()}",
+            "sharing_policy": policy,
+        }
+
+        try:
+            response = client.post(
+                "/organisations/",
+                data=json.dumps(org_data),
+                headers={
+                    "Authorization": f"Bearer {system_admin_token}",
+                    "Content-Type": "application/json",
+                },
+            )
+
+            assert response.status_code == 201, (
+                f"Valid sharing_policy '{policy}' should be accepted, "
+                f"got {response.status_code}: {response.get_json()}"
+            )
+            result = response.get_json()
+            assert result["organisation"]["sharing_policy"] == policy
+        finally:
+            # Cleanup
+            with get_db_cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM organisations WHERE name = %s",
+                    (f"Test Org {policy.title()}",),
+                )
+
+
 ####################################################
