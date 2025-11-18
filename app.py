@@ -3091,7 +3091,7 @@ class ActivityLogs(Resource):
         try:
             data = request.get_json()
             page = int(data.get('page', 1))
-            limit = int(data.get('limit', 1))
+            limit = int(data.get('limit', 10))
             offset = (page - 1) * limit
 
             with get_db_cursor() as cursor:
