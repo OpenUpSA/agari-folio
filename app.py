@@ -31,7 +31,7 @@ from helpers import (
     tsv_to_json,
     validate_against_schema,
     check_for_sequence_data,
-    send_to_elastic,
+    mark_for_indexing,
     send_to_elastic2,
     check_isolate_in_elastic,
     check_user_id,
@@ -2104,17 +2104,6 @@ class ProjectSubmissionFiles2(Resource):
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files2/<string:file_id>')
 class ReplaceProjectSubmissionFile2(Resource):
-
-    ### PUT /projects/<project_id>/submissions2/<submission_id>/files2/<file_id>
-
-    @api.doc('replace_file_v2')
-    @require_auth(keycloak_auth)
-    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
-    def put(self, project_id, submission_id, file_id):
-        """Replace an existing submission file with a new upload (streaming to MinIO)"""
-        # Similar to upload but replaces existing file record
-        pass  # Implementation would be similar to the upload_file_v2 method
-
     
     ### DELETE /projects/<project_id>/submissions2/<submission_id>/files2/<file_id>
     
@@ -2391,6 +2380,7 @@ class ProjectSubmissionValidate2(Resource):
                             isolate_data = cursor.fetchone()
 
                             if isolate_data:
+                                mark_for_indexing(isolate['id'], isolate_data)
                                 send_to_elastic2(isolate_data)
 
                 # After validating all isolates, check if any have errors
@@ -2441,6 +2431,7 @@ class ProjectSubmissionValidate2(Resource):
                                         
                                         updated_isolate = cursor.fetchone()
                                         if updated_isolate:
+                                            mark_for_indexing(isolate['id'], isolate_data)
                                             send_to_elastic2(updated_isolate)
                                             print(f"Updated isolate {isolate['id']} sent to Elasticsearch")
                                             
@@ -2631,6 +2622,7 @@ class ProjectSubmissionPublish2(Resource):
             published_isolates = cursor.fetchall()
 
             for isolate in published_isolates:
+                mark_for_indexing(isolate['id'], isolate['isolate_data'])
                 send_to_elastic2(isolate)
 
         action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
@@ -2676,6 +2668,7 @@ class ProjectSubmissionUnpublish2(Resource):
             unpublished_isolates = cursor.fetchall()
 
             for isolate in unpublished_isolates:
+                mark_for_indexing(isolate['id'], isolate['isolate_data'])
                 send_to_elastic2(isolate)
 
         action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']

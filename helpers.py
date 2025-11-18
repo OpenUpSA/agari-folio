@@ -25,10 +25,12 @@ from sendgrid.helpers.mail import (
 )
 import base64
 from minio import Minio
-
+from logging import getLogger
 from database import get_db_cursor
 import os
 from typing import Any, Dict
+
+logger = getLogger(__name__)
 
 SCHEMAS_DIR = os.path.join(os.path.dirname(__file__), "test", "data")
 
@@ -902,41 +904,116 @@ def json_serial(obj):
         return list(obj)
     raise TypeError(f"Type {type(obj)} not serializable")
 
+def serialize_isolate(isolate_data):
+    return {
+        "isolate_id": isolate_data.get('id'),
+        "sample_data": isolate_data.get('isolate_data', {}),
+        "submission_id": isolate_data.get('submission_id'),
+        "project_id": isolate_data.get('project_id'),
+        "pathogen_id": isolate_data.get('pathogen_id'),
+        "status": isolate_data.get('status'),
+        "object_id": isolate_data.get('object_id'),
+        "created_at": isolate_data.get('created_at'),
+        "updated_at": isolate_data.get('updated_at')
+    }
 
-# NEW FUNCTION TO SEND TO FIXED INDEX
-def send_to_elastic2(document):
+def mark_for_indexing(isolate_id, isolate_data):
+
+    isolate_hash = hashlib.sha256(
+        json.dumps(isolate_data, sort_keys=True).encode()
+    ).hexdigest()
+    
+    with get_db_cursor() as cursor:
+        cursor.execute("""
+            INSERT INTO elasticsearch_sync (isolate_id, isolate_version_hash)
+            VALUES (%s, %s)
+            ON CONFLICT (isolate_id) DO UPDATE SET
+                isolate_version_hash = EXCLUDED.isolate_version_hash,
+                index_status = 'pending',
+                retry_count = 0,
+                updated_at = NOW()
+        """, (isolate_id, isolate_hash))
+
+
+def send_to_elastic2(isolate_data):
+    """Send isolate to Elasticsearch with tracking"""
+    isolate_id = isolate_data['id']
+
+    es_url = settings.ELASTICSEARCH_URL
+    es_index_url = f"{es_url}/agari-samples/_doc/{isolate_id}"
+    
+    # Create hash of data being indexed
+    isolate_hash = hashlib.sha256(
+        json.dumps(isolate_data, sort_keys=True).encode()
+    ).hexdigest()
+    
     try:
-        serialized_document = json.loads(json.dumps(document, default=json_serial))
+        # Try to index
+        response = requests.post(es_index_url, json=serialize_isolate(isolate_data))
+        
+        with get_db_cursor() as cursor:
+            if response.status_code in [200, 201]:
+                # Success - mark as indexed
+                cursor.execute("""
+                    UPDATE elasticsearch_sync 
+                    SET index_status = 'indexed', 
+                        indexed_at = NOW(),
+                        error_message = NULL,
+                        updated_at = NOW()
+                    WHERE isolate_id = %s AND isolate_version_hash = %s
+                """, (isolate_id, isolate_hash))
+                return True
+            else:
+                # Failed - mark as failed and increment retry count
+                cursor.execute("""
+                    UPDATE elasticsearch_sync 
+                    SET index_status = 'failed',
+                        error_message = %s,
+                        retry_count = retry_count + 1,
+                        updated_at = NOW()
+                    WHERE isolate_id = %s AND isolate_version_hash = %s
+                """, (isolate_id, response.text, isolate_hash))
+                return False
+                
     except Exception as e:
-        print(f"Error serializing document: {e}")
+        # Exception during indexing
+        with get_db_cursor() as cursor:
+            cursor.execute("""
+                UPDATE elasticsearch_sync 
+                SET index_status = 'failed',
+                    error_message = %s,
+                    retry_count = retry_count + 1,
+                    updated_at = NOW()
+                WHERE isolate_id = %s AND isolate_version_hash = %s
+            """, (isolate_id, str(e), isolate_hash))
         return False
-
-    # Check if document has an id field 
-    document_id = serialized_document.get('id')
-    if not document_id:
-        print("Warning: Document has no 'id' field, creating new document")
-        es_index_url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_doc"
-        method = requests.post
-    else:
-        # Use the document's UUID as the Elasticsearch document ID
-        # This ensures we always update the same document
-        es_index_url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_doc/{document_id}"
-        method = requests.put
-        print(f"Using document ID {document_id} as Elasticsearch document ID for upsert")
-
-    try:
-        response = method(es_index_url, json=serialized_document)
-        if response.status_code in [200, 201]:
-            action = "updated/created" if method == requests.put else "indexed"
-            print(f"Successfully {action} document to {es_index_url}")
-            print(f"DEBUG: Document {document_id} with data: object_id={serialized_document.get('object_id')}, seq_error={serialized_document.get('seq_error')}")
-            return True
-        else:
-            print(f"Failed to index document: {response.text}")
-            return False
-    except Exception as e:
-        print(f"Error sending document to Elasticsearch: {e}")
-        return False
+    
+def mark_stale_records():
+    """Mark records as stale when isolate data changes"""
+    with get_db_cursor() as cursor:
+        # Get all indexed records and their current isolate data
+        cursor.execute("""
+            SELECT es.isolate_id, es.isolate_version_hash, i.isolate_data
+            FROM elasticsearch_sync es
+            JOIN isolates i ON es.isolate_id = i.id
+            WHERE es.index_status = 'indexed'
+        """)
+        
+        records = cursor.fetchall()
+        
+        for record in records:
+            # Calculate current hash of isolate data
+            current_hash = hashlib.sha256(
+                json.dumps(record['isolate_data'], sort_keys=True).encode()
+            ).hexdigest()
+            
+            # If hash changed, mark as stale
+            if current_hash != record['isolate_version_hash']:
+                cursor.execute("""
+                    UPDATE elasticsearch_sync
+                    SET index_status = 'stale', updated_at = NOW()
+                    WHERE isolate_id = %s
+                """, (record['isolate_id'],))
 
 
 def query_elastic(query_body):
@@ -987,48 +1064,54 @@ def check_isolate_in_elastic(isolate_id):
 
 
 
+def reindex_failed_isolates(max_retries=3):
+    """Reindex isolates that failed to index"""
+    with get_db_cursor() as cursor:
+        cursor.execute("""
+            SELECT i.*, es.retry_count
+            FROM elasticsearch_sync es
+            JOIN isolates i ON es.isolate_id = i.id
+            WHERE es.index_status = 'failed' 
+            AND es.retry_count < %s
+            ORDER BY es.updated_at ASC
+            LIMIT 100
+        """, (max_retries,))
+        
+        failed_isolates = cursor.fetchall()
+        
+        for isolate in failed_isolates:
+            success = send_to_elastic2(isolate)
+            logger.info(f"Retry indexing isolate {isolate['id']}: {'success' if success else 'failed'}")
 
+def reindex_stale_isolates():
+    """Reindex isolates that have changed since last indexing"""
+    with get_db_cursor() as cursor:
+        cursor.execute("""
+            SELECT i.*
+            FROM elasticsearch_sync es
+            JOIN isolates i ON es.isolate_id = i.id
+            WHERE es.index_status = 'stale'
+            ORDER BY es.updated_at ASC
+            LIMIT 100
+        """)
+        
+        stale_isolates = cursor.fetchall()
+        
+        for isolate in stale_isolates:
+            mark_for_indexing(isolate['id'], isolate)
+            send_to_elastic2(isolate)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# OLD FUNCTION FOR LEGACY USE
-def send_to_elastic(index, document):
-    es_url = settings.ELASTICSEARCH_URL
-
-    # Extract document ID if provided
-    doc_id = document.pop("_id", None) if isinstance(document, dict) else None
-
-    if doc_id:
-        # Use PUT with specific document ID to avoid duplicates
-        es_index_url = f"{es_url}/{index}/_doc/{doc_id}"
-        method = requests.put
-    else:
-        # Use POST to auto-generate document ID
-        es_index_url = f"{es_url}/{index}/_doc"
-        method = requests.post
-
-    try:
-        response = method(es_index_url, json=document)
-        if response.status_code in [200, 201]:
-            print(f"Successfully indexed document to {index}")
-            return True
-        else:
-            print(f"Failed to index document: {response.text}")
-            return False
-    except Exception as e:
-        print(f"Error sending document to Elasticsearch: {e}")
-        return False
-
+def get_indexing_status():
+    """Get overview of indexing status"""
+    with get_db_cursor() as cursor:
+        cursor.execute("""
+            SELECT 
+                index_status,
+                COUNT(*) as count,
+                MIN(updated_at) as oldest,
+                MAX(retry_count) as max_retries
+            FROM elasticsearch_sync
+            GROUP BY index_status
+        """)
+        return cursor.fetchall()
 
