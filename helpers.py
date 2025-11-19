@@ -29,6 +29,9 @@ from minio import Minio
 from database import get_db_cursor
 import os
 from typing import Any, Dict
+from logging import getLogger
+
+logger = getLogger(__name__)
 
 SCHEMAS_DIR = os.path.join(os.path.dirname(__file__), "test", "data")
 
@@ -169,6 +172,7 @@ def magic_link(email, redirect_uri, expiration_seconds=600, send_email=True):
             "user_id": response_data.get("user_id"),
         }, 200
     else:
+        logger.error(f"Magic link creation failed: {keycloak_response.text}")
         return {"error": f"Failed to create magic link."}, 500
 
 
