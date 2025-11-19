@@ -3085,14 +3085,14 @@ class ActivityLogs(Resource):
     ### GET /activity-log/<resource_id> ###
 
     @study_ns.doc('list_logs')
-    @require_auth(keycloak_auth)
-    @require_permission('manage_project_users')
+    #@require_auth(keycloak_auth)
+    #@require_permission('manage_project_users')
     def get(self, resource_id):
         try:
-            data = request.get_json()
-            page = int(data.get('page', 1))
-            limit = int(data.get('limit', 10))
-            offset = (page - 1) * limit
+            #data = request.get_json()
+            #page = int(data.get('page', 1))
+            #limit = int(data.get('limit', 10))
+            #offset = (page - 1) * limit
 
             with get_db_cursor() as cursor:
                 main_query = """
@@ -3102,15 +3102,22 @@ class ActivityLogs(Resource):
                     ORDER BY created_at DESC
                     LIMIT %s OFFSET %s
                 """
-                cursor.execute(main_query, (resource_id, limit, offset))
+                #cursor.execute(main_query, (resource_id, limit, offset))
+                cursor.execute("""
+                    SELECT *
+                    FROM logs
+                    WHERE resource_id = %s
+                    ORDER BY created_at DESC
+                """, (resource_id,))
                 logs = cursor.fetchall()
-                total_count = len(logs)
+                #total_count = len(logs)
 
                 # Pagination metadata
-                total_pages = (total_count + limit - 1) // limit
-                has_next = page < total_pages
-                has_prev = page > 1
+                #total_pages = (total_count + limit - 1) // limit
+                #has_next = page < total_pages
+                #has_prev = page > 1
 
+                return logs
                 return {
                     'logs': logs,
                     'pagination': {
