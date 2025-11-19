@@ -397,7 +397,7 @@ def log_event(log_type, resource_id, log_entry, user_info=None):
     - data_download
     """
     try:
-        if user_info is None:
+        if user_info:
             action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
             log_entry['action_email'] = user_info['username']
             log_entry['action_name'] = action_name
