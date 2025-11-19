@@ -39,9 +39,25 @@ async def process_sequence_validation(job):
     
     print(f"Found {len(validated_isolates)} isolates still validated and ready for sequence checking")
     
-    # Process each isolate
-    for isolate in validated_isolates:
-        success, result = await check_for_sequence_data(isolate)
+    # Process each isolate with progress logging
+    total_isolates = len(validated_isolates)
+    for i, isolate in enumerate(validated_isolates, 1):
+        print(f"Processing isolate {i}/{total_isolates}: {isolate['id']}")
+        
+        try:
+            # Add timeout wrapper for the async operation
+            success, result = await asyncio.wait_for(
+                check_for_sequence_data(isolate), 
+                timeout=120  # 2 minutes timeout per isolate
+            )
+        except asyncio.TimeoutError:
+            print(f"Timeout processing isolate {isolate['id']} - marking as error")
+            success = False
+            result = "Processing timeout - sequence check took too long"
+        except Exception as e:
+            print(f"Exception processing isolate {isolate['id']}: {str(e)}")
+            success = False
+            result = f"Processing error: {str(e)}"
         
         with get_db_cursor() as cursor:
             if success:
@@ -64,8 +80,12 @@ async def process_sequence_validation(job):
                 
                 updated_isolate = cursor.fetchone()
                 if updated_isolate:
-                    send_to_elastic2(updated_isolate)
-                    print(f"Updated isolate {isolate['id']} sent to Elasticsearch")
+                    print(f"Sending isolate {isolate['id']} to Elasticsearch...")
+                    elastic_success = send_to_elastic2(updated_isolate)
+                    if elastic_success:
+                        print(f"Updated isolate {isolate['id']} sent to Elasticsearch")
+                    else:
+                        print(f"Failed to send isolate {isolate['id']} to Elasticsearch")
                     
             else:
                 # Error - set seq_error and change status to sequence_error
@@ -91,8 +111,12 @@ async def process_sequence_validation(job):
                 
                 updated_isolate = cursor.fetchone()
                 if updated_isolate:
-                    send_to_elastic2(updated_isolate)
-                    print(f"Updated isolate {isolate['id']} with seq_error sent to Elasticsearch")
+                    print(f"Sending isolate {isolate['id']} with seq_error to Elasticsearch...")
+                    elastic_success = send_to_elastic2(updated_isolate)
+                    if elastic_success:
+                        print(f"Updated isolate {isolate['id']} with seq_error sent to Elasticsearch")
+                    else:
+                        print(f"Failed to send isolate {isolate['id']} with seq_error to Elasticsearch")
     
     # After processing all isolates, check final status and update submission
     with get_db_cursor() as cursor:
@@ -156,18 +180,32 @@ while True:
             print(f"Got job {job['id']} ({job['job_type']}): {job['payload']}")
             
             try:
-                # Handle different job types
+                # Handle different job types with overall timeout
                 if job['job_type'] == 'validate_sequences':
-                    # Async job - need event loop
+                    # Async job - need event loop with timeout
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
-                        loop.run_until_complete(run_async_job(job))
+                        # Add overall job timeout (10 minutes)
+                        task = loop.create_task(run_async_job(job))
+                        loop.run_until_complete(asyncio.wait_for(task, timeout=600))
+                    except asyncio.TimeoutError:
+                        print(f"Job {job['id']} timed out after 10 minutes")
+                        raise Exception("Job timed out after 10 minutes")
                     finally:
                         loop.close()
                 else:
-                    # Sync job
-                    run_sync_job(job)
+                    # Sync job with timeout
+                    import signal
+                    def timeout_handler(signum, frame):
+                        raise Exception("Job timed out")
+                    
+                    signal.signal(signal.SIGALRM, timeout_handler)
+                    signal.alarm(300)  # 5 minute timeout for sync jobs
+                    try:
+                        run_sync_job(job)
+                    finally:
+                        signal.alarm(0)  # Clear the alarm
                 
                 # Mark as done
                 mark_job_done(job['id'])

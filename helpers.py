@@ -739,6 +739,11 @@ async def check_for_sequence_data(isolate):
         bucket_name = settings.MINIO_BUCKET
         
         try:
+            # Add timeout to MinIO operations
+            import socket
+            original_timeout = socket.getdefaulttimeout()
+            socket.setdefaulttimeout(30) 
+            
             response = minio_client.get_object(bucket_name, object_id)
             fasta_content = response.read().decode('utf-8')
             print("====================")
@@ -746,7 +751,11 @@ async def check_for_sequence_data(isolate):
             print("====================")
             response.close()
             response.release_conn()
+            
+            # Restore original timeout
+            socket.setdefaulttimeout(original_timeout)
         except Exception as e:
+            socket.setdefaulttimeout(original_timeout)  # Restore timeout even on error
             return False, f"Error loading FASTA file from MinIO: {str(e)}"
         
         # 5. Parse the FASTA file to check if header is in the file
@@ -846,17 +855,28 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
         # Generate object_id for MinIO storage
         object_id = unique_id
         
-        # Upload to MinIO
+        # Upload to MinIO with timeout
         from io import BytesIO
         data = BytesIO(fasta_bytes)
         
-        minio_client.put_object(
-            bucket_name=bucket_name,
-            object_name=object_id,
-            data=data,
-            length=len(fasta_bytes),
-            content_type='text/plain'
-        )
+        # Add timeout for MinIO operations
+        import socket
+        original_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(30) 
+        
+        try:
+            minio_client.put_object(
+                bucket_name=bucket_name,
+                object_name=object_id,
+                data=data,
+                length=len(fasta_bytes),
+                content_type='text/plain'
+            )
+            socket.setdefaulttimeout(original_timeout)  # Restore timeout
+        except Exception as e:
+            socket.setdefaulttimeout(original_timeout)  # Restore timeout even on error
+            print(f"Failed to upload to MinIO: {str(e)}")
+            return None
         
         print(f"Successfully uploaded sequence data to MinIO with object_id: {object_id}")
         
@@ -959,7 +979,8 @@ def send_to_elastic2(document):
         print(f"Using document ID {document_id} as Elasticsearch document ID for upsert")
 
     try:
-        response = method(es_index_url, json=serialized_document)
+        # Add timeout to HTTP requests to prevent hanging
+        response = method(es_index_url, json=serialized_document, timeout=30)
         if response.status_code in [200, 201]:
             action = "updated/created" if method == requests.put else "indexed"
             print(f"Successfully {action} document to {es_index_url}")
