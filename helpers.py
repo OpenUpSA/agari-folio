@@ -387,7 +387,7 @@ def extract_invite_roles(users_list, invite_type):
     return result
 
 
-def log_event(log_type, resource_id, log_entry, user_info):
+def log_event(log_type, resource_id, log_entry, user_info=None):
     """
     Event types:
     - project_created, project_deleted
@@ -397,9 +397,10 @@ def log_event(log_type, resource_id, log_entry, user_info):
     - data_download
     """
     try:
-        action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
-        log_entry['action_email'] = user_info['username']
-        log_entry['action_name'] = action_name
+        if user_info is None:
+            action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
+            log_entry['action_email'] = user_info['username']
+            log_entry['action_name'] = action_name
 
         with get_db_cursor() as cursor:
             cursor.execute(

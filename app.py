@@ -2952,7 +2952,6 @@ class ProjectInviteConfirm(Resource):
 
     @api.doc('accept_project_invite')
     def post(self, token):
-        user_info = extract_user_info(request.user)
         user = keycloak_auth.get_users_by_attribute('invite_token', token)[0]
         user_id = user["user_id"]
 
@@ -2977,7 +2976,7 @@ class ProjectInviteConfirm(Resource):
         if not auth_tokens:
             return {'error': f'"Failed to obtain auth tokens for user {user_id}'}, 500
 
-        log_event("user_accepted", invite_project_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_role]}, user_info)
+        log_event("user_accepted", invite_project_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_role]})
         return {
             'message': 'User added to project successfully',
             'user_id': user_id,
@@ -2995,7 +2994,6 @@ class OrganisationInviteConfirm(Resource):
 
     @api.doc('accept_organisation_invite')
     def post(self, token):
-        user_info = extract_user_info(request.user)
         user = keycloak_auth.get_users_by_attribute('invite_org_token', token)[0]
         user_id = user["user_id"]
 
@@ -3021,7 +3019,7 @@ class OrganisationInviteConfirm(Resource):
             return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
 
         if result.get('success'):
-            log_event("org_user_accepted", invite_org_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_org_role]}, user_info)
+            log_event("org_user_accepted", invite_org_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_org_role]})
             return {
                 'message': f'User added to organisation with role "{invite_org_role}"',
                 'user_id': user_id,
