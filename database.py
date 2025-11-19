@@ -10,7 +10,9 @@ DB_CONFIG = {
     'port': DB_PORT,
     'database': DB_NAME,
     'user': DB_USER,
-    'password': DB_PASSWORD
+    'password': DB_PASSWORD,
+    'connect_timeout': 30, 
+    'options': '-c statement_timeout=60000' 
 }
 
 # Configure logging

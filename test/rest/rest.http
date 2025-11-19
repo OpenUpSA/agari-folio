@@ -467,7 +467,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 @project_id = 3b1f13a4-9938-4f7a-ab6d-fb875938eedb
-@submission_id = d19e0929-e7a0-477e-9647-fc1386b5fdb2
+@submission_id = 28436fbe-58d6-4d0d-9efd-9c502c49e3bf
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -646,7 +646,7 @@ Content-Type: application/json
 {
   "query": {
     "term": {
-      "status.keyword": "validated"
+      "status.keyword": "published"
     }
   }
 }

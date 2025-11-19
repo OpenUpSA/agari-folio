@@ -1862,7 +1862,7 @@ class ProjectSubmission2(Resource):
             with get_db_cursor() as cursor:
                 # Get submission details only
                 cursor.execute("""
-                    SELECT s.*, p.id, p.name as project_name, pat.id as pathogend_id, pat.name as pathogen_name, COUNT(sf.id) as file_count
+                    SELECT s.*, p.name as project_name, pat.id as pathogend_id, pat.name as pathogen_name, COUNT(sf.id) as file_count
                     FROM submissions s
                     LEFT JOIN submission_files sf ON s.id = sf.submission_id
                     LEFT JOIN projects p ON s.project_id = p.id
@@ -2379,18 +2379,19 @@ class ProjectSubmissionValidate2(Resource):
                                 WHERE id = %s
                             """, (isolate['id'],))
 
-                            cursor.execute("""
-                                SELECT i.*, s.project_id, p.pathogen_id
-                                FROM isolates i
-                                LEFT JOIN submissions s ON i.submission_id = s.id
-                                LEFT JOIN projects p ON s.project_id = p.id
-                                WHERE i.id = %s
-                            """, (isolate['id'],))
+                        # always index
+                        cursor.execute("""
+                            SELECT i.*, s.project_id, p.pathogen_id
+                            FROM isolates i
+                            LEFT JOIN submissions s ON i.submission_id = s.id
+                            LEFT JOIN projects p ON s.project_id = p.id
+                            WHERE i.id = %s
+                        """, (isolate['id'],))
 
-                            isolate_data = cursor.fetchone()
+                        isolate_data = cursor.fetchone()
 
-                            if isolate_data:
-                                send_to_elastic2(isolate_data)
+                        if isolate_data:
+                            send_to_elastic2(isolate_data)
 
                 # After validating all isolates, check if any have errors
                 with get_db_cursor() as cursor:
