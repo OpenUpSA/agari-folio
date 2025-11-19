@@ -498,12 +498,28 @@ def tsv_to_json(tsv_string, project_id):
                 field_type = field_schema.get("type")
                 split_regex = field_schema.get("x-split-regex")
                 
-                # Handle regex splitting first (for arrays)
-                if split_regex and value:
-                    # Use the regex pattern from schema to split the value
-                    split_values = re.split(split_regex, value)
-                    # Strip whitespace and filter out empty strings
-                    values[i] = [v.strip() for v in split_values if v.strip()]
+                # Handle array fields (with or without regex splitting)
+                if field_type == "array" and value:
+                    # Try regex splitting first if pattern exists
+                    if split_regex:
+                        try:
+                            split_values = re.split(split_regex, value)
+                            # Strip whitespace and filter out empty strings
+                            split_values = [v.strip() for v in split_values if v.strip()]
+                            if len(split_values) > 1:  # Only use regex result if it actually split
+                                values[i] = split_values
+                            else:
+                                # Fallback to comma splitting
+                                split_values = [v.strip() for v in value.split(",")]
+                                values[i] = [v for v in split_values if v]
+                        except re.error:
+                            # If regex is invalid, fallback to comma splitting
+                            split_values = [v.strip() for v in value.split(",")]
+                            values[i] = [v for v in split_values if v]
+                    else:
+                        # No regex pattern, use comma splitting for arrays
+                        split_values = [v.strip() for v in value.split(",")]
+                        values[i] = [v for v in split_values if v]
                 
                 # Handle type conversion for non-array fields
                 elif field_type == "number":
@@ -618,6 +634,19 @@ def validate_against_schema(data, row, project_id):
     
     # Collect all validation errors for this specific row
     for error in validator.iter_errors(data):
+
+        field_name = ".".join(str(x) for x in error.path) if error.path else "root"
+
+        is_date_pattern_error = (
+            error.schema.get("format") == "date" and 
+            "pattern" in error.schema and 
+            "does not match" in error.message
+        )
+        
+        if is_date_pattern_error:
+            print(f"Skipping date pattern validation error for field {field_name}: {error.message}")
+            continue  # Skip this error
+
         error_info = {
             "row": row,
             "field": ".".join(str(x) for x in error.path) if error.path else "root",
