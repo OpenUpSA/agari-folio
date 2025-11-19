@@ -282,16 +282,15 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Cholera",
-    "description": "Cholera Virus",
-    "scientific_name": "Vibrio cholerae",
-    "schema": "cholera_schema",
-    "version": 1
+    "name": "SarsCov2",
+    "description": "SarsCov2 Virus",
+    "scientific_name": "SarsCov2 virus"
 }
 
 ###
 
-@pathogen_id = 126fce46-82d2-4ceb-b644-b0ca4de4a40d
+
+@pathogen_id = 01411870-03d2-435a-9c55-b19af86c31f3
 
 # @name get_pathogen
 GET {{folio}}/pathogens/{{pathogen_id}}
@@ -316,7 +315,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "schema_id": "a3f6d276-9e88-43ce-8f79-419c29d82270"
+    "schema_id": "bf76cad0-2d56-4971-8f0e-5aa385f14cc7"
 }
 
 ###
@@ -345,15 +344,15 @@ Content-Disposition: form-data; name="metadata"
 
 {
     "pathogen_id": "{{pathogen_id}}",
-    "name": "cholera_schema",
-    "description": "Schema for Cholera pathogen"
+    "name": "mpox",
+    "description": "Schema for Mpox pathogen"
 }
 
 ------WebKitFormBoundary456
-Content-Disposition: form-data; name="file"; filename="cholera-v5.json"
+Content-Disposition: form-data; name="file"; filename="mpox.json"
 Content-Type: application/json
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/schemas/cholera-v5.json
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/schemas/mpox.json
 
 ------WebKitFormBoundary456--
 
@@ -385,7 +384,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Dirk Cholera Monday Test",
+    "name": "Dirk Mpox",
     "description": "",
     "pathogen_id": "{{pathogen_id}}",
     "privacy": "public"
@@ -467,8 +466,8 @@ Authorization: Bearer {{token}}
 ### SUBMISSIONS2
 ##########################
 
-@project_id = 29ba11ab-cb9d-4184-a5fa-046340a56674
-@submission_id = a6218af8-26d7-4151-b484-282337a25a1c
+@project_id = 3b1f13a4-9938-4f7a-ab6d-fb875938eedb
+@submission_id = d19e0929-e7a0-477e-9647-fc1386b5fdb2
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -486,7 +485,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "submission_name": "test"
+    "submission_name": "mpox1"
 }
 
 ###
@@ -507,10 +506,10 @@ Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=boundary123
 
 --boundary123
-Content-Disposition: form-data; name="file"; filename="cholera-multiple.tsv"
+Content-Disposition: form-data; name="file"; filename="cholera_1_corrected.tsv"
 Content-Type: text/tab-separated-values
 
-< //home/dimee/Work/OpenUp/SANBI/data/cholera/cholera-multiple.tsv
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_1_corrected.tsv
 
 --boundary123--
 
@@ -523,16 +522,16 @@ Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=boundary456
 
 --boundary456
-Content-Disposition: form-data; name="file"; filename="cholera_002.fasta"
+Content-Disposition: form-data; name="file"; filename="cholera_003.fasta"
 Content-Type: text/plain
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_002.fasta
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/cholera_003.fasta
 
 --boundary456--
 
 ###
 
-@file_id = 5b0fe5c7-cdd7-486f-b767-a1f26661ac0f
+@file_id = 019bc3f8-7f50-497c-93a2-bb1997004f44
 
 ### Step 2c: Delete uploaded file
 # @name deleteUploadedFile2

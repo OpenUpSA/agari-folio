@@ -119,7 +119,7 @@ async def process_sequence_validation(job):
         """, (final_status, submission_id))
         
         print(f"Submission {submission_id} final status: {final_status}")
-        print(f"Total isolates: {counts['total']}, Validation errors: {counts['validation_errors']}, Sequence errors: {counts['sequence_errors']}, Validated: {counts['validated_isolates']}")
+        print(f"Total isolates: {counts['total']}, Validation errors: {counts['validation_errors']}, Validated: {counts['validated_isolates']}")
 
 
 def run_sync_job(job):
