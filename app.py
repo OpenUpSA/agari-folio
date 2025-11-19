@@ -2923,7 +2923,7 @@ class OrganisationInviteConfirm(Resource):
             return {'error': f'"Failed to obtain access token for user {user_id}'}, 500
 
         if result.get('success'):
-            log_event("org_user_accepted", invite_org_id, {"email": user["username"], "role": PROJECT_ROLE_MAPPING[invite_org_role]})
+            log_event("org_user_accepted", invite_org_id, {"email": user["username"], "role": ORG_ROLE_MAPPING[invite_org_role]})
             return {
                 'message': f'User added to organisation with role "{invite_org_role}"',
                 'user_id': user_id,
