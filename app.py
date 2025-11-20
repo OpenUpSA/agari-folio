@@ -2678,21 +2678,20 @@ class Reindex(Resource):
     @require_permission('system_admin_access')
     def post(self):
 
-        """Reindex all published samples in Elasticsearch"""
+        """Reindex all isolates in Elasticsearch"""
 
         try:
             with get_db_cursor() as cursor:
                 cursor.execute("""
                     SELECT i.*
                     FROM isolates i
-                    WHERE i.status = 'published'
                 """)
                 
-                published_isolates = cursor.fetchall()
+                all_isolates = cursor.fetchall()
 
                 reindexed_count = 0
 
-                for isolate in published_isolates:
+                for isolate in all_isolates:
                     # Check if isolate exists in Elasticsearch
                     es_exists = check_isolate_in_elastic(isolate['id'])
                     if not es_exists:
