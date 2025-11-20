@@ -2194,8 +2194,10 @@ class ProjectSubmissionValidate2(Resource):
           
             with get_db_cursor() as cursor:
                 cursor.execute("""
-                    SELECT * FROM submissions 
-                    WHERE id = %s AND project_id = %s
+                    SELECT s.*, p.name as project_name, p.privacy 
+                    FROM submissions s
+                    JOIN projects p ON s.project_id = p.id
+                    WHERE s.id = %s AND s.project_id = %s
                 """, (submission_id, project_id))
                 
                 submission = cursor.fetchone()
@@ -2232,7 +2234,10 @@ class ProjectSubmissionValidate2(Resource):
 
                 return {
                     'submission_id': submission_id,
+                    'submission_name': submission['submission_name'],
                     'project_id': project_id,
+                    'project_name': submission['project_name'],
+                    'visibility': submission['privacy'],
                     'status': submission['status'],
                     'total_isolates': len(isolates),
                     'validated': len([iso for iso in isolates if iso['status'] == 'validated']),
@@ -2375,10 +2380,11 @@ class ProjectSubmissionValidate2(Resource):
 
                         # always index
                         cursor.execute("""
-                            SELECT i.*, s.project_id, p.pathogen_id
+                            SELECT i.*, s.project_id, p.pathogen_id, p.privacy as visibility, p.name as project_name, pat.name as pathogen_name
                             FROM isolates i
                             LEFT JOIN submissions s ON i.submission_id = s.id
                             LEFT JOIN projects p ON s.project_id = p.id
+                            LEFT JOIN pathogens pat ON i.pathogen_id = pat.id
                             WHERE i.id = %s
                         """, (isolate['id'],))
 
@@ -2617,7 +2623,7 @@ class Search(Resource):
                         },
                         {
                             "terms": {
-                                "visibility.keyword": ["public", "semi-private"],
+                                "visibility.keyword": ["public", "semi-private"]
                             }
                         }
                     ],
