@@ -44,6 +44,7 @@ PROJECT_ROLE_MAPPING = {
 ORG_ROLE_MAPPING = {
     "org-owner": "Owner",
     "org-admin": "Admin",
+    "org-contributor": "Contributor",
     "org-viewer": "viewer",
     "org-partial": "Partial member",
 }
