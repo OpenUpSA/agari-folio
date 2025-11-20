@@ -1,10 +1,10 @@
-@folio = http://localhost:8000
-# @folio = https://folio-staging.openup.org.za
+# @folio = http://localhost:8000
+@folio = https://folio-staging.openup.org.za
 # @folio = https://folio-ilifu.openup.org.za
 
-@keycloak = http://keycloak.local
+# @keycloak = http://keycloak.local
 # @keycloak = http://localhost:8080
-# @keycloak = https://keycloak-staging.openup.org.za
+@keycloak = https://keycloak-staging.openup.org.za
 # @keycloak = https://keycloak-ilifu.openup.org.za
 
 # @minio = http://minio.local
@@ -15,7 +15,7 @@
 @client_id = dms
 @client_secret = VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc
 
-@username = system.admin@agari.tech
+# @username = system.admin@agari.tech
 # @username = owner@org1.ac.za
 # @username = owner@org2.ac.za
 # @username = org-admin@org1.ac.za
@@ -23,7 +23,7 @@
 # @username = test-user1@example.com
 # @username = test-user2@example.com
 # @username = test-user3@example.com
-# @username = dirk@openup.org.za
+@username = dirk@openup.org.za
 
 @password = pass123
 
@@ -290,7 +290,7 @@ Content-Type: application/json
 ###
 
 
-@pathogen_id = 01411870-03d2-435a-9c55-b19af86c31f3
+@pathogen_id = 88938f26-94a6-4ea9-8d16-18eb21e9772d
 
 # @name get_pathogen
 GET {{folio}}/pathogens/{{pathogen_id}}
@@ -360,7 +360,7 @@ Content-Type: application/json
 
 ###
 
-@schema_id = 62a0a507-2b4f-4db7-aae9-4f1b18cf9447
+@schema_id = 108f50fa-7082-4525-a721-7cdef52d78bf
 
 # @name get_schema
 GET {{folio}}/schemas/{{schema_id}}
@@ -373,7 +373,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 # @name list_projects
-GET {{folio}}/projects
+GET {{folio}}/projects?search=NEW
 Authorization: Bearer {{token}}
 
 ###
@@ -384,7 +384,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Dirk Mpox",
+    "name": "Klebsiella - NEW",
     "description": "",
     "pathogen_id": "{{pathogen_id}}",
     "privacy": "public"
@@ -392,7 +392,7 @@ Content-Type: application/json
 
 ###
 
-# @project_id = cf8ddc93-5062-424d-964a-54610bcb5c4d
+# @project_id = d4a33900-6fa0-4549-a683-878acfa43f10
 
 ### @name get_project
 GET {{folio}}/projects/{{project_id}}
@@ -466,8 +466,8 @@ Authorization: Bearer {{token}}
 ### SUBMISSIONS2
 ##########################
 
-@project_id = 3b1f13a4-9938-4f7a-ab6d-fb875938eedb
-@submission_id = 28436fbe-58d6-4d0d-9efd-9c502c49e3bf
+@project_id = d4a33900-6fa0-4549-a683-878acfa43f10
+@submission_id = c8f0efa3-2de9-466c-b46f-1f2f5bf31a3f
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -485,7 +485,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "submission_name": "mpox1"
+    "submission_name": "klebsiella2"
 }
 
 ###

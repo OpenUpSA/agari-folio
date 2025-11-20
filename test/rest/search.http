@@ -114,7 +114,7 @@ Content-Type: application/json
 @pathogen_id = 0a6050a3-03b3-4c67-978e-91f1b308d692
 
 @project_id = 0a6050a3-03b3-4c67-978e-91f1b308d692
-@field_id = geo_loc_name_country
+# @field_id = geo_loc_name_country
 # @field_id = specimen_collector_sample_id
 # @field_id = biosample_accession
 # @field_id = sequence_read_accession
@@ -130,7 +130,7 @@ Content-Type: application/json
 # @field_id = sequencing_date
 # @field_id = sequencing_instrument
 # @field_id = reference_genome_accession
-
+@field_id = pathogen_id
 
 # @name get_unique_values_for_field_in_project
 POST {{folio}}/search/
@@ -141,11 +141,11 @@ Content-Type: application/json
   "size": 0,
   "query": {
     "term": {
-      "projectId.keyword": "{{project_id}}"
+      "status.keyword": "published"
     }
   },
   "aggs": {
-    "unique_countries": {
+    "pathogen": {
       "terms": {
         "field": "{{field_id}}.keyword",
         "size": 1000
