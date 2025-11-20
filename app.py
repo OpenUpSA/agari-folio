@@ -2384,7 +2384,7 @@ class ProjectSubmissionValidate2(Resource):
                             FROM isolates i
                             LEFT JOIN submissions s ON i.submission_id = s.id
                             LEFT JOIN projects p ON s.project_id = p.id
-                            LEFT JOIN pathogens pat ON i.pathogen_id = pat.id
+                            LEFT JOIN pathogens pat ON p.pathogen_id = pat.id
                             WHERE i.id = %s
                         """, (isolate['id'],))
 
