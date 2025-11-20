@@ -2593,6 +2593,8 @@ class Search(Resource):
     @require_auth(keycloak_auth)
     def post(self):
 
+        print("Search samples called")
+
         """Search published samples in Elasticsearch"""
 
         try:
@@ -2610,12 +2612,12 @@ class Search(Resource):
                     "should": [
                         {
                             "terms": {
-                                "projectId.keyword": user_project_ids
+                                "project_id.keyword": user_project_ids
                             }
                         },
                         {
                             "terms": {
-                                "privacy.keyword": ["public", "semi-private"],
+                                "visibility.keyword": ["public", "semi-private"],
                             }
                         }
                     ],
@@ -2650,6 +2652,8 @@ class Search(Resource):
                 return {'error': 'No JSON data provided'}, 400
 
             results = query_elastic(data)
+
+            print(results)
 
             return results, 200
 
