@@ -143,7 +143,7 @@ def magic_link(email, redirect_uri, expiration_seconds=600, send_email=True):
         "email": email,
         "client_id": keycloak_auth.client_id,
         "redirect_uri": redirect_uri,
-        "expiration_seconds": expiration_seconds,
+        "expiration_seconds": 60,
         "force_create": True,
         "reusable": False,
         "send_email": False,
