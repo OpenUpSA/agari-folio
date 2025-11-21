@@ -926,7 +926,7 @@ def get_object_id_url(object_id, expires_in_hours=24):
     try:
         # Get MinIO client
         minio_client = Minio(
-            endpoint=settings.MINIO_ENDPOINT,
+            endpoint=settings.MINIO_FRONTEND_ENDPOINT,
             access_key=settings.MINIO_ACCESS_KEY,
             secret_key=settings.MINIO_SECRET_KEY,
             secure=settings.MINIO_SECURE
