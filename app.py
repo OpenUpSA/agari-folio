@@ -23,7 +23,7 @@ from helpers import (
     extract_invite_roles,
     role_project_member,
     role_org_member,
-    role_org_member2,
+    role_org_member_attr,
     check_user_id,
     access_toggled_notification,
     log_event,
@@ -1125,7 +1125,8 @@ class OrganisationUsers(Resource):
 
             # Update user's organisation_id and org_role attributes in Keycloak
             if 'force_role' in data:
-                role_org_member2(user["id"], org_id, role)
+                role_org_member(user["id"], org_id, role)
+                role_org_member_attr(user["id"], org_id, role)
                 log_event("org_user_added", org_id, {"email": user["username"], "role": ORG_ROLE_MAPPING[role]}, user_info)
                 return f"User role updated for organisation {org_id}"
             else:
@@ -2880,7 +2881,8 @@ class ProjectInviteConfirm(Resource):
         org = keycloak_auth.get_user_org()
         if not org:
             project_org_id = keycloak_auth.get_project_parent_org(invite_project_id)
-            role_org_member2(user_id, project_org_id, "org-partial")
+            role_org_member(user_id, project_org_id, "org-partial")
+            role_org_member_attr(user_id, project_org_id, "org-partial")
 
         # Remove temp attributes
         keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
@@ -2916,7 +2918,8 @@ class OrganisationInviteConfirm(Resource):
         invite_org_id = user["attributes"].get("invite_org_id", [""])[0]
         invite_org_role = user["attributes"].get(f"invite_org_role_{invite_org_id}", [""])[0]
 
-        result = role_org_member2(user_id, invite_org_id, invite_org_role)
+        role_org_member(user_id, invite_org_id, invite_org_role)
+        result = role_org_member_attr(user_id, invite_org_id, invite_org_role)
 
         # Remove temp attributes
         keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', token)
@@ -2926,7 +2929,8 @@ class OrganisationInviteConfirm(Resource):
         if invite_org_role == 'org-owner':
             user_attr = keycloak_auth.get_user_attributes(user_id)
             # Downgrade previous owner to org-admin
-            role_org_member2(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
+            role_org_member(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
+            role_org_member_attr(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
             keycloak_auth.remove_attribute_value(user_id, "invite_org_old_owner", user_attr["invite_org_old_owner"][0])
 
         # Get access token for the user

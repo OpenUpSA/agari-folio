@@ -356,7 +356,7 @@ def role_org_member(user_id, org_id, role):
     return result
 
 
-def role_org_member2(user_id, org_id, role):
+def role_org_member_attr(user_id, org_id, role):
     # Prepare update data with proper structure
     update_data = {
         "attributes": {"organisation_id": [org_id], "realm_role": [role]},
