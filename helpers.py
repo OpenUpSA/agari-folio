@@ -933,6 +933,11 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
 def get_object_id_url(object_id, expires_in_hours=24):
     """Generate a presigned MinIO URL for the given object ID."""
     try:
+        print(f"MINIO_FRONTEND_ENDPOINT: {settings.MINIO_FRONTEND_ENDPOINT}")
+        print(f"MINIO_SECURE: {settings.MINIO_SECURE}")
+        print(f"MINIO_BUCKET: {settings.MINIO_BUCKET}")
+        print(f"Object ID: {object_id}")
+        
         # Get MinIO client
         minio_client = Minio(
             endpoint=settings.MINIO_FRONTEND_ENDPOINT,
@@ -943,20 +948,36 @@ def get_object_id_url(object_id, expires_in_hours=24):
         
         bucket_name = settings.MINIO_BUCKET
         
+        # Test if bucket exists
+        print(f"Checking if bucket '{bucket_name}' exists...")
+        bucket_exists = minio_client.bucket_exists(bucket_name)
+        print(f"Bucket exists: {bucket_exists}")
+        
+        # Test if object exists
+        try:
+            minio_client.stat_object(bucket_name, object_id)
+            print(f"Object '{object_id}' exists in bucket")
+        except Exception as stat_error:
+            print(f"Object stat error: {stat_error}")
+        
         # Generate presigned URL with expiration
         from datetime import timedelta
         expires = timedelta(hours=expires_in_hours)
         
+        print("Generating presigned URL...")
         presigned_url = minio_client.presigned_get_object(
             bucket_name=bucket_name,
             object_name=object_id,
             expires=expires
         )
         
+        print(f"Generated URL: {presigned_url}")
         return presigned_url
         
     except Exception as e:
         print(f"Error generating presigned URL for object {object_id}: {e}")
+        import traceback
+        traceback.print_exc()  # This will show the full error
         return None
 
 ##############################
