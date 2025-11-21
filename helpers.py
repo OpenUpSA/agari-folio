@@ -356,6 +356,15 @@ def role_org_member(user_id, org_id, role):
     return result
 
 
+def role_org_member_attr(user_id, org_id, role):
+    # Prepare update data with proper structure
+    update_data = {
+        "attributes": {"organisation_id": [org_id], "realm_role": [role]},
+    }
+    result = keycloak_auth.update_user(user_id, update_data)
+    return result
+
+
 def access_toggled_notification(user_id, enabled):
     user = keycloak_auth.get_user(user_id)
 
