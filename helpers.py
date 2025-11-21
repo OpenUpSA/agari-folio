@@ -564,7 +564,7 @@ def get_minio_client(self):
         minio_endpoint = settings.MINIO_ENDPOINT
         minio_access_key = settings.MINIO_ACCESS_KEY
         minio_secret_key = settings.MINIO_SECRET_KEY
-        minio_secure = getattr(settings, 'MINIO_SECURE', False)
+        minio_secure = getattr(settings, 'MINIO_INTERNAL_SECURE', False)
         
         client = Minio(
             endpoint=minio_endpoint,
@@ -738,7 +738,7 @@ async def check_for_sequence_data(isolate):
             endpoint=settings.MINIO_ENDPOINT,
             access_key=settings.MINIO_ACCESS_KEY,
             secret_key=settings.MINIO_SECRET_KEY,
-            secure=settings.MINIO_SECURE
+            secure=settings.MINIO_INTERNAL_SECURE
         )
         
         bucket_name = settings.MINIO_BUCKET
@@ -845,7 +845,7 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
             endpoint=settings.MINIO_ENDPOINT,
             access_key=settings.MINIO_ACCESS_KEY,
             secret_key=settings.MINIO_SECRET_KEY,
-            secure=settings.MINIO_SECURE
+            secure=settings.MINIO_INTERNAL_SECURE
         )
         
         bucket_name = settings.MINIO_BUCKET
@@ -924,10 +924,6 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
 def get_object_id_url(object_id, expires_in_hours=24):
     """Generate a presigned MinIO URL for the given object ID."""
     try:
-        print(f"MINIO_FRONTEND_ENDPOINT: {settings.MINIO_FRONTEND_ENDPOINT}")
-        print(f"MINIO_SECURE: {settings.MINIO_SECURE}")
-        print(f"MINIO_BUCKET: {settings.MINIO_BUCKET}")
-        print(f"Object ID: {object_id}")
         
         # Get MinIO client
         minio_client = Minio(
@@ -938,11 +934,6 @@ def get_object_id_url(object_id, expires_in_hours=24):
         )
         
         bucket_name = settings.MINIO_BUCKET
-        
-        # Test if bucket exists
-        print(f"Checking if bucket '{bucket_name}' exists...")
-        bucket_exists = minio_client.bucket_exists(bucket_name)
-        print(f"Bucket exists: {bucket_exists}")
         
         # Test if object exists
         try:

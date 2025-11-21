@@ -27,6 +27,7 @@ MINIO_ACCESS_KEY = os.getenv('MINIO_ACCESS_KEY', 'admin')
 MINIO_SECRET_KEY = os.getenv('MINIO_SECRET_KEY', 'admin123')
 MINIO_BUCKET = os.getenv('MINIO_BUCKET', 'agari-data')
 MINIO_SECURE = os.getenv('MINIO_SECURE', 'false').lower() == 'true'
+MINIO_INTERNAL_SECURE = os.getenv('MINIO_INTERNAL_SECURE', 'false').lower() == 'true'
 MINIO_FRONTEND_ENDPOINT = os.getenv('MINIO_FRONTEND_ENDPOINT', 'localhost:9000')
 
 # Elasticsearch Configuration
