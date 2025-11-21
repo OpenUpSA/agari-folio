@@ -172,14 +172,15 @@ class KeycloakAuth:
             if key != 'organisation_id':  # organisation_id is handled separately
                 user_attributes[key] = value
 
-        realm_roles = attributes.get('realm_role', None)
-
-        if not realm_roles:
-            realm_roles = self.get_realm_roles(user.get('id'))
-            from helpers import role_org_member_attr
-            role_org_member_attr(user["id"], attributes.get('organisation_id')[0], AGARI_ORG_ROLES[realm_roles[0]])
-        else:
-            realm_roles = [f"agari-{realm_roles[0]}"]
+        # Realm role cache
+        #realm_roles = attributes.get('realm_role', None)
+        #if not realm_roles:
+        #    realm_roles = self.get_realm_roles(user.get('id'))
+        #    from helpers import role_org_member_attr
+        #    role_org_member_attr(user["id"], attributes.get('organisation_id')[0], AGARI_ORG_ROLES[realm_roles[0]])
+        #else:
+        #    realm_roles = [f"agari-{realm_roles[0]}"]
+        realm_roles = self.get_realm_roles(user.get('id'))
 
         return {
             'user_id': user.get('id'),
