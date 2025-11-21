@@ -15,7 +15,7 @@
 @client_id = dms
 @client_secret = VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc
 
-# @username = system.admin@agari.tech
+@username = system.admin@agari.tech
 # @username = owner@org1.ac.za
 # @username = owner@org2.ac.za
 # @username = org-admin@org1.ac.za
@@ -23,7 +23,7 @@
 # @username = test-user1@example.com
 # @username = test-user2@example.com
 # @username = test-user3@example.com
-@username = dirk@openup.org.za
+# @username = dirk@openup.org.za
 
 @password = pass123
 
@@ -282,15 +282,15 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "SarsCov2",
-    "description": "SarsCov2 Virus",
-    "scientific_name": "SarsCov2 virus"
+    "name": "Malaria Human",
+    "description": "Anopheles gambiae",
+    "scientific_name": "Anopheles gambiae"
 }
 
 ###
 
 
-@pathogen_id = 88938f26-94a6-4ea9-8d16-18eb21e9772d
+@pathogen_id = bfebf404-e1cf-434d-8146-d68944118b9c
 
 # @name get_pathogen
 GET {{folio}}/pathogens/{{pathogen_id}}
@@ -315,7 +315,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "schema_id": "bf76cad0-2d56-4971-8f0e-5aa385f14cc7"
+    "schema_id": "82b3cb85-4778-45b5-a2e2-97c42e29834e"
 }
 
 ###
@@ -344,15 +344,15 @@ Content-Disposition: form-data; name="metadata"
 
 {
     "pathogen_id": "{{pathogen_id}}",
-    "name": "mpox",
-    "description": "Schema for Mpox pathogen"
+    "name": "sarscov2",
+    "description": "Schema for SARS-CoV-2 pathogen"
 }
 
 ------WebKitFormBoundary456
-Content-Disposition: form-data; name="file"; filename="mpox.json"
+Content-Disposition: form-data; name="file"; filename="sars_cov2.json"
 Content-Type: application/json
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/schemas/mpox.json
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/schemas/sars_cov2.json
 
 ------WebKitFormBoundary456--
 
@@ -373,7 +373,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 # @name list_projects
-GET {{folio}}/projects?search=NEW
+GET {{folio}}/projects
 Authorization: Bearer {{token}}
 
 ###
@@ -384,7 +384,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Klebsiella - NEW",
+    "name": "Mpox Fridday",
     "description": "",
     "pathogen_id": "{{pathogen_id}}",
     "privacy": "public"
@@ -473,8 +473,9 @@ Authorization: Bearer {{token}}
 ### SUBMISSIONS2
 ##########################
 
-@project_id = d4a33900-6fa0-4549-a683-878acfa43f10
-@submission_id = c8f0efa3-2de9-466c-b46f-1f2f5bf31a3f
+
+@project_id = 3bd02feb-bcbe-4717-a8f0-b41698908a2a
+@submission_id = 49a0cb83-cd4f-4c4c-89b0-2623627a76b9
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -492,7 +493,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "submission_name": "klebsiella2"
+    "submission_name": "mpox-friday"
 }
 
 ###
@@ -570,29 +571,14 @@ Authorization: Bearer {{token}}
 
 ###
 
-### Step 5: View isolates
-# @name getIsolatesSubmission2
-GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/isolates
-Authorization: Bearer {{token}}
-
-###
-
-### Step 6: Get Isolate Squence
-@isolate_id = 777573a6-1c85-4239-8426-6d7b4627d313
-# @name getIsolateSequence2
-GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/isolates/{{isolate_id}}/sequence
-Authorization: Bearer {{token}}
-
-###
-
-### Step 7: Publish Submission
+### Step 5: Publish Submission
 # @name publishSubmission2
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/publish2
 Authorization: Bearer {{token}}
 
 ###
 
-### Step 8: Unpublish Submission
+### Step 6: Unpublish Submission
 # @name unpublishSubmission2
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/unpublish2
 Authorization: Bearer {{token}}
@@ -600,14 +586,14 @@ Authorization: Bearer {{token}}
 ###
 
 
-### Step 9: Download Submission Isolates
+### Step 7: Download Submission Isolates
 # @name downloadSubmissionIsolates2
 POST {{folio}}/download/isolates
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "isolates": ["75a1f507-2d36-49c3-ab5c-d98da76c633a","99cb1c69-7ac6-49d1-a396-b7384aaa9e9a"]
+  "isolates": ["b0eab7e7-3349-4718-8e67-d9ea977722d7", "b6e21c79-8935-4396-9bd9-1e56f749904f"]
 }
 
 ##########################
@@ -632,6 +618,12 @@ Content-Type: application/json
 
 ###
 
+# @name reindex_samples
+POST {{folio}}/search/reindex
+Authorization: Bearer {{token}}
+
+###
+
 # @name get_all_indexed_samples
 POST {{folio}}/search/
 Authorization: Bearer {{token}}
@@ -653,7 +645,7 @@ Content-Type: application/json
 {
   "query": {
     "term": {
-      "status.keyword": "published"
+      "submission_id.keyword": "7357160f-b94d-4863-a15f-4d48db69979d"
     }
   }
 }
@@ -733,296 +725,4 @@ Content-Type: application/json
     "match_all": {}
   }
 }
-
-
-
-#############################################################################
-### HERE BE DRAGONS 
-#############################################################################
-### HERE BE DRAGONS
-#############################################################################
-
-
-##########################
-### SUBMISSIONS
-##########################
-
-# Test variables - uncomment and set your values
-# @project_id = 0a6050a3-03b3-4c67-978e-91f1b308d692
-# @submission_id = 3fa85f64-5717-4562-b3fc-2c963f66afa6
-# @study_id = dirk-mpox-1
-
-
-# @name getProjectSubmissions
-GET {{folio}}/projects/{{project_id}}/submissions
-Authorization: Bearer {{token}}
-
-###
-
-
-# @name submitAnalysisFile
-POST {{folio}}/projects/{{project_id}}/submissions
-Authorization: Bearer {{token}}
-Content-Type: multipart/form-data; boundary=----WebKitFormBoundary123
-
-------WebKitFormBoundary123
-Content-Disposition: form-data; name="metadata"
-
-{
-  "studyId": "{{study_id}}",
-  "analysisType": {
-    "name": "mpox_schema",
-    "version": 4
-  },
-  "submissionName": "v4",
-  "files": [
-    {
-      "fileName": "sequence.fasta",
-      "fileType": "FASTA",
-      "fileSize": 1544,
-      "fileMd5sum": "70d264d6fcb968cae55c90902923413e",
-      "fileAccess": "open",
-      "dataType": "Genome"
-    }
-  ]
-}
-
-------WebKitFormBoundary123
-Content-Disposition: form-data; name="file"; filename="mpox_1.tsv"
-Content-Type: text/plain
-
-/home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/tsv_files/mpox_1.tsv
-
-------WebKitFormBoundary123--
-
-###
-
-
-
-# @name getSubmissionDetails
-GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}
-Authorization: Bearer {{token}}
-
-###
-
-# @object_id = e353ee2a-4392-5928-9122-a4cd3fa0568a
-
-# @name upload_init
-POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/init
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{
-    "object_id": "{{object_id}}",
-    "overwrite": true,
-    "fileSize": 767,
-    "md5": "61c8ac66972d52b0ee88a48ae5cfb3a8"
-}
-
-###
-
-# @name upload_file_to_minio
-
-# @url = http://minio:9000/object/data/e353ee2a-4392-5928-9122-a4cd3fa0568a?uploadId=YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmY4ZWVhNjdmLTgwYzktNGVlZS1hOTgyLTJiNWE5MTVkODgxNA&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20251109T100244Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518400&X-Amz-Credential=admin%2F20251109%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=ff57798a397bbacfc1727112b68e8ff0ea89750b1ed1805ca981d5732b7fb91f
-
-PUT {{url}}
-Content-Type: application/octet-stream
-
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/data/cholera_example.fasta
-
-
-###
-
-# @upload_id = YTJmNDYyOTUtMGVhOS00MDQ0LTk2OTgtYWY4ZmMzMmFiYWVkLmY4ZWVhNjdmLTgwYzktNGVlZS1hOTgyLTJiNWE5MTVkODgxNA
-
-# @name finalise_part
-POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/finalise-part
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{
-  "object_id": "{{object_id}}",
-  "upload_id": "{{upload_id}}",
-  "etag": "b53c0f4e5cea1f87f3093cd7b5aa2c83",
-  "part_number": 1,
-  "md5": "61c8ac66972d52b0ee88a48ae5cfb3a8"
-}
-
-###
-
-# @name finalize_upload
-POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/upload/finalise
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{
-  "object_id": "{{object_id}}",
-  "upload_id": "{{upload_id}}",
-  "parts": [
-    {
-      "part_number": 1,
-      "etag": "b53c0f4e5cea1f87f3093cd7b5aa2c83"
-    }
-  ]
-}
-
-
-
-###
-
-
-
-# @name publish_analysis
-POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/publish
-Authorization: Bearer {{token}}
-
-###
-
-# @name unpublish_analysis
-POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/unpublish
-Authorization: Bearer {{token}}
-
-###
-
-# @name get_submission_file
-GET {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/files/{{object_id}}
-Authorization: Bearer {{token}}
-
-###
-
-# @name get_minio_presigned_url
-GET {{url}}
-
-
-###
-
-##########################
-### SONG
-##########################
-
-
-# @analysis_id = 7bb4edfa-b7d6-4058-b4ed-fab7d620583c
-
-
-# @name list_study_analyses
-GET http://song.local/studies/{{study_id}}/analysis?analysisStates=PUBLISHED,UNPUBLISHED
-Authorization: Bearer {{token}}
-
-###
-
-# @name get_study_analyses
-GET http://song.local/{{study_id}}/analysis/{{analysis_id}}
-Authorization: Bearer {{token}}
-
-###
-
-### Get user by email
-# @name getUserByEmail
-GET {{keycloak}}/admin/realms/{{realm}}/users?email=test-user2@example.com
-Authorization: Bearer {{token}}
-
-###
-# @user_id = 9af85893-2402-4069-95ef-16045ab5a77f
-
-### Keycloak update user details
-PUT {{keycloak}}/admin/realms/{{realm}}/users/{{user_id}}
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{
-  "firstName": "Jebadiah"
-}
-
-### Create new user in Keycloak
-# @name createUser
-POST {{keycloak}}/admin/realms/{{realm}}/users
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{
-  "username": "newuser@example.com",
-  "email": "newuser@example.com",
-  "enabled": false,
-  "attributes": {
-    "invite": ["sent"]
-  }
-}
-
-### Create new user in Folio magic link
-# @name createUserMagicLink
-POST {{folio}}/users/
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{
-  "email": "test-user2@example.com",
-  "redirect_uri": "https://agari.openup.org.za/",
-  "send_email": "false"
-}
-
-
-##########################
-### SCORE
-##########################
-
-# @object_id = 41e82afe-2e03-5f4c-8537-aa58a8d00e5e
-@length = 6643
-
-# @name download_score_file
-GET {{score}}/download/{{object_id}}?offset=0&length={{length}}
-Authorization: Bearer {{token}}
-User-Agent: RestClient/2.1.0 (darwin20 x86_64) ruby/2.7.6p219
-
-###
-
-
-
-
-##########################
-### STUDIES
-##########################
-
-# @name list_studies
-GET {{folio}}/studies
-Authorization: Bearer {{token}}
-
-###
-
-# @study_id = dirk-mpox-1
-
-# @name create_study
-POST {{folio}}/studies/
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{
-    "studyId": "{{study_id}}",
-    "name": "{{study_id}}", 
-    "description": "",
-    "projectId": "{{project_id}}",
-    "info": {
-        "projectType": "genomics",
-        "region": "South Africa"
-    }
-}
-
-##########################
-### SONG
-##########################
-
-# @name get_studies_in_song
-GET {{song}}/studies/all
-Authorization: Bearer {{token}}
-
-
-###
-
-# @name get_study_in_song
-GET {{song}}/studies/{{study_id}}
-Authorization: Bearer {{token}}
-
-
-
-
-
 
