@@ -2677,31 +2677,64 @@ class Reindex(Resource):
     @require_auth(keycloak_auth)
     @require_permission('system_admin_access')
     def post(self):
-
-        """Reindex all isolates in Elasticsearch"""
-
+        """Reindex all isolates in Elasticsearch with batch processing
+        
+        Query Parameters:
+        - batch_size: Number of isolates to process per request (default: 500, max: 2000)
+        - offset: Starting position (default: 0)
+        """
         try:
+            batch_size = min(int(request.args.get('batch_size', 500)), 2000)
+            offset = int(request.args.get('offset', 0))
+            
             with get_db_cursor() as cursor:
+                # Get total count
                 cursor.execute("""
-                    SELECT i.*
+                    SELECT COUNT(*) as total
                     FROM isolates i
+                    JOIN submissions s ON i.submission_id = s.id
+                    JOIN projects p ON s.project_id = p.id
                 """)
+                total_count = cursor.fetchone()['total']
                 
-                all_isolates = cursor.fetchall()
-
+                # Get batch
+                cursor.execute("""
+                    SELECT i.*, s.project_id as project_id, p.privacy as visibility, p.pathogen_id as pathogen_id
+                    FROM isolates i
+                    JOIN submissions s ON i.submission_id = s.id
+                    JOIN projects p ON s.project_id = p.id
+                    ORDER BY i.id
+                    LIMIT %s OFFSET %s
+                """, (batch_size, offset))
+                
+                isolates_batch = cursor.fetchall()
                 reindexed_count = 0
 
-                for isolate in all_isolates:
-                    # Check if isolate exists in Elasticsearch
+                for isolate in isolates_batch:
                     es_exists = check_isolate_in_elastic(isolate['id'])
                     if not es_exists:
                         send_to_elastic2(isolate)
                         reindexed_count += 1
 
+            next_offset = offset + batch_size
+            has_more = next_offset < total_count
+            
             return {
-                'message': f'Reindexing completed. {reindexed_count} isolates reindexed.'
+                'message': f'Batch completed. {reindexed_count} isolates reindexed.',
+                'processed': len(isolates_batch),
+                'reindexed': reindexed_count,
+                'progress': {
+                    'current_offset': offset,
+                    'next_offset': next_offset if has_more else None,
+                    'total': total_count,
+                    'completed': min(next_offset, total_count),
+                    'percent': round((min(next_offset, total_count) / total_count) * 100, 2)
+                },
+                'has_more': has_more
             }, 200
         
+        except ValueError:
+            return {'error': 'Invalid batch_size or offset parameter'}, 400
         except Exception as e:
             logger.exception(f"Error during reindexing: {str(e)}")
             return {'error': f'Reindexing error: {str(e)}'}, 500

@@ -6,13 +6,6 @@
 @keycloak = https://keycloak-staging.openup.org.za
 # @keycloak = https://keycloak-ilifu.openup.org.za
 
-# @song = http://song.local
-@song = https://song-staging.openup.org.za
-# @song = https://song-ilifu.openup.org.za
-
-# @score = http://score.local
-@score = https://score-staging.openup.org.za
-# @score = https://score-ilifu.openup.org.za
 
 # @minio = http://minio.local
 # @minio = http://localhost:9000
@@ -22,7 +15,7 @@
 @client_id = dms
 @client_secret = VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc
 
-@username = system.admin@agari.tech
+# @username = system.admin@agari.tech
 # @username = owner@org1.ac.za
 # @username = owner@org2.ac.za
 # @username = org-admin@org1.ac.za
@@ -30,7 +23,7 @@
 # @username = test-user1@example.com
 # @username = test-user2@example.com
 # @username = test-user3@example.com
-# @username = dirk@openup.org.za
+@username = dirk@openup.org.za
 
 @password = pass123
 
@@ -94,6 +87,34 @@ Authorization: Bearer {{token}}
 ### ELASTICSEARCH
 ##########################
 
+###
+### IMPORTANT: Elasticsearch Document Structure
+###
+### ROOT LEVEL FIELDS (use directly):
+###   - id, submission_id, object_id
+###   - project_id, pathogen_id
+###   - status, error, seq_error
+###   - created_at, updated_at, deleted_at
+###   - tsv_row, isolate_id
+###
+### NESTED FIELDS (use isolate_data. prefix):
+###   - All sample metadata fields like:
+###   - host_sex, host_disease, host_age
+###   - geo_loc_name_country, geo_loc_name_state_province_territory
+###   - specimen_collector_sample_id, biosample_accession
+###   - sample_collection_date, sample_collected_by
+###   - purpose_of_sampling, purpose_of_sequencing
+###   - sequencing_date, sequencing_instrument
+###   - fasta_file_name, fasta_header_name
+###   - etc.
+###
+### Examples:
+###   ✓ { "term": { "status.keyword": "validated" }}
+###   ✓ { "term": { "project_id.keyword": "abc-123" }}
+###   ✓ { "term": { "isolate_data.host_sex.keyword": "Male" }}
+###   ✗ { "term": { "host_sex.keyword": "Male" }}  // WRONG! Missing isolate_data.
+###
+
 # @name get_all_indexed_samples
 POST {{folio}}/search/
 Authorization: Bearer {{token}}
@@ -124,13 +145,20 @@ Content-Type: application/json
 # @field_id = geo_loc_name_state_province_territory
 # @field_id = isolate_id
 # @field_id = host_sex
-# @field_id = fasta_header_name
-# @field_id = fasta_file_name
-# @field_id = purpose_of_sequencing
-# @field_id = sequencing_date
-# @field_id = sequencing_instrument
-# @field_id = reference_genome_accession
-@field_id = pathogen_id
+# For ROOT fields like pathogen_id, project_id, status:
+# @field_id = pathogen_id
+# @field_id = project_id
+
+# For NESTED fields (use isolate_data. prefix):
+@field_id = isolate_data.geo_loc_name_country
+# @field_id = isolate_data.specimen_collector_sample_id
+# @field_id = isolate_data.biosample_accession
+# @field_id = isolate_data.fasta_header_name
+# @field_id = isolate_data.fasta_file_name
+# @field_id = isolate_data.purpose_of_sequencing
+# @field_id = isolate_data.sequencing_date
+# @field_id = isolate_data.sequencing_instrument
+# @field_id = isolate_data.reference_genome_accession
 
 # @name get_unique_values_for_field_in_project
 POST {{folio}}/search/
@@ -138,18 +166,10 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "size": 0,
+ 
   "query": {
     "term": {
       "status.keyword": "published"
-    }
-  },
-  "aggs": {
-    "pathogen": {
-      "terms": {
-        "field": "{{field_id}}.keyword",
-        "size": 1000
-      }
     }
   }
 }
@@ -162,19 +182,15 @@ POST {{folio}}/search/
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
-# Need to deploy app.py changes that add pathogenId to ES index first
+# Note: pathogen_id is a ROOT level field, so no isolate_data. prefix needed
 
 {
   "size": 0,
-  "query": {
-    "term": {
-      "pathogenId.keyword": "{{pathogen_id}}"
-    }
-  },
+  
   "aggs": {
-    "unique_countries": {
+    "submission_count": {
       "terms": {
-        "field": "{{field_id}}.keyword",
+        "field": "submission_id.keyword",
         "size": 1000
       }
     }
@@ -187,17 +203,21 @@ Content-Type: application/json
 ### SEARCH SAMPLES
 ##########################
 
-@field_value = South Africa
+@field_value = Algeria
 
 # @name search_samples_by_field_value
 POST {{folio}}/search/
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
+# Example: Search by a nested field (use full path with field_id variable)
+# Set @field_id to include isolate_data. for nested fields
+# e.g., @field_id = isolate_data.geo_loc_name_country
+
 {
   "query": {
     "term": {
-      "{{field_id}}.keyword": "{{field_value}}"
+      "isolate_data.geo_loc_name_country.keyword": "{{field_value}}"
     }
   }
 }
@@ -205,21 +225,29 @@ Content-Type: application/json
 
 ###
 
+@field_id1 = submission_id
+@field1_value = 28436fbe-58d6-4d0d-9efd-9c502c49e3bf
+@field_id2 = isolate_data.host_disease
+@field2_value = Missing
+
 # @name search_samples_by_multipole_field_values
 POST {{folio}}/search/
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
-# This is an OR search for samples matching any of the values
+# NOTE: Use "should" for OR logic (matches any field)
+# NOTE: Fields in isolate_data need the full path (no variables for nested paths)
+# Root fields: submission_id, project_id, status, pathogen_id - use directly
+# Nested fields: host_sex, host_disease, etc. - use isolate_data.field_name
 
 {
   "query": {
     "bool": {
-      "should": [
-        { "term": { "{{field_id}}.keyword": "South Africa" }},
-        { "term": { "{{field_id}}.keyword": "Namibia" }}
-      ],
-      "minimum_should_match": 1
+      "must": [
+        { "term": { "isolate_data.host_sex.keyword": "Female" }},
+        { "term": { "isolate_data.host_disease.keyword": "Missing" }},
+        { "term": { "submission_id.keyword": "28436fbe-58d6-4d0d-9efd-9c502c49e3bf"}}
+      ]
     }
   }
 }
@@ -232,13 +260,37 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 # This is an AND search for samples matching both criteria
+# Example: Find samples in a specific project AND with a specific metadata field
 
 {
   "query": {
     "bool": {
       "must": [
-        { "term": { "serotype.keyword": "Ogawa" }},
-        { "term": { "{{field_id}}.keyword": "{{field_value}}" }}
+        { "term": { "submission_id.keyword": "7ebd7df3-a682-4b59-9fa0-b2baf75bece0" }},
+        { "term": { "isolate_data.serotype.keyword": "Hikojima" }}
+      ]
+    }
+  }
+}
+
+###
+
+# @name search_root_and_nested_fields_mixed
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+# Example mixing root-level and nested fields
+# Root fields: submission_id, project_id, status, pathogen_id
+# Nested fields: all isolate_data.* fields
+
+{
+  "query": {
+    "bool": {
+      "must": [
+        { "term": { "status.keyword": "validated" }},
+        { "term": { "pathogen_id.keyword": "01411870-03d2-435a-9c55-b19af86c31f3" }},
+        { "term": { "isolate_data.host_sex.keyword": "Male" }}
       ]
     }
   }
@@ -260,4 +312,55 @@ Content-Type: application/json
   "query": {
     "match_all": {}
   }
+}
+
+###
+
+# @name search_sorting
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "bool": {
+      "filter": [
+        {
+          "term": {
+            "project_id.keyword": "fbf0e612-7410-4d78-9ae1-6056c77e7090"
+          }
+        },
+        {
+          "term": {
+            "pathogen_id.keyword": "88938f26-94a6-4ea9-8d16-18eb21e9772d"
+          }
+        }
+      ]
+    }
+  },
+  "from": 0,
+  "size": 25,
+  "track_total_hits": true
+  
+}
+
+###
+
+# @name search_sorting
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "query": {
+        "bool": {
+            "filter": [
+                {
+                    "term": {
+                        "pathogen_id.keyword": "bfebf404-e1cf-434d-8146-d68944118b9c"
+                    }
+                }
+            ]
+        }
+    }
 }
