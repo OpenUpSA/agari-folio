@@ -990,6 +990,30 @@ def send_to_elastic2(document):
     except Exception as e:
         print(f"Error serializing document: {e}")
         return False
+    
+    # NEW ES INDEX AND FRONTEND WORKAROUND
+    # This will flatten the isolate_data field into top-level fields which is compatible with new ES mapping and existing frontend code
+
+    # Flatten isolate_data if it exists
+    if 'isolate_data' in serialized_document and serialized_document['isolate_data']:
+        isolate_data = serialized_document['isolate_data']
+        if isinstance(isolate_data, str):
+            try:
+                isolate_data = json.loads(isolate_data)
+            except json.JSONDecodeError:
+                print(f"Warning: Could not parse isolate_data as JSON: {isolate_data}")
+                isolate_data = {}
+        
+        if isinstance(isolate_data, dict):
+            # Add all fields from isolate_data to top level
+            for key, value in isolate_data.items():
+                if key not in serialized_document:  # Don't overwrite existing fields
+                    serialized_document[key] = value
+        
+        # Remove the original isolate_data field
+        del serialized_document['isolate_data']
+
+    # End workaround
 
     # Check if document has an id field 
     document_id = serialized_document.get('id')
