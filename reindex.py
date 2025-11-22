@@ -40,12 +40,16 @@ def reindex_batches(folio_url: str, token: str, batch_size: int = 50, initial_of
             reindexed = data.get("reindexed", 0)
             progress = data.get("progress", {})
             has_more = data.get("has_more", False)
+            failures = data.get("failures", [])
+            failures_count = len(failures)
             
             total_processed += processed
             
             print(f"Offset {offset}: {message}")
             print(f"  Processed: {processed}, Reindexed: {reindexed}")
             print(f"  Progress: {progress.get('completed', 0)}/{progress.get('total', 0)} ({progress.get('percent', 0):.2f}%)")
+            print(f"  Failures: {failures_count}")
+            print(f"  Failure Details: {failures}")
             print("-" * 60)
             
             if not has_more:
