@@ -2606,7 +2606,14 @@ class Search(Resource):
         try:
             data = request.get_json()
 
+            print('========================================')
+            print("Incoming search query:")
             print(data)
+            print('========================================')
+
+            # convert json data to string and replace all .keyword with ''
+            data_str = json.dumps(data).replace('.keyword', '')
+            data = json.loads(data_str)
 
             user_project_ids = keycloak_auth.get_user_projects()
             organisation_project_ids = keycloak_auth.get_user_organisation_projects()
@@ -2644,24 +2651,23 @@ class Search(Resource):
             elif 'query' in data:
                 existing_query = data['query']
 
-                # remove all '.keyword ' from existing_query
-                existing_query_str = json.dumps(existing_query)
-                existing_query_str = existing_query_str.replace('.keyword', '')
-                existing_query = json.loads(existing_query_str)
-
                 data['query'] = {
                     "bool": {
                         "must": [
                             existing_query
-                            
                         ]
                     }
                 }
+
             else:
                 data['query'] = access_filter
 
             if not data:
                 return {'error': 'No JSON data provided'}, 400
+
+            print("Final Query ========================")
+            print(data['query'])
+            print("===================================")
 
             results = query_elastic(data)
 
