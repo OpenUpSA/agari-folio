@@ -2700,6 +2700,9 @@ class Reindex(Resource):
         try:
             batch_size = min(int(request.args.get('batch_size', 500)), 2000)
             offset = int(request.args.get('offset', 0))
+
+            failures = []
+            
             
             with get_db_cursor() as cursor:
                 # Get total count
@@ -2727,8 +2730,17 @@ class Reindex(Resource):
                 for isolate in isolates_batch:
                     es_exists = check_isolate_in_elastic(isolate['id'])
                     if not es_exists:
-                        send_to_elastic2(isolate)
-                        reindexed_count += 1
+                        elastic_operation = send_to_elastic2(isolate)
+                        
+                        if elastic_operation:
+                            reindexed_count += 1
+                        else:
+                            failures.append({
+                                'isolate_id': isolate['id'],
+                                'error': 'Failed to index isolate in Elasticsearch'
+                            })
+                            
+
 
             next_offset = offset + batch_size
             has_more = next_offset < total_count
@@ -2744,7 +2756,8 @@ class Reindex(Resource):
                     'completed': min(next_offset, total_count),
                     'percent': round((min(next_offset, total_count) / total_count) * 100, 2)
                 },
-                'has_more': has_more
+                'has_more': has_more,
+                'failures': failures
             }, 200
         
         except ValueError:

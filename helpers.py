@@ -1038,10 +1038,10 @@ def send_to_elastic2(document):
             return True
         else:
             print(f"Failed to index document: {response.text}")
-            return False
+            return False, response.text
     except Exception as e:
         print(f"Error sending document to Elasticsearch: {e}")
-        return False
+        return False, str(e)
 
 
 def query_elastic(query_body):

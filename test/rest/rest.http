@@ -15,7 +15,7 @@
 @client_id = dms
 @client_secret = VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc
 
-@username = system.admin@agari.tech
+# @username = system.admin@agari.tech
 # @username = owner@org1.ac.za
 # @username = owner@org2.ac.za
 # @username = org-admin@org1.ac.za
@@ -23,7 +23,7 @@
 # @username = test-user1@example.com
 # @username = test-user2@example.com
 # @username = test-user3@example.com
-# @username = dirk@openup.org.za
+@username = dirk@openup.org.za
 
 @password = pass123
 
@@ -373,7 +373,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 # @name list_projects
-GET {{folio}}/projects
+GET {{folio}}/projects?search=Tim
 Authorization: Bearer {{token}}
 
 ###
@@ -474,7 +474,7 @@ Authorization: Bearer {{token}}
 ##########################
 
 
-@project_id = 3bd02feb-bcbe-4717-a8f0-b41698908a2a
+@project_id = 5e2d9a3c-4fb3-4ec5-a8e3-98bb46a91e39
 @submission_id = 49a0cb83-cd4f-4c4c-89b0-2623627a76b9
 
 ### Step 1: Get all submission
@@ -593,7 +593,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "isolates": ["b0eab7e7-3349-4718-8e67-d9ea977722d7", "b6e21c79-8935-4396-9bd9-1e56f749904f"]
+  "isolates": ["205fe29a-1b07-4aeb-9da6-d089898087ec"]
 }
 
 ##########################
@@ -619,7 +619,7 @@ Content-Type: application/json
 ###
 
 # @name reindex_samples
-POST {{folio}}/search/reindex
+POST {{folio}}/search/reindex?batch_size=50&offset=0
 Authorization: Bearer {{token}}
 
 ###
@@ -632,8 +632,12 @@ Content-Type: application/json
 {
   "query": {
     "match_all": {}
-  }
+  },
+  "sort": [
+    { "anatomical_part": { "order": "desc" } }
+  ]
 }
+
 
 ###
 
@@ -645,7 +649,7 @@ Content-Type: application/json
 {
   "query": {
     "term": {
-      "submission_id.keyword": "7357160f-b94d-4863-a15f-4d48db69979d"
+      "submission_id": "c5a7a0a5-5b67-4fb6-bebb-7b606927e904"
     }
   }
 }
@@ -713,7 +717,6 @@ Content-Type: application/json
 
 
 # @name search_pagination
-
 POST {{folio}}/search/
 Authorization: Bearer {{token}}
 Content-Type: application/json
@@ -726,3 +729,221 @@ Content-Type: application/json
   }
 }
 
+###
+
+
+# @name tim_Queries1
+
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "query": {
+        "bool": {
+            "filter": [
+                {
+                    "term": {
+                        "pathogen_id": "6d2494af-a5e5-4965-8494-ad618ba844db"
+                    }
+                },
+                {
+                    "term": {
+                        "status": "published"
+                    }
+                }
+            ]
+        }
+    },
+    "from": 0,
+    "size": 20,
+    "track_total_hits": true
+}
+
+###
+
+# @name tim_Queries2
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+# removing keyword works
+
+{
+    "query": {
+        "bool": {
+            "filter": [
+                {
+                    "term": {
+                        "project_id": "5e2d9a3c-4fb3-4ec5-a8e3-98bb46a91e39"
+                    }
+                },
+                {
+                    "term": {
+                        "pathogen_id": "bfebf404-e1cf-434d-8146-d68944118b9c"
+                    }
+                }
+            ]
+        }
+    },
+    "from": 0,
+    "size": 25,
+    "track_total_hits": true
+}
+
+###
+
+# @name tim_Queries3
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+# removing keyword works
+
+{
+    "query": {
+        "bool": {
+            "filter": [
+                {
+                    "term": {
+                        "project_id": "5e2d9a3c-4fb3-4ec5-a8e3-98bb46a91e39"
+                    }
+                },
+                {
+                    "term": {
+                        "pathogen_id": "bfebf404-e1cf-434d-8146-d68944118b9c"
+                    }
+                },
+                {
+                    "bool": {
+                        "should": [
+                            {
+                                "term": {
+                                    "submission_id": "65dc13fb-9d7d-4839-ad34-684528a03b0e"
+                                }
+                            }
+                        ],
+                        "minimum_should_match": 1
+                    }
+                }
+            ]
+        }
+    },
+    "from": 0,
+    "size": 0,
+    "track_total_hits": true,
+    "aggs": {
+        "valid": {
+            "filter": {
+                "bool": {
+                    "must": [
+                        {
+                            "bool": {
+                                "must_not": [
+                                    {
+                                        "exists": {
+                                            "field": "seq_error"
+                                        }
+                                    },
+                                    {
+                                        "exists": {
+                                            "field": "error"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        "missingFasta": {
+            "filter": {
+                "bool": {
+                    "must": [
+                        {
+                            "exists": {
+                                "field": "seq_error"
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}
+
+###
+
+# @name tim_Queries4
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+# adding keyword to lineage_clade_name.keyword works
+
+
+{
+  "size": 0,
+  "aggs": {
+    "monthly_geo_lineage_pathogen_counts": {
+      "composite": {
+        "size": 50000,
+        "sources": [
+          {
+            "sample_month": {
+              "date_histogram": {
+                "field": "sample_collection_date",
+                "calendar_interval": "month",
+                "format": "yyyy-MM",
+                "missing_bucket": true
+              }
+            }
+          },
+          {
+            "country": {
+              "terms": {
+                "field": "geo_loc_name_country",
+                "missing_bucket": true
+              }
+            }
+          },
+          {
+            "state_or_province": {
+              "terms": {
+                "field": "geo_loc_name_state_province_territory",
+                "missing_bucket": true
+              }
+            }
+          },
+          {
+            "lineage_name": {
+              "terms": {
+                "field": "lineage_clade_name",
+                "missing_bucket": true
+              }
+            }
+          },
+          {
+            "pathogen_id": {
+              "terms": {
+                "field": "pathogen_id",
+                "missing_bucket": true
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+
+###
+
+### Check if pathogen_id exists
+# @name query-tests
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"query":{"bool":{"filter":[{"term":{"project_id":"fb877b13-96ea-46e7-9762-30728b678521"}},{"term":{"pathogen_id":"bfebf404-e1cf-434d-8146-d68944118b9c"}}]}},"from":0,"size":25,"track_total_hits":true}
