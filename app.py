@@ -2620,12 +2620,12 @@ class Search(Resource):
                     "should": [
                         {
                             "terms": {
-                                "project_id.keyword": user_project_ids
+                                "project_id": user_project_ids
                             }
                         },
                         {
                             "terms": {
-                                "visibility.keyword": ["public", "semi-private"]
+                                "visibility": ["public", "semi-private"]
                             }
                         }
                     ],
@@ -2645,6 +2645,12 @@ class Search(Resource):
                 data['query']['bool']['must'].append(access_filter)
             elif 'query' in data:
                 existing_query = data['query']
+
+                # remove all '.keyword ' from existing_query
+                existing_query_str = json.dumps(existing_query)
+                existing_query_str = existing_query_str.replace('.keyword', '')
+                existing_query = json.loads(existing_query_str)
+
                 data['query'] = {
                     "bool": {
                         "must": [
