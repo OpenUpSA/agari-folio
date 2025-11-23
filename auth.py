@@ -6,7 +6,14 @@ from flask import request, jsonify, current_app
 from jwt.exceptions import InvalidTokenError, ExpiredSignatureError
 from permissions import PERMISSIONS
 
-AGARI_ORG_ROLES = {"agari-org-viewer": "org-viewer", "agari-org-contributor": "org-contributor", "agari-org-admin": "org-admin", "agari-org-partial": "org-partial", "agari-org-owner": "org-owner"}
+AGARI_ORG_ROLES = {
+    "agari-org-viewer": "org-viewer",
+    "agari-org-contributor": "org-contributor",
+    "agari-org-admin": "org-admin",
+    "agari-org-partial": "org-partial",
+    "agari-org-owner": "org-owner",
+    "default-roles-agari": "default-roles-agari"
+    }
 
 
 class KeycloakAuth:
