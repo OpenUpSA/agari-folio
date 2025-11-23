@@ -631,10 +631,29 @@ def test_add_org_member_requires_permission(client, org2, org1_admin_token):
     - Only users with add_org_members permission can add members
     - Org admins can only add members to their own organisation
     """
+
+    # Create a test user
+    user_email = f"test-invite-to-unauthed-org-{org2['id']}@example.com"
+    create_user_data = {
+        "email": user_email,
+        "redirect_uri": "http://example.com",
+        "send_email": False,
+    }
+    user_response = client.post(
+        "/users/",
+        data=json.dumps(create_user_data),
+        headers={
+            "Authorization": f"Bearer {org1_admin_token}",
+            "Content-Type": "application/json",
+        },
+    )
+    assert user_response.status_code == 200
+    user_id = user_response.get_json()["user_id"]
     # Try to add member to a different org2
     member_data = {
-        "user_id": "some-user-id",
+        "user_id": user_response.get_json()["user_id"],
         "role": "org-viewer",
+        "redirect_uri": "http://example.com",
     }
 
     response = client.post(
