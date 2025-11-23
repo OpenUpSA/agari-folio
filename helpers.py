@@ -709,9 +709,36 @@ async def check_for_sequence_data(isolate):
         fasta_header = isolate_data.get("fasta_header_name", "")
         isolate_sample_id = isolate_data.get("isolate_id", "")
         
-        if not fasta_file or not fasta_header:
-            return False, "Missing FASTA file name or header name in isolate data"
+        # Check if FASTA file is provided
+        if not fasta_file:
+            return False, "Missing FASTA file name in isolate data"
         
+        # If no header specified, link to the complete original file instead of extracting
+        if not fasta_header or fasta_header.strip() == "":
+            print(f"No header specified for isolate {isolate_sample_id} - linking to complete FASTA file")
+            
+            # Get the object_id from submission_files table where filename matches
+            with get_db_cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT object_id 
+                    FROM submission_files 
+                    WHERE filename = %s AND file_type = 'fasta'
+                    ORDER BY created_at DESC 
+                    LIMIT 1
+                    """,
+                    (fasta_file,),
+                )
+                file_record = cursor.fetchone()
+                
+                if not file_record:
+                    return False, f"FASTA file '{fasta_file}' not found in submission_files"
+            
+            # Return the original file's object_id (no extraction needed)
+            print(f"Linked isolate {isolate_sample_id} to original file with object_id: {file_record['object_id']}")
+            return True, file_record["object_id"]
+        
+        # EXISTING: Header specified - extract specific sequence
         print(f"Looking for FASTA File: {fasta_file}, Header: {fasta_header}")
         
         # 3. Get the object_id from submission_files table where filename matches
