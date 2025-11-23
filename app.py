@@ -2350,9 +2350,31 @@ class ProjectSubmissionValidate2(Resource):
                     if deleted_count > 0:
                         print(f"Deleted {deleted_count} existing isolates for submission {submission_id}")
 
-                # Insert all rows fresh from the TSV
+                # Insert all rows fresh from the TSV, checking for duplicate isolate_ids
                 for row_index, row in enumerate(tsv_json):
+                    isolate_id = row.get('isolate_id')
+                    
+                    # Check if this isolate_id already exists in the database (globally)
                     with get_db_cursor() as cursor:
+                        if isolate_id:
+                            cursor.execute("""
+                                SELECT id, submission_id FROM isolates 
+                                WHERE isolate_data->>'isolate_id' = %s
+                            """, (isolate_id,))
+                            
+                            existing_isolate = cursor.fetchone()
+                            
+                            if existing_isolate:
+                                # Duplicate found - insert with error status
+                                error_message = f"Isolate ID '{isolate_id}' already exists in the database"
+                                cursor.execute("""
+                                    INSERT INTO isolates (submission_id, isolate_data, tsv_row, status, error)
+                                    VALUES (%s, %s, %s, 'error', %s)
+                                """, (submission_id, json.dumps(row), row_index + 1, error_message))
+                                print(f"Duplicate isolate_id found: {isolate_id} (row {row_index + 1})")
+                                continue
+                        
+                        # No duplicate - insert normally
                         cursor.execute("""
                             INSERT INTO isolates (submission_id, isolate_data, tsv_row)
                             VALUES (%s, %s, %s)
