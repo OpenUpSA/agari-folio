@@ -145,7 +145,7 @@ def magic_link(email, redirect_uri, expiration_seconds=600, send_email=True):
         "redirect_uri": redirect_uri,
         "expiration_seconds": 90000,
         "force_create": True,
-        "reusable": False,
+        "reusable": True,
         "send_email": False,
     }
     magic_link_url = (
