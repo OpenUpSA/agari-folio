@@ -2356,7 +2356,7 @@ class ProjectSubmissionValidate2(Resource):
                     
                     # Check if this isolate_id already exists in the database (globally)
                     with get_db_cursor() as cursor:
-                        if isolate_id:
+                        if isolate_id and not settings.ALLOW_DUPLICATE_ISOLATE_IDS:
                             cursor.execute("""
                                 SELECT id, submission_id FROM isolates 
                                 WHERE isolate_data->>'isolate_id' = %s
@@ -2370,21 +2370,21 @@ class ProjectSubmissionValidate2(Resource):
                                 cursor.execute("""
                                     INSERT INTO isolates (submission_id, isolate_data, tsv_row, status, error)
                                     VALUES (%s, %s, %s, 'error', %s)
-                                """, (submission_id, json.dumps(row), row_index + 1, error_message))
+                                """, (submission_id, json.dumps(row), row_index + 1, json.dumps(error_message)))
                                 print(f"Duplicate isolate_id found: {isolate_id} (row {row_index + 1})")
                                 continue
                         
                         # No duplicate - insert normally
                         cursor.execute("""
-                            INSERT INTO isolates (submission_id, isolate_data, tsv_row)
-                            VALUES (%s, %s, %s)
-                        """, (submission_id, json.dumps(row), row_index + 1))
-                
+                            INSERT INTO isolates (submission_id, isolate_data, tsv_row, isolate_id)
+                            VALUES (%s, %s, %s, %s)
+                        """, (submission_id, json.dumps(row), row_index + 1, isolate_id))
+
                 with get_db_cursor() as cursor:
                     cursor.execute("""
                         SELECT * FROM isolates 
                         WHERE submission_id = %s 
-                        AND (status IS NULL OR status = '' OR status = 'error')
+                        AND (status IS NULL OR status = '')
                     """, (submission_id,))
                     
                     existing_isolates = cursor.fetchall()

@@ -39,5 +39,8 @@ SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY', '')
 SENDGRID_FROM_EMAIL = os.getenv('SENDGRID_FROM_EMAIL', 'webapps+agaridev@openup.org.za')
 SENDGRID_FROM_NAME = os.getenv('SENDGRID_FROM_NAME', 'AGARI')
 
+# VALIDATION
+ALLOW_DUPLICATE_ISOLATE_IDS = os.getenv('ALLOW_DUPLICATE_ISOLATE_IDS', 'true').lower() == 'true'
+
 # Application Configuration
 PORT = int(os.getenv('PORT', 8000))

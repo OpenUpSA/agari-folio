@@ -1,0 +1,2 @@
+ALTER TABLE isolates 
+ALTER COLUMN isolate_id TYPE VARCHAR(255);
