@@ -1571,7 +1571,7 @@ class Project(Resource):
                     if not deleted_project:
                         return {'error': 'Project not found or already deleted'}, 404
 
-                    log_event("project_deleted", deleted_project["organisation_id"], {"project_name": deleted_project["name"]}, user_info)
+                    log_event("project_deleted", project_id, {"project_name": deleted_project["name"]}, user_info)
                     return {
                         'message': f'Project "{deleted_project["name"]}" deleted (can be restored)',
                         'delete_type': 'soft'
