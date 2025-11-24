@@ -997,6 +997,28 @@ def get_object_id_url(object_id, expires_in_hours=24):
         import traceback
         traceback.print_exc()  # This will show the full error
         return None
+    
+def delete_minio_object(object_id):
+    """Delete an object from MinIO by its object ID."""
+    try:
+        # Get MinIO client
+        minio_client = Minio(
+            endpoint=settings.MINIO_ENDPOINT,
+            access_key=settings.MINIO_ACCESS_KEY,
+            secret_key=settings.MINIO_SECRET_KEY,
+            secure=settings.MINIO_INTERNAL_SECURE
+        )
+        
+        bucket_name = settings.MINIO_BUCKET
+        
+        minio_client.remove_object(bucket_name, object_id)
+        print(f"Successfully deleted object '{object_id}' from bucket '{bucket_name}'")
+        return True
+        
+    except Exception as e:
+        print(f"Error deleting object {object_id} from MinIO: {e}")
+        return False
+
 
 ##############################
 ### ELASTICSEARCH HELPERS

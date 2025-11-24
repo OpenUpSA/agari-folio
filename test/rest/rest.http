@@ -15,7 +15,7 @@
 @client_id = dms
 @client_secret = VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc
 
-# @username = system.admin@agari.tech
+@username = system.admin@agari.tech
 # @username = owner@org1.ac.za
 # @username = owner@org2.ac.za
 # @username = org-admin@org1.ac.za
@@ -23,7 +23,7 @@
 # @username = test-user1@example.com
 # @username = test-user2@example.com
 # @username = test-user3@example.com
-@username = dirk@openup.org.za
+# @username = dirk@openup.org.za
 
 @password = pass123
 
@@ -314,7 +314,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "schema_id": "82b3cb85-4778-45b5-a2e2-97c42e29834e"
+    "schema_id": "b282f087-741f-4be9-8070-7ae66a61134e"
 }
 
 ###
@@ -326,6 +326,8 @@ Authorization: Bearer {{token}}
 ##########################
 ### SCHEMAS
 ##########################
+
+@pathogen_id = 01411870-03d2-435a-9c55-b19af86c31f3
 
 # @name list_schemas
 GET {{folio}}/schemas
@@ -343,15 +345,15 @@ Content-Disposition: form-data; name="metadata"
 
 {
     "pathogen_id": "{{pathogen_id}}",
-    "name": "sarscov2",
-    "description": "Schema for SARS-CoV-2 pathogen"
+    "name": "mpox_sans_header",
+    "description": ""
 }
 
 ------WebKitFormBoundary456
-Content-Disposition: form-data; name="file"; filename="sars_cov2.json"
+Content-Disposition: form-data; name="file"; filename="mpox.json"
 Content-Type: application/json
 
-< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/schemas/sars_cov2.json
+< /home/dimee/Work/OpenUp/SANBI/agari-folio/test/schemas/mpox.json
 
 ------WebKitFormBoundary456--
 
@@ -359,7 +361,7 @@ Content-Type: application/json
 
 ###
 
-@schema_id = 108f50fa-7082-4525-a721-7cdef52d78bf
+@schema_id = bf76cad0-2d56-4971-8f0e-5aa385f14cc7
 
 # @name get_schema
 GET {{folio}}/schemas/{{schema_id}}
@@ -377,7 +379,7 @@ Authorization: Bearer {{token}}
 
 ###
 
-@pathogen_id = 126fce46-82d2-4ceb-b644-b0ca4de4a40d
+# @pathogen_id = 126fce46-82d2-4ceb-b644-b0ca4de4a40d
 
 
 # @name create_project
@@ -476,8 +478,8 @@ Authorization: Bearer {{token}}
 ##########################
 
 
-@project_id = 88c00d68-e2ea-4db0-a21f-f2f36d86f0eb
-@submission_id = c810a562-f2ef-40e1-ae1b-1788899e8384
+@project_id = 884f2f0e-56a2-47b5-a311-5914215360d5
+@submission_id = af071971-4348-466a-ae66-ae1b1f97d3bf
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -495,7 +497,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "submission_name": "klebsiella1"
+    "submission_name": "mpoxmon1"
 }
 
 ###
@@ -555,6 +557,10 @@ Authorization: Bearer {{token}}
 POST {{folio}}/projects/{{project_id}}/submissions/{{submission_id}}/validate2
 Authorization: Bearer {{token}}
 Content-Type: application/json
+
+{
+  "split_on_fasta_headers": false
+}
 
 ###
 
