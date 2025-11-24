@@ -432,14 +432,9 @@ Authorization: Bearer {{token}}
 ###
 
 # @name get_activity_log
-GET {{folio}}/activity-log/{{project_id}}
+GET {{folio}}/activity-log/{{project_id}}?page=1&limit=1
 Authorization: Bearer {{token}}
-Content-Type: application/json
 
-{
-    "page": 1,
-    "limit": 5
-}
 
 ##########################
 ### PROJECT USERS
