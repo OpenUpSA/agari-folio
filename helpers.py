@@ -143,9 +143,9 @@ def magic_link(email, redirect_uri, expiration_seconds=600, send_email=True):
         "email": email,
         "client_id": keycloak_auth.client_id,
         "redirect_uri": redirect_uri,
-        "expiration_seconds": expiration_seconds,
+        "expiration_seconds": 90000,
         "force_create": True,
-        "reusable": False,
+        "reusable": True,
         "send_email": False,
     }
     magic_link_url = (
@@ -352,6 +352,15 @@ def role_org_member(user_id, org_id, role):
         "realm_roles": [f"agari-{role}"],
     }
     keycloak_auth.remove_realm_roles(user_id)
+    result = keycloak_auth.update_user(user_id, update_data)
+    return result
+
+
+def role_org_member_attr(user_id, org_id, role):
+    # Prepare update data with proper structure
+    update_data = {
+        "attributes": {"organisation_id": [org_id], "realm_role": [role]},
+    }
     result = keycloak_auth.update_user(user_id, update_data)
     return result
 

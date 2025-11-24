@@ -23,6 +23,7 @@ from helpers import (
     extract_invite_roles,
     role_project_member,
     role_org_member,
+    role_org_member_attr,
     check_user_id,
     access_toggled_notification,
     log_event,
@@ -1123,6 +1124,7 @@ class OrganisationUsers(Resource):
             # Update user's organisation_id and org_role attributes in Keycloak
             if 'force_role' in data:
                 role_org_member(user["id"], org_id, role)
+                role_org_member_attr(user["id"], org_id, role)
                 log_event("org_user_added", org_id, {"email": user["username"], "role": ORG_ROLE_MAPPING[role]}, user_info)
                 return f"User role updated for organisation {org_id}"
             else:
@@ -1567,7 +1569,7 @@ class Project(Resource):
                     if not deleted_project:
                         return {'error': 'Project not found or already deleted'}, 404
 
-                    log_event("project_deleted", deleted_project["organisation_id"], {"project_name": deleted_project["name"]}, user_info)
+                    log_event("project_deleted", project_id, {"project_name": deleted_project["name"]}, user_info)
                     return {
                         'message': f'Project "{deleted_project["name"]}" deleted (can be restored)',
                         'delete_type': 'soft'
@@ -2928,14 +2930,38 @@ invite_ns = api.namespace('invites', description='Invite management endpoints')
 
 @invite_ns.route('/project/<string:project_id>')
 class ProjectInviteStatus(Resource):
-    ### GET /invites/project/<project_id> ###
 
+    ### GET /invites/project/<project_id> ###
     @api.doc('get_project_invites')
     def get(self, project_id):
         users = keycloak_auth.get_users_by_attribute('invite_project_id', project_id)
         user_invites = extract_invite_roles(users, "")
         print(user_invites)
         return user_invites, 200
+
+
+    ### DELETE /invites/project/<project_id> ###
+    @api.doc('delete_project_invite')
+    def delete(self, project_id):
+        user = keycloak_auth.get_users_by_attribute('invite_project_id', project_id)[0]
+        user_id = user["user_id"]
+
+        hash_string = f"{user_id}{project_id}"
+        inv_token = hashlib.md5(hash_string.encode()).hexdigest()
+
+        invite_role = user["attributes"].get(f"invite_role_{project_id}", [""])[0]
+
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_token', inv_token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_project_id', project_id)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_role_{project_id}', invite_role)
+
+        return {
+            'message': 'Project invite deleted successfully',
+            'user_id': user_id,
+            'project_id': project_id,
+            'role': invite_role
+        }, 200
 
 
 @invite_ns.route('/organisation/<string:org_id>')
@@ -2948,6 +2974,30 @@ class OrgInviteStatus(Resource):
         user_invites = extract_invite_roles(users, "org_")
         print(user_invites)
         return user_invites, 200
+
+
+    ### DELETE /invites/organisation/<project_id> ###
+    @api.doc('delete_organisation_invite')
+    def delete(self, org_id):
+        user = keycloak_auth.get_users_by_attribute('invite_org_id', org_id)[0]
+        user_id = user["user_id"]
+
+        hash_string = f"{user_id}{org_id}"
+        inv_token = hashlib.md5(hash_string.encode()).hexdigest()
+
+        invite_role = user["attributes"].get(f"invite_org_role_{org_id}", [""])[0]
+
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', inv_token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_org_id', org_id)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_org_role_{org_id}', invite_role)
+
+        return {
+            'message': 'Organisation invite deleted successfully',
+            'user_id': user_id,
+            'org_id': org_id,
+            'role': invite_role
+        }, 200
 
 
 @invite_ns.route('/project/<string:token>/accept')
@@ -2969,6 +3019,7 @@ class ProjectInviteConfirm(Resource):
         if not org:
             project_org_id = keycloak_auth.get_project_parent_org(invite_project_id)
             role_org_member(user_id, project_org_id, "org-partial")
+            role_org_member_attr(user_id, project_org_id, "org-partial")
 
         # Remove temp attributes
         keycloak_auth.remove_attribute_value(user_id, 'invite_token', token)
@@ -3004,7 +3055,8 @@ class OrganisationInviteConfirm(Resource):
         invite_org_id = user["attributes"].get("invite_org_id", [""])[0]
         invite_org_role = user["attributes"].get(f"invite_org_role_{invite_org_id}", [""])[0]
 
-        result = role_org_member(user_id, invite_org_id, invite_org_role)
+        role_org_member(user_id, invite_org_id, invite_org_role)
+        result = role_org_member_attr(user_id, invite_org_id, invite_org_role)
 
         # Remove temp attributes
         keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', token)
@@ -3015,6 +3067,7 @@ class OrganisationInviteConfirm(Resource):
             user_attr = keycloak_auth.get_user_attributes(user_id)
             # Downgrade previous owner to org-admin
             role_org_member(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
+            role_org_member_attr(user_attr["invite_org_old_owner"][0], invite_org_id, "org-admin")
             keycloak_auth.remove_attribute_value(user_id, "invite_org_old_owner", user_attr["invite_org_old_owner"][0])
 
         # Get access token for the user
@@ -3091,10 +3144,10 @@ class ActivityLogs(Resource):
     #@require_permission('manage_project_users')
     def get(self, resource_id):
         try:
-            #data = request.get_json()
-            #page = int(data.get('page', 1))
-            #limit = int(data.get('limit', 10))
-            #offset = (page - 1) * limit
+            data = request.get_json()
+            page = int(data.get('page', 1))
+            limit = int(data.get('limit', 10))
+            offset = (page - 1) * limit
 
             with get_db_cursor() as cursor:
                 main_query = """
@@ -3104,22 +3157,16 @@ class ActivityLogs(Resource):
                     ORDER BY created_at DESC
                     LIMIT %s OFFSET %s
                 """
-                #cursor.execute(main_query, (resource_id, limit, offset))
-                cursor.execute("""
-                    SELECT *
-                    FROM logs
-                    WHERE resource_id = %s
-                    ORDER BY created_at DESC
-                """, (resource_id,))
+                cursor.execute(main_query, (resource_id, limit, offset))
+
                 logs = cursor.fetchall()
-                #total_count = len(logs)
+                total_count = len(logs)
 
                 # Pagination metadata
-                #total_pages = (total_count + limit - 1) // limit
-                #has_next = page < total_pages
-                #has_prev = page > 1
+                total_pages = (total_count + limit - 1) // limit
+                has_next = page < total_pages
+                has_prev = page > 1
 
-                return logs
                 return {
                     'logs': logs,
                     'pagination': {

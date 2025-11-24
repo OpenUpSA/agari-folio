@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 DB_USER="${DB_USER:-admin}"
 DB_HOST="${DB_HOST:-localhost}"
