@@ -3126,13 +3126,8 @@ class ActivityLogs(Resource):
                     LIMIT %s OFFSET %s
                 """
                 cursor.execute(main_query, (resource_id, limit, offset))
-                #cursor.execute("""
-                #    SELECT *
-                #    FROM logs
-                #    WHERE resource_id = %s
-                #    ORDER BY created_at DESC
-                #""", (resource_id,))
-                #logs = cursor.fetchall()
+
+                logs = cursor.fetchall()
                 total_count = len(logs)
 
                 # Pagination metadata
@@ -3140,7 +3135,6 @@ class ActivityLogs(Resource):
                 has_next = page < total_pages
                 has_prev = page > 1
 
-                return logs
                 return {
                     'logs': logs,
                     'pagination': {
