@@ -67,3 +67,8 @@ POST {{folio}}/invites/organisation/{{inv_token}}/accept
 
 # @name get_org_invites
 GET {{folio}}/invites/organisation/{{org_id}}
+
+###
+
+# @name delete_org_invite
+DELETE {{folio}}/invites/organisation/{{org_id}}

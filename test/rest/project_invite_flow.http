@@ -68,3 +68,8 @@ POST {{folio}}/invites/project/{{inv_token}}/accept
 
 # @name get_project_invites
 GET {{folio}}/invites/project/{{project_id}}
+
+###
+
+# @name delete_project_invite
+DELETE {{folio}}/invites/project/{{project_id}}
