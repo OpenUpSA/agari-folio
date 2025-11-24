@@ -35,6 +35,7 @@ from helpers import (
     check_user_id,
     query_elastic,
     get_object_id_url,
+    delete_minio_object,
     PROJECT_ROLE_MAPPING,
     ORG_ROLE_MAPPING
 )
@@ -1920,7 +1921,27 @@ class ProjectSubmission2(Resource):
                     WHERE submission_id = %s
                 """, (submission_id,))
 
-                ### DELETE MINIO OBJECTS HERE
+                ### DELETE MINIO OBJECTS
+
+                # Get all object_ids for files associated with this submission
+                cursor.execute("""
+                    SELECT object_id FROM submission_files
+                    WHERE submission_id = %s
+                """, (submission_id,))
+
+                file_objects = cursor.fetchall()
+
+                # Delete each object from MinIO
+                for file_obj in file_objects:
+                    if file_obj['object_id']:
+                        try:
+                            delete_minio_object(file_obj['object_id'])
+                            logger.info(f"Deleted MinIO object: {file_obj['object_id']}")
+                        except Exception as delete_error:
+                            logger.exception(f"Failed to delete MinIO object {file_obj['object_id']}: {str(delete_error)}")
+                            # Continue with other deletions even if one fails
+                            continue
+
 
                 # Delete the submission
                 cursor.execute("""
@@ -2297,15 +2318,12 @@ class ProjectSubmissionValidate2(Resource):
 
             tsv_files = [f for f in files if f['file_type'] == 'tsv']
             fasta_files = [f for f in files if f['file_type'] == 'fasta']
-
-            
-            
             
             data = request.get_json(silent=True) or {}
 
-
-
             split_on_fasta_headers = data.get('split_on_fasta_headers', True)
+
+            print('=== reading split on headers value ===', split_on_fasta_headers)
 
             # Basic validation: check file counts
             if len(tsv_files) != 1:
