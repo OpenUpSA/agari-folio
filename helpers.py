@@ -1118,7 +1118,7 @@ def check_isolate_in_elastic(isolate_id):
     query_body = {
         "query": {
             "term": {
-                "isolate_id.keyword": isolate_id
+                "isolate_id": isolate_id
             }
         }
     }
@@ -1138,3 +1138,26 @@ def check_isolate_in_elastic(isolate_id):
         print(f"Error querying Elasticsearch: {e}")
         return False
 
+def delete_from_elastic(submission_id):
+
+    es_url = settings.ELASTICSEARCH_URL
+    es_delete_url = f"{es_url}/agari-samples/_delete_by_query"
+    query_body = {
+        "query": {
+            "term": {
+                "submission_id": submission_id
+            }
+        }
+    }
+
+    try:
+        response = requests.post(es_delete_url, json=query_body)
+        if response.status_code == 200:
+            print(f"Successfully deleted documents with submission_id {submission_id} from Elasticsearch")
+            return True
+        else:
+            print(f"Failed to delete documents from Elasticsearch: {response.text}")
+            return False
+    except Exception as e:
+        print(f"Error deleting documents from Elasticsearch: {e}")
+        return False
