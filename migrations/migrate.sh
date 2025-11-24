@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 DB_USER="${DB_USER:-admin}"
 DB_HOST="${DB_HOST:-localhost}"
@@ -15,7 +16,7 @@ FILES=(
     "migrations/15-11-2025-add-back-isolate-id-column.sql"
     "migrations/16-11-2025-schemas-table.sql"
     "migrations/16-11-2025-2-drop-submission-log-table.sql"
-    "migrations/16-11-2025-3-remove-schema-name-column-from-pathogen-table.sql",
+    "migrations/16-11-2025-3-remove-schema-name-column-from-pathogen-table.sql"
     "migrations/18-11-2025-basic-jobs.sql"
 )
 
