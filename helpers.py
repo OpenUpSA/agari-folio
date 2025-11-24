@@ -808,7 +808,7 @@ async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
         for line in fasta_lines:
             if line.startswith('>'):
                 # Check if this header matches what we're looking for
-                if fasta_header in line:
+                if line.startswith(f'>{fasta_header} ') or line == f'>{fasta_header}' or line.startswith(f'>{fasta_header}\t'):
                     recording = True
                     header_found = True
                     sequence_lines.append(line)

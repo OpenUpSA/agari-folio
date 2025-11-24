@@ -34,6 +34,7 @@ async def process_sequence_validation(job):
             SELECT * FROM isolates 
             WHERE id = ANY(%s::uuid[]) AND status = 'validated'
             ORDER BY id
+            FOR UPDATE SKIP LOCKED
         """, (isolate_ids,))
         
         validated_isolates = cursor.fetchall()

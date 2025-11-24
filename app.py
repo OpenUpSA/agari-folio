@@ -2173,6 +2173,21 @@ class ReplaceProjectSubmissionFile2(Resource):
                 file_record = cursor.fetchone()
                 if not file_record:
                     return {'error': 'File not found'}, 404
+                
+                # NEW: Check if FASTA file is referenced by isolates
+                if file_record['file_type'] == 'fasta':
+                    cursor.execute("""
+                        SELECT COUNT(*) as ref_count
+                        FROM isolates 
+                        WHERE submission_id = %s 
+                        AND isolate_data->>'fasta_file_name' = %s
+                    """, (submission_id, file_record['filename']))
+                    
+                    result = cursor.fetchone()
+                    if result['ref_count'] > 0:
+                        return {
+                            'error': f'Cannot delete {file_record["filename"]}: {result["ref_count"]} isolates reference this file'
+                        }, 400
 
             # Delete from MinIO
             try:

@@ -1,10 +1,10 @@
-@folio = http://localhost:8000
-# @folio = https://folio-staging.openup.org.za
+# @folio = http://localhost:8000
+@folio = https://folio-staging.openup.org.za
 # @folio = https://folio-ilifu.openup.org.za
 
-@keycloak = http://keycloak.local
+# @keycloak = http://keycloak.local
 # @keycloak = http://localhost:8080
-# @keycloak = https://keycloak-staging.openup.org.za
+@keycloak = https://keycloak-staging.openup.org.za
 # @keycloak = https://keycloak-ilifu.openup.org.za
 
 # @minio = http://minio.local
