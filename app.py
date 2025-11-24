@@ -2256,7 +2256,7 @@ class ProjectSubmissionValidate2(Resource):
                         except (json.JSONDecodeError, TypeError):
                             validation_errors.append(iso['error'])
                     
-                    if iso['status'] == 'sequence_error' and iso['seq_error']:
+                    if iso['status'] == 'error' and iso['seq_error']:
                         try:
                             parsed_seq_error = json.loads(iso['seq_error']) if isinstance(iso['seq_error'], str) else iso['seq_error']
                             sequence_errors.append(parsed_seq_error)
