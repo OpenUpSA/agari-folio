@@ -2898,14 +2898,38 @@ invite_ns = api.namespace('invites', description='Invite management endpoints')
 
 @invite_ns.route('/project/<string:project_id>')
 class ProjectInviteStatus(Resource):
-    ### GET /invites/project/<project_id> ###
 
+    ### GET /invites/project/<project_id> ###
     @api.doc('get_project_invites')
     def get(self, project_id):
         users = keycloak_auth.get_users_by_attribute('invite_project_id', project_id)
         user_invites = extract_invite_roles(users, "")
         print(user_invites)
         return user_invites, 200
+
+
+    ### DELETE /invites/project/<project_id> ###
+    @api.doc('delete_project_invite')
+    def delete(self, project_id):
+        user = keycloak_auth.get_users_by_attribute('invite_project_id', project_id)[0]
+        user_id = user["user_id"]
+
+        hash_string = f"{user_id}{project_id}"
+        inv_token = hashlib.md5(hash_string.encode()).hexdigest()
+
+        invite_role = user["attributes"].get(f"invite_role_{project_id}", [""])[0]
+
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_token', inv_token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_project_id', project_id)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_role_{project_id}', invite_role)
+
+        return {
+            'message': 'Project invite deleted successfully',
+            'user_id': user_id,
+            'project_id': project_id,
+            'role': invite_role
+        }, 200
 
 
 @invite_ns.route('/organisation/<string:org_id>')
@@ -2918,6 +2942,30 @@ class OrgInviteStatus(Resource):
         user_invites = extract_invite_roles(users, "org_")
         print(user_invites)
         return user_invites, 200
+
+
+    ### DELETE /invites/organisation/<project_id> ###
+    @api.doc('delete_organisation_invite')
+    def delete(self, org_id):
+        user = keycloak_auth.get_users_by_attribute('invite_org_id', org_id)[0]
+        user_id = user["user_id"]
+
+        hash_string = f"{user_id}{org_id}"
+        inv_token = hashlib.md5(hash_string.encode()).hexdigest()
+
+        invite_role = user["attributes"].get(f"invite_org_role_{org_id}", [""])[0]
+
+        # Remove temp attributes
+        keycloak_auth.remove_attribute_value(user_id, 'invite_org_token', inv_token)
+        keycloak_auth.remove_attribute_value(user_id, 'invite_org_id', org_id)
+        keycloak_auth.remove_attribute_value(user_id, f'invite_org_role_{org_id}', invite_role)
+
+        return {
+            'message': 'Organisation invite deleted successfully',
+            'user_id': user_id,
+            'org_id': org_id,
+            'role': invite_role
+        }, 200
 
 
 @invite_ns.route('/project/<string:token>/accept')
