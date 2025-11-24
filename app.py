@@ -30,8 +30,6 @@ from helpers import (
     get_minio_client,
     tsv_to_json,
     validate_against_schema,
-    check_for_sequence_data,
-    send_to_elastic,
     send_to_elastic2,
     check_isolate_in_elastic,
     check_user_id,
@@ -2298,7 +2296,10 @@ class ProjectSubmissionValidate2(Resource):
                 files = cursor.fetchall()
 
             tsv_files = [f for f in files if f['file_type'] == 'tsv']
-            # fasta_files = [f for f in files if f['file_type'] == 'fasta']
+            fasta_files = [f for f in files if f['file_type'] == 'fasta']
+
+            data = request.get_json()
+            split_on_fasta_headers = data.get('split_on_fasta_headers', True)
 
             # Basic validation: check file counts
             if len(tsv_files) != 1:
@@ -2312,6 +2313,19 @@ class ProjectSubmissionValidate2(Resource):
                 return {
                     'status': 'error',
                     'validation_errors': [f'Exactly 1 TSV file required, found {len(tsv_files)}']
+                }, 400
+            
+            if len(fasta_files) < 1:
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE submissions 
+                        SET status = 'error'
+                        WHERE id = %s
+                    """, (submission_id,))
+                
+                return {
+                    'status': 'error',
+                    'validation_errors': [f'At least 1 FASTA file required, found {len(fasta_files)}']
                 }, 400
             
             tsv_file_record = tsv_files[0]
@@ -2328,35 +2342,52 @@ class ProjectSubmissionValidate2(Resource):
 
                 tsv_json = tsv_to_json(tsv_content, project_id)
 
+                # Delete all existing isolates for this submission first (clean slate)
+                with get_db_cursor() as cursor:
+                    cursor.execute("""
+                        DELETE FROM isolates 
+                        WHERE submission_id = %s
+                    """, (submission_id,))
+                    
+                    deleted_count = cursor.rowcount
+                    if deleted_count > 0:
+                        print(f"Deleted {deleted_count} existing isolates for submission {submission_id}")
+
+                # Insert all rows fresh from the TSV, checking for duplicate isolate_ids
                 for row_index, row in enumerate(tsv_json):
+                    isolate_id = row.get('isolate_id')
+                    
+                    # Check if this isolate_id already exists in the database (globally)
                     with get_db_cursor() as cursor:
-                        # Check if isolate already exists for this submission and row
+                        if isolate_id and not settings.ALLOW_DUPLICATE_ISOLATE_IDS:
+                            cursor.execute("""
+                                SELECT id, submission_id FROM isolates 
+                                WHERE isolate_data->>'isolate_id' = %s
+                            """, (isolate_id,))
+                            
+                            existing_isolate = cursor.fetchone()
+                            
+                            if existing_isolate:
+                                # Duplicate found - insert with error status
+                                error_message = f"Isolate ID '{isolate_id}' already exists in the database"
+                                cursor.execute("""
+                                    INSERT INTO isolates (submission_id, isolate_data, tsv_row, status, error)
+                                    VALUES (%s, %s, %s, 'error', %s)
+                                """, (submission_id, json.dumps(row), row_index + 1, json.dumps(error_message)))
+                                print(f"Duplicate isolate_id found: {isolate_id} (row {row_index + 1})")
+                                continue
+                        
+                        # No duplicate - insert normally
                         cursor.execute("""
-                            SELECT id FROM isolates 
-                            WHERE submission_id = %s AND tsv_row = %s
-                        """, (submission_id, row_index + 1))
-                        
-                        existing_isolate = cursor.fetchone()
-                        
-                        if existing_isolate:
-                            # Update existing isolate
-                            cursor.execute("""
-                                UPDATE isolates 
-                                SET isolate_data = %s, status = NULL, error = NULL, seq_error = NULL, updated_at = NOW()
-                                WHERE submission_id = %s AND tsv_row = %s
-                            """, (json.dumps(row), submission_id, row_index + 1))
-                        else:
-                            # Insert new isolate
-                            cursor.execute("""
-                                INSERT INTO isolates (submission_id, isolate_data, tsv_row)
-                                VALUES (%s, %s, %s)
-                            """, (submission_id, json.dumps(row), row_index + 1))
-                
+                            INSERT INTO isolates (submission_id, isolate_data, tsv_row, isolate_id)
+                            VALUES (%s, %s, %s, %s)
+                        """, (submission_id, json.dumps(row), row_index + 1, isolate_id))
+
                 with get_db_cursor() as cursor:
                     cursor.execute("""
                         SELECT * FROM isolates 
                         WHERE submission_id = %s 
-                        AND (status IS NULL OR status = '' OR status = 'error')
+                        AND (status IS NULL OR status = '')
                     """, (submission_id,))
                     
                     existing_isolates = cursor.fetchall()
@@ -2380,20 +2411,20 @@ class ProjectSubmissionValidate2(Resource):
                                 WHERE id = %s
                             """, (isolate['id'],))
 
-                        # always index
-                        cursor.execute("""
-                            SELECT i.*, s.project_id, p.pathogen_id, p.privacy as visibility, p.name as project_name, pat.name as pathogen_name
-                            FROM isolates i
-                            LEFT JOIN submissions s ON i.submission_id = s.id
-                            LEFT JOIN projects p ON s.project_id = p.id
-                            LEFT JOIN pathogens pat ON p.pathogen_id = pat.id
-                            WHERE i.id = %s
-                        """, (isolate['id'],))
+                            # only index if validated
+                            cursor.execute("""
+                                SELECT i.*, s.project_id, p.pathogen_id, p.privacy as visibility, p.name as project_name, pat.name as pathogen_name
+                                FROM isolates i
+                                LEFT JOIN submissions s ON i.submission_id = s.id
+                                LEFT JOIN projects p ON s.project_id = p.id
+                                LEFT JOIN pathogens pat ON p.pathogen_id = pat.id
+                                WHERE i.id = %s
+                            """, (isolate['id'],))
 
-                        isolate_data = cursor.fetchone()
+                            isolate_data = cursor.fetchone()
 
-                        if isolate_data:
-                            send_to_elastic2(isolate_data)
+                            if isolate_data:
+                                send_to_elastic2(isolate_data)
 
                 # After validating all isolates, check if any have errors
                 with get_db_cursor() as cursor:
@@ -2428,7 +2459,8 @@ class ProjectSubmissionValidate2(Resource):
                         from jobs import add_job
                         job_data = {
                             'submission_id': submission_id,
-                            'isolate_ids': [iso['id'] for iso in validated_isolates]
+                            'isolate_ids': [iso['id'] for iso in validated_isolates],
+                            'split_on_fasta_headers': split_on_fasta_headers
                         }
                         job_id = add_job('validate_sequences', job_data)
                         print(f"Queued sequence validation job {job_id} for {len(validated_isolates)} validated isolates")

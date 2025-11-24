@@ -1,10 +1,10 @@
-# @folio = http://localhost:8000
-@folio = https://folio-staging.openup.org.za
+@folio = http://localhost:8000
+# @folio = https://folio-staging.openup.org.za
 # @folio = https://folio-ilifu.openup.org.za
 
-# @keycloak = http://keycloak.local
+@keycloak = http://keycloak.local
 # @keycloak = http://localhost:8080
-@keycloak = https://keycloak-staging.openup.org.za
+# @keycloak = https://keycloak-staging.openup.org.za
 # @keycloak = https://keycloak-ilifu.openup.org.za
 
 # @minio = http://minio.local
@@ -290,7 +290,6 @@ Content-Type: application/json
 ###
 
 
-@pathogen_id = bfebf404-e1cf-434d-8146-d68944118b9c
 
 # @name get_pathogen
 GET {{folio}}/pathogens/{{pathogen_id}}
@@ -373,10 +372,13 @@ Authorization: Bearer {{token}}
 ##########################
 
 # @name list_projects
-GET {{folio}}/projects?search=Tim
+GET {{folio}}/projects
 Authorization: Bearer {{token}}
 
 ###
+
+@pathogen_id = 126fce46-82d2-4ceb-b644-b0ca4de4a40d
+
 
 # @name create_project
 POST {{folio}}/projects/
@@ -384,7 +386,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Mpox Fridday",
+    "name": "Cholera",
     "description": "",
     "pathogen_id": "{{pathogen_id}}",
     "privacy": "public"
@@ -474,8 +476,8 @@ Authorization: Bearer {{token}}
 ##########################
 
 
-@project_id = 5e2d9a3c-4fb3-4ec5-a8e3-98bb46a91e39
-@submission_id = 49a0cb83-cd4f-4c4c-89b0-2623627a76b9
+@project_id = 88c00d68-e2ea-4db0-a21f-f2f36d86f0eb
+@submission_id = c810a562-f2ef-40e1-ae1b-1788899e8384
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -493,7 +495,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "submission_name": "mpox-friday"
+    "submission_name": "klebsiella1"
 }
 
 ###
@@ -632,11 +634,28 @@ Content-Type: application/json
 {
   "query": {
     "match_all": {}
-  },
-  "sort": [
-    { "anatomical_part": { "order": "desc" } }
-  ]
+  }
 }
+
+###
+
+# @name get_all_indexed_samples
+POST {{folio}}/search/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": {
+    "match_all": {}
+  },
+    "sort": [
+      {
+        "host_age": {
+          "order": "asc"
+        }
+      }
+    ]
+  }
 
 
 ###

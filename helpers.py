@@ -680,7 +680,7 @@ def validate_against_schema(data, row, project_id):
 ### SPLIT WORK
 ##############################
 
-async def check_for_sequence_data(isolate):
+async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
     """
     Check if sequence data exists for an isolate and extract it.
     
@@ -718,9 +718,36 @@ async def check_for_sequence_data(isolate):
         fasta_header = isolate_data.get("fasta_header_name", "")
         isolate_sample_id = isolate_data.get("isolate_id", "")
         
-        if not fasta_file or not fasta_header:
-            return False, "Missing FASTA file name or header name in isolate data"
+        # Check if FASTA file is provided
+        if not fasta_file:
+            return False, "Missing FASTA file name in isolate data"
         
+        # If no header specified, link to the complete original file instead of extracting
+        if not split_on_fasta_headers:
+            print(f"No header specified for isolate {isolate_sample_id} - linking to complete FASTA file")
+            
+            # Get the object_id from submission_files table where filename matches
+            with get_db_cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT object_id 
+                    FROM submission_files 
+                    WHERE filename = %s AND file_type = 'fasta'
+                    ORDER BY created_at DESC 
+                    LIMIT 1
+                    """,
+                    (fasta_file,),
+                )
+                file_record = cursor.fetchone()
+                
+                if not file_record:
+                    return False, f"FASTA file '{fasta_file}' not found in submission_files"
+            
+            # Return the original file's object_id (no extraction needed)
+            print(f"Linked isolate {isolate_sample_id} to original file with object_id: {file_record['object_id']}")
+            return True, file_record["object_id"]
+        
+        # EXISTING: Header specified - extract specific sequence
         print(f"Looking for FASTA File: {fasta_file}, Header: {fasta_header}")
         
         # 3. Get the object_id from submission_files table where filename matches
@@ -1088,52 +1115,4 @@ def check_isolate_in_elastic(isolate_id):
     except Exception as e:
         print(f"Error querying Elasticsearch: {e}")
         return False
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# OLD FUNCTION FOR LEGACY USE
-def send_to_elastic(index, document):
-    es_url = settings.ELASTICSEARCH_URL
-
-    # Extract document ID if provided
-    doc_id = document.pop("_id", None) if isinstance(document, dict) else None
-
-    if doc_id:
-        # Use PUT with specific document ID to avoid duplicates
-        es_index_url = f"{es_url}/{index}/_doc/{doc_id}"
-        method = requests.put
-    else:
-        # Use POST to auto-generate document ID
-        es_index_url = f"{es_url}/{index}/_doc"
-        method = requests.post
-
-    try:
-        response = method(es_index_url, json=document)
-        if response.status_code in [200, 201]:
-            print(f"Successfully indexed document to {index}")
-            return True
-        else:
-            print(f"Failed to index document: {response.text}")
-            return False
-    except Exception as e:
-        print(f"Error sending document to Elasticsearch: {e}")
-        return False
-
 
