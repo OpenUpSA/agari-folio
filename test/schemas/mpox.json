@@ -466,12 +466,6 @@
       "x-hint": "Enter a text value.",
       "description": "Treatment of viral infections with agents that prevent viral replication in infected cells without impairing the host cell function."
     },
-    "fasta_header_name": {
-      "name": "FASTA Header",
-      "type": "string",
-      "x-hint": "FASTA header name needs to match the record in the attached FASTA file.",
-      "description": "The name given to the sequence in the FASTA file header."
-    },
     "host_health_state": {
       "enum": [
         "Asymptomatic",

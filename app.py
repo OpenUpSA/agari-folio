@@ -36,6 +36,7 @@ from helpers import (
     query_elastic,
     get_object_id_url,
     delete_minio_object,
+    delete_from_elastic,
     PROJECT_ROLE_MAPPING,
     ORG_ROLE_MAPPING
 )
@@ -1942,6 +1943,15 @@ class ProjectSubmission2(Resource):
                             # Continue with other deletions even if one fails
                             continue
 
+                
+                # Delete from elasticsearch index
+                try:
+                    delete_from_elastic(submission_id)
+                    logger.info(f"Deleted submission {submission_id} from Elasticsearch index")
+                except Exception as es_error:
+                    logger.exception(f"Failed to delete submission {submission_id} from Elasticsearch: {str(es_error)}")
+                    # Continue with other deletions even if ES deletion fails
+                    pass
 
                 # Delete the submission
                 cursor.execute("""
