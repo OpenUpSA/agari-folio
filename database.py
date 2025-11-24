@@ -57,7 +57,7 @@ class DatabaseConnection:
             self._connection.commit()
         except Exception as e:
             self._connection.rollback()
-            logger.error(f"Database operation failed: {e}")
+            logger.exception(f"Database operation failed: {e}")
             raise
         finally:
             cursor.close()
