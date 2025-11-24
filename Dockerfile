@@ -15,8 +15,6 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-ENV SSL_CERT_FILE=/etc/ssl/certs/
-
 # Copy application code
 COPY . .
 
