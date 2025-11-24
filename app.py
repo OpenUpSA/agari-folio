@@ -2820,7 +2820,7 @@ class Reindex(Resource):
                     'next_offset': next_offset if has_more else None,
                     'total': total_count,
                     'completed': min(next_offset, total_count),
-                    'percent': round((min(next_offset, total_count) / total_count) * 100, 2)
+                    'percent': round((min(next_offset, total_count) / total_count) * 100, 2)  if total_count > 0 else 0
                 },
                 'has_more': has_more,
                 'failures': failures
