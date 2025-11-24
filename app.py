@@ -2298,7 +2298,13 @@ class ProjectSubmissionValidate2(Resource):
             tsv_files = [f for f in files if f['file_type'] == 'tsv']
             fasta_files = [f for f in files if f['file_type'] == 'fasta']
 
-            data = request.get_json()
+            
+            
+            
+            data = request.get_json(silent=True) or {}
+
+
+
             split_on_fasta_headers = data.get('split_on_fasta_headers', True)
 
             # Basic validation: check file counts
