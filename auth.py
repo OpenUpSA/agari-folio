@@ -5,6 +5,9 @@ from functools import wraps
 from flask import request, jsonify, current_app
 from jwt.exceptions import InvalidTokenError, ExpiredSignatureError
 from permissions import PERMISSIONS
+from logging import getLogger
+
+logger = getLogger(__name__)
 
 AGARI_ORG_ROLES = {
     "agari-org-viewer": "org-viewer",
@@ -66,6 +69,7 @@ class KeycloakAuth:
             token_data = response.json()
             return token_data.get('access_token')
         except requests.RequestException as e:
+            logger.error(f"Get admin token failed: {e}")
             print(f"Error getting admin token: {e}")
             return None
         
