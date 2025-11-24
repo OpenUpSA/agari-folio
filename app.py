@@ -29,8 +29,6 @@ from helpers import (
     get_minio_client,
     tsv_to_json,
     validate_against_schema,
-    check_for_sequence_data,
-    send_to_elastic,
     send_to_elastic2,
     check_isolate_in_elastic,
     check_user_id,
@@ -2298,6 +2296,9 @@ class ProjectSubmissionValidate2(Resource):
             tsv_files = [f for f in files if f['file_type'] == 'tsv']
             fasta_files = [f for f in files if f['file_type'] == 'fasta']
 
+            data = request.get_json()
+            split_on_fasta_headers = data.get('split_on_fasta_headers', True)
+
             # Basic validation: check file counts
             if len(tsv_files) != 1:
                 with get_db_cursor() as cursor:
@@ -2456,7 +2457,8 @@ class ProjectSubmissionValidate2(Resource):
                         from jobs import add_job
                         job_data = {
                             'submission_id': submission_id,
-                            'isolate_ids': [iso['id'] for iso in validated_isolates]
+                            'isolate_ids': [iso['id'] for iso in validated_isolates],
+                            'split_on_fasta_headers': split_on_fasta_headers
                         }
                         job_id = add_job('validate_sequences', job_data)
                         print(f"Queued sequence validation job {job_id} for {len(validated_isolates)} validated isolates")

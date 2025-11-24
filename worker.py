@@ -23,6 +23,7 @@ async def process_sequence_validation(job):
     job_data = payload['data']
     submission_id = job_data['submission_id']
     isolate_ids = job_data['isolate_ids']
+    split_on_fasta_headers = job_data.get('split_on_fasta_headers', True)
     
     print(f"Processing sequence validation for submission {submission_id} with {len(isolate_ids)} isolates")
     
@@ -47,7 +48,7 @@ async def process_sequence_validation(job):
         try:
             # Add timeout wrapper for the async operation
             success, result = await asyncio.wait_for(
-                check_for_sequence_data(isolate), 
+                check_for_sequence_data(isolate, split_on_fasta_headers=split_on_fasta_headers), 
                 timeout=120  # 2 minutes timeout per isolate
             )
         except asyncio.TimeoutError:

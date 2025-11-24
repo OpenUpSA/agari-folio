@@ -671,7 +671,7 @@ def validate_against_schema(data, row, project_id):
 ### SPLIT WORK
 ##############################
 
-async def check_for_sequence_data(isolate):
+async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
     """
     Check if sequence data exists for an isolate and extract it.
     
@@ -714,7 +714,7 @@ async def check_for_sequence_data(isolate):
             return False, "Missing FASTA file name in isolate data"
         
         # If no header specified, link to the complete original file instead of extracting
-        if not fasta_header or fasta_header.strip() == "":
+        if not split_on_fasta_headers:
             print(f"No header specified for isolate {isolate_sample_id} - linking to complete FASTA file")
             
             # Get the object_id from submission_files table where filename matches

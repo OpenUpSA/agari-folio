@@ -290,7 +290,6 @@ Content-Type: application/json
 ###
 
 
-@pathogen_id = 126fce46-82d2-4ceb-b644-b0ca4de4a40d
 
 # @name get_pathogen
 GET {{folio}}/pathogens/{{pathogen_id}}
@@ -373,10 +372,13 @@ Authorization: Bearer {{token}}
 ##########################
 
 # @name list_projects
-GET {{folio}}/projects?search=Tim
+GET {{folio}}/projects
 Authorization: Bearer {{token}}
 
 ###
+
+@pathogen_id = 126fce46-82d2-4ceb-b644-b0ca4de4a40d
+
 
 # @name create_project
 POST {{folio}}/projects/
@@ -384,7 +386,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "name": "Cholera Sunday1",
+    "name": "Cholera",
     "description": "",
     "pathogen_id": "{{pathogen_id}}",
     "privacy": "public"
@@ -474,8 +476,8 @@ Authorization: Bearer {{token}}
 ##########################
 
 
-@project_id = 03d8f5ac-ab3a-4738-a4f4-bce360d4473a
-@submission_id = e4056885-54d4-4dee-affb-96ebc273fff0
+@project_id = 88c00d68-e2ea-4db0-a21f-f2f36d86f0eb
+@submission_id = c810a562-f2ef-40e1-ae1b-1788899e8384
 
 ### Step 1: Get all submission
 # @name getSubmission2
@@ -493,7 +495,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "submission_name": "cholera-sunday3"
+    "submission_name": "klebsiella1"
 }
 
 ###
