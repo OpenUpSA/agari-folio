@@ -34,6 +34,7 @@ async def process_sequence_validation(job):
             SELECT * FROM isolates 
             WHERE id = ANY(%s::uuid[]) AND status = 'validated'
             ORDER BY id
+            FOR UPDATE SKIP LOCKED
         """, (isolate_ids,))
         
         validated_isolates = cursor.fetchall()
@@ -214,7 +215,31 @@ while True:
                 
             except Exception as e:
                 print(f"Job {job['id']} failed: {e}")
-                mark_job_failed(job['id'], str(e))
+                failure_info = mark_job_failed(job['id'], str(e))
+                
+                # If job failed permanently, update submission status to 'error'
+                if failure_info['permanently_failed']:
+                    try:
+                        # Extract submission_id from job payload
+                        payload = json.loads(failure_info['payload']) if isinstance(failure_info['payload'], str) else failure_info['payload']
+                        job_data = payload.get('data', {})
+                        submission_id = job_data.get('submission_id')
+                        
+                        if submission_id:
+                            print(f"Job permanently failed. Updating submission {submission_id} to 'error' status")
+                            with get_db_cursor() as cursor:
+                                cursor.execute("""
+                                    UPDATE submissions 
+                                    SET status = 'error', 
+                                        error = %s,
+                                        updated_at = NOW()
+                                    WHERE id = %s AND status = 'validating'
+                                """, (json.dumps({"job_error": failure_info['error_msg']}), submission_id))
+                                print(f"Submission {submission_id} marked as 'error' due to permanent job failure")
+                        else:
+                            print(f"Warning: Could not extract submission_id from permanently failed job {job['id']}")
+                    except Exception as update_error:
+                        print(f"Error updating submission status after job failure: {update_error}")
             
         else:
             print("No jobs found, waiting...")
