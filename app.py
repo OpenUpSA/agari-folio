@@ -1509,6 +1509,9 @@ class Project(Resource):
                 if not updated_project:
                     return {'error': 'Project not found or already deleted'}, 404
                 
+                if 'privacy' in data:
+                    user_info = extract_user_info(request.user)
+                    log_event("project_privacy", project_id, {"project_name": updated_project["name"], "new_privacy": data['privacy']}, user_info)
                 return {
                     'message': 'Project updated successfully',
                     'project': updated_project
