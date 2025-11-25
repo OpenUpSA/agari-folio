@@ -2348,7 +2348,7 @@ class ProjectSubmissionValidate2(Resource):
                     'validation_errors': [f'Exactly 1 TSV file required, found {len(tsv_files)}']
                 }, 400
             
-            if len(fasta_files) < 1:
+            if settings.REQUIRE_FASTA_FILE and len(fasta_files) < 1:
                 with get_db_cursor() as cursor:
                     cursor.execute("""
                         UPDATE submissions 
