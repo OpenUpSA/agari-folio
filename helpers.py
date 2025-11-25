@@ -997,6 +997,28 @@ def get_object_id_url(object_id, expires_in_hours=24):
         import traceback
         traceback.print_exc()  # This will show the full error
         return None
+    
+def delete_minio_object(object_id):
+    """Delete an object from MinIO by its object ID."""
+    try:
+        # Get MinIO client
+        minio_client = Minio(
+            endpoint=settings.MINIO_ENDPOINT,
+            access_key=settings.MINIO_ACCESS_KEY,
+            secret_key=settings.MINIO_SECRET_KEY,
+            secure=settings.MINIO_INTERNAL_SECURE
+        )
+        
+        bucket_name = settings.MINIO_BUCKET
+        
+        minio_client.remove_object(bucket_name, object_id)
+        print(f"Successfully deleted object '{object_id}' from bucket '{bucket_name}'")
+        return True
+        
+    except Exception as e:
+        print(f"Error deleting object {object_id} from MinIO: {e}")
+        return False
+
 
 ##############################
 ### ELASTICSEARCH HELPERS
@@ -1096,7 +1118,7 @@ def check_isolate_in_elastic(isolate_id):
     query_body = {
         "query": {
             "term": {
-                "isolate_id.keyword": isolate_id
+                "isolate_id": isolate_id
             }
         }
     }
@@ -1116,3 +1138,26 @@ def check_isolate_in_elastic(isolate_id):
         print(f"Error querying Elasticsearch: {e}")
         return False
 
+def delete_from_elastic(submission_id):
+
+    es_url = settings.ELASTICSEARCH_URL
+    es_delete_url = f"{es_url}/agari-samples/_delete_by_query"
+    query_body = {
+        "query": {
+            "term": {
+                "submission_id": submission_id
+            }
+        }
+    }
+
+    try:
+        response = requests.post(es_delete_url, json=query_body)
+        if response.status_code == 200:
+            print(f"Successfully deleted documents with submission_id {submission_id} from Elasticsearch")
+            return True
+        else:
+            print(f"Failed to delete documents from Elasticsearch: {response.text}")
+            return False
+    except Exception as e:
+        print(f"Error deleting documents from Elasticsearch: {e}")
+        return False

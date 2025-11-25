@@ -35,6 +35,8 @@ from helpers import (
     check_user_id,
     query_elastic,
     get_object_id_url,
+    delete_minio_object,
+    delete_from_elastic,
     PROJECT_ROLE_MAPPING,
     ORG_ROLE_MAPPING
 )
@@ -1920,7 +1922,36 @@ class ProjectSubmission2(Resource):
                     WHERE submission_id = %s
                 """, (submission_id,))
 
-                ### DELETE MINIO OBJECTS HERE
+                ### DELETE MINIO OBJECTS
+
+                # Get all object_ids for files associated with this submission
+                cursor.execute("""
+                    SELECT object_id FROM submission_files
+                    WHERE submission_id = %s
+                """, (submission_id,))
+
+                file_objects = cursor.fetchall()
+
+                # Delete each object from MinIO
+                for file_obj in file_objects:
+                    if file_obj['object_id']:
+                        try:
+                            delete_minio_object(file_obj['object_id'])
+                            logger.info(f"Deleted MinIO object: {file_obj['object_id']}")
+                        except Exception as delete_error:
+                            logger.exception(f"Failed to delete MinIO object {file_obj['object_id']}: {str(delete_error)}")
+                            # Continue with other deletions even if one fails
+                            continue
+
+                
+                # Delete from elasticsearch index
+                try:
+                    delete_from_elastic(submission_id)
+                    logger.info(f"Deleted submission {submission_id} from Elasticsearch index")
+                except Exception as es_error:
+                    logger.exception(f"Failed to delete submission {submission_id} from Elasticsearch: {str(es_error)}")
+                    # Continue with other deletions even if ES deletion fails
+                    pass
 
                 # Delete the submission
                 cursor.execute("""
@@ -2225,7 +2256,7 @@ class ProjectSubmissionValidate2(Resource):
                         except (json.JSONDecodeError, TypeError):
                             validation_errors.append(iso['error'])
                     
-                    if iso['status'] == 'sequence_error' and iso['seq_error']:
+                    if iso['status'] == 'error' and iso['seq_error']:
                         try:
                             parsed_seq_error = json.loads(iso['seq_error']) if isinstance(iso['seq_error'], str) else iso['seq_error']
                             sequence_errors.append(parsed_seq_error)
@@ -2297,15 +2328,12 @@ class ProjectSubmissionValidate2(Resource):
 
             tsv_files = [f for f in files if f['file_type'] == 'tsv']
             fasta_files = [f for f in files if f['file_type'] == 'fasta']
-
-            
-            
             
             data = request.get_json(silent=True) or {}
 
-
-
             split_on_fasta_headers = data.get('split_on_fasta_headers', True)
+
+            print('=== reading split on headers value ===', split_on_fasta_headers)
 
             # Basic validation: check file counts
             if len(tsv_files) != 1:
@@ -2792,7 +2820,7 @@ class Reindex(Resource):
                     'next_offset': next_offset if has_more else None,
                     'total': total_count,
                     'completed': min(next_offset, total_count),
-                    'percent': round((min(next_offset, total_count) / total_count) * 100, 2)
+                    'percent': round((min(next_offset, total_count) / total_count) * 100, 2)  if total_count > 0 else 0
                 },
                 'has_more': has_more,
                 'failures': failures
