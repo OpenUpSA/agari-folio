@@ -404,7 +404,7 @@ def extract_invite_roles(users_list, invite_type):
 def log_event(log_type, resource_id, log_entry, user_info=None):
     """
     Event types:
-    - project_created, project_deleted
+    - project_created, project_deleted, project_privacy
     - user_added, user_invited, user_accepted, project_user_deleted
     - org_user_added, org_user_invited, org_user_accepted
     - submission_created, file_uploaded, submission_validated, submission_published, submission_unpublished
