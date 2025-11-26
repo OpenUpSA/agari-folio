@@ -562,7 +562,10 @@ def tsv_to_json(tsv_string, project_id):
                 if i < len(values):
                     record[headers[i]] = values[i]
                 else:
-                    record[headers[i]] = None
+                    # For missing values, use empty string for string fields, None for others
+                    field_schema = schema.get("properties", {}).get(headers[i], {})
+                    field_type = field_schema.get("type")
+                    record[headers[i]] = "" if field_type == "string" else None
             
             json_list.append(record)
 
