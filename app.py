@@ -3177,7 +3177,7 @@ class ActivityLogs(Resource):
 
     @study_ns.doc('list_logs')
     @require_auth(keycloak_auth)
-    @require_permission('manage_project_users')
+    @require_permission('view_activity_log', resource_type='project', resource_id_arg='resource_id')
     def get(self, resource_id):
         try:
             page = int(request.args.get('page', 1))
