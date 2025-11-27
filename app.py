@@ -3185,7 +3185,7 @@ class ActivityLogs(Resource):
             offset = (page - 1) * limit
 
             with get_db_cursor() as cursor:
-                paginate_activity_log = True
+                paginate_activity_log = False
 
                 if not paginate_activity_log:
                     cursor.execute("""
