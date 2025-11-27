@@ -70,6 +70,34 @@ services:
       retries: 12
       start_period: 120s
 
+  index:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.3
+    expose:
+      - "9200"
+    ports:
+      - "127.0.0.1:9200:9200"
+    container_name: index
+    environment:
+      - node.name=index
+      - cluster.name=opensanctions-index
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - index-os-data:/usr/share/elasticsearch/data
+    healthcheck:
+      # curl --fail exits with an exit code >0 if anything about the request fails
+      test: ["CMD-SHELL", "curl --fail http://localhost:9200/_cluster/health || exit 1"]
+    deploy:
+      placement:
+        max_replicas_per_node: 1
+
 volumes:
   keycloak-db-data:
   folio-db-data:
+  index-os-data: null
