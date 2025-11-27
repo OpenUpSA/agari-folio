@@ -2249,12 +2249,15 @@ class ProjectSubmissionValidate2(Resource):
                 # Separate different types of errors and parse JSON fields
                 validation_errors = []
                 sequence_errors = []
+                sequence_errors_count = 0
+                schema_errors_count = 0
                 
                 for iso in isolates:
                     if iso['status'] == 'error' and iso['error']:
                         try:
                             parsed_error = json.loads(iso['error']) if isinstance(iso['error'], str) else iso['error']
                             validation_errors.append(parsed_error)
+                            schema_errors_count += 1
                         except (json.JSONDecodeError, TypeError):
                             validation_errors.append(iso['error'])
                     
@@ -2262,6 +2265,7 @@ class ProjectSubmissionValidate2(Resource):
                         try:
                             parsed_seq_error = json.loads(iso['seq_error']) if isinstance(iso['seq_error'], str) else iso['seq_error']
                             sequence_errors.append(parsed_seq_error)
+                            sequence_errors_count += 1
                         except (json.JSONDecodeError, TypeError):
                             sequence_errors.append(iso['seq_error'])
 
@@ -2274,11 +2278,11 @@ class ProjectSubmissionValidate2(Resource):
                     'status': submission['status'],
                     'total_isolates': len(isolates),
                     'validated': len([iso for iso in isolates if iso['status'] == 'validated']),
-                    'schema_errors': len([iso for iso in isolates if iso['status'] == 'error']),
-                    'sequence_errors': len([iso for iso in isolates if iso['status'] == 'sequence_error']),
+                    'schema_errors_count': schema_errors_count,
+                    'sequence_errors_count': sequence_errors_count,
                     'validation_errors': validation_errors,
-                    'sequence_errors_details': sequence_errors,
-                    'error_count': len([iso for iso in isolates if iso['status'] in ['error', 'sequence_error']])
+                    'sequence_errors': sequence_errors,
+                    'error_count': schema_errors_count + sequence_errors_count
                 }
           
         except Exception as e:
