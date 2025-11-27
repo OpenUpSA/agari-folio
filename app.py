@@ -3194,7 +3194,16 @@ class ActivityLogs(Resource):
                         WHERE resource_id = %s
                         ORDER BY created_at DESC
                     """, (resource_id,))
+                    logs = cursor.fetchall()
+                    return logs
                 else:
+                    cursor.execute("""
+                        SELECT COUNT(*) as total
+                        FROM logs
+                        WHERE resource_id = %s
+                    """, (resource_id,))
+                    total_entries = cursor.fetchone()['total']
+
                     main_query = """
                         SELECT *
                         FROM logs
@@ -3203,24 +3212,19 @@ class ActivityLogs(Resource):
                         LIMIT %s OFFSET %s
                     """
                     cursor.execute(main_query, (resource_id, limit, offset))
+                    logs = cursor.fetchall()
 
-                logs = cursor.fetchall()
-                total_count = len(logs)
+                    # Pagination metadata
+                    total_pages = (total_entries + limit - 1) // limit
+                    has_next = page < total_pages
+                    has_prev = page > 1
 
-                # Pagination metadata
-                total_pages = (total_count + limit - 1) // limit
-                has_next = page < total_pages
-                has_prev = page > 1
-
-                if not paginate_activity_log:
-                    return logs
-                else:
                     return {
                         'logs': logs,
                         'pagination': {
                             'page': page,
                             'limit': limit,
-                            'total_count': total_count,
+                            'total_entries': total_entries,
                             'total_pages': total_pages,
                             'has_next': has_next,
                             'has_prev': has_prev
