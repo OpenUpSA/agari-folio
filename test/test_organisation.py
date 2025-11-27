@@ -493,46 +493,41 @@ def test_create_organisation_invalid_sharing_policy(client, system_admin_token):
 @pytest.mark.integration
 @pytest.mark.requires_system_admin
 @pytest.mark.slow
-def test_create_organisation_valid_sharing_policies(client, system_admin_token):
+@pytest.mark.parametrize("policy", ["public", "private", "semi-private"])
+def test_create_organisation_valid_sharing_policies(client, system_admin_token, policy):
     """
     Test that all valid sharing_policy values are accepted.
 
-    Verifies:
-    - 'public' sharing_policy is accepted
-    - 'private' sharing_policy is accepted
-    - 'semi-private' sharing_policy is accepted
+    Verifies - 'public', 'private', and 'semi-private' are valid.
     """
-    valid_policies = ["public", "private", "semi-private"]
+    org_data = {
+        "name": f"Test Org {policy.title()}",
+        "sharing_policy": policy,
+    }
 
-    for policy in valid_policies:
-        org_data = {
-            "name": f"Test Org {policy.title()}",
-            "sharing_policy": policy,
-        }
+    try:
+        response = client.post(
+            "/organisations/",
+            data=json.dumps(org_data),
+            headers={
+                "Authorization": f"Bearer {system_admin_token}",
+                "Content-Type": "application/json",
+            },
+        )
 
-        try:
-            response = client.post(
-                "/organisations/",
-                data=json.dumps(org_data),
-                headers={
-                    "Authorization": f"Bearer {system_admin_token}",
-                    "Content-Type": "application/json",
-                },
+        assert response.status_code == 201, (
+            f"Valid sharing_policy '{policy}' should be accepted, "
+            f"got {response.status_code}: {response.get_json()}"
+        )
+        result = response.get_json()
+        assert result["organisation"]["sharing_policy"] == policy
+    finally:
+        # Cleanup
+        with get_db_cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM organisations WHERE name = %s",
+                (f"Test Org {policy.title()}",),
             )
-
-            assert response.status_code == 201, (
-                f"Valid sharing_policy '{policy}' should be accepted, "
-                f"got {response.status_code}: {response.get_json()}"
-            )
-            result = response.get_json()
-            assert result["organisation"]["sharing_policy"] == policy
-        finally:
-            # Cleanup
-            with get_db_cursor() as cursor:
-                cursor.execute(
-                    "DELETE FROM organisations WHERE name = %s",
-                    (f"Test Org {policy.title()}",),
-                )
 
 
 ####################################################
@@ -841,59 +836,53 @@ def test_add_org_member_invalid_role(client, system_admin_token, public_project1
 @pytest.mark.organisation
 @pytest.mark.integration
 @pytest.mark.requires_system_admin
-def test_add_org_member_valid_roles(client, system_admin_token, public_project1):
+@pytest.mark.parametrize("role", ["org-viewer", "org-admin", "org-contributor", "org-owner"])
+def test_add_org_member_valid_roles(client, system_admin_token, org1, role):
     """
     Test that all valid organisation roles are accepted.
 
-    Verifies:
-    - org-viewer role is valid
-    - org-admin role is valid
-    - org-contributor role is valid
-    - org-owner role is valid
+    Verifies roles - org-viewer, org-admin, org-contributor, org-owner are valid.
     """
-    valid_roles = ["org-viewer", "org-admin", "org-contributor", "org-owner"]
-    org_id = public_project1["organisation_id"]
+    org_id = org1["id"]
+    # Create user
+    user_email = f"test-{role}-{org_id[:8]}@example.com"
+    create_user_data = {
+        "email": user_email,
+        "redirect_uri": "http://example.com",
+        "send_email": False,
+    }
+    user_response = client.post(
+        "/users/",
+        data=json.dumps(create_user_data),
+        headers={
+            "Authorization": f"Bearer {system_admin_token}",
+            "Content-Type": "application/json",
+        },
+    )
+    assert user_response.status_code == 200
+    user_id = user_response.get_json()["user_id"]
 
-    for role in valid_roles:
-        # Create user
-        user_email = f"test-{role}-{org_id[:8]}@example.com"
-        create_user_data = {
-            "email": user_email,
-            "redirect_uri": "http://example.com",
-            "send_email": False,
-        }
-        user_response = client.post(
-            "/users/",
-            data=json.dumps(create_user_data),
+    # Add member with this role
+    member_data = {
+        "user_id": user_id,
+        "role": role,
+        "redirect_uri": "http://example.com",
+    }
+
+    with patch("helpers.sg.send", return_value=Mock(status_code=202)):
+        response = client.post(
+            f"/organisations/{org_id}/members",
+            data=json.dumps(member_data),
             headers={
                 "Authorization": f"Bearer {system_admin_token}",
                 "Content-Type": "application/json",
             },
         )
-        assert user_response.status_code == 200
-        user_id = user_response.get_json()["user_id"]
 
-        # Add member with this role
-        member_data = {
-            "user_id": user_id,
-            "role": role,
-            "redirect_uri": "http://example.com",
-        }
-
-        with patch("helpers.sg.send", return_value=Mock(status_code=202)):
-            response = client.post(
-                f"/organisations/{org_id}/members",
-                data=json.dumps(member_data),
-                headers={
-                    "Authorization": f"Bearer {system_admin_token}",
-                    "Content-Type": "application/json",
-                },
-            )
-
-        assert response.status_code == 200, (
-            f"Valid role '{role}' should be accepted, "
-            f"got {response.status_code}: {response.get_json()}"
-        )
+    assert response.status_code == 200, (
+        f"Valid role '{role}' should be accepted, "
+        f"got {response.status_code}: {response.get_json()}"
+    )
 
 
 @pytest.mark.organisation_members
@@ -1092,7 +1081,7 @@ def test_accept_org_invitation_success(client, system_admin_token, keycloak_auth
 @pytest.mark.integration
 @pytest.mark.requires_system_admin
 @pytest.mark.slow
-@pytest.mark.parametrize("role", ["org-viewer", "org-admin", "org-contributor", "org-owner"])
+@pytest.mark.parametrize("role", ["org-viewer", "org-admin", "org-contributor"])
 def test_accept_org_invitation_all_roles(client, system_admin_token, keycloak_auth, org1, role):
     """
     Test accepting organisation invitations with different roles.
@@ -1101,8 +1090,6 @@ def test_accept_org_invitation_all_roles(client, system_admin_token, keycloak_au
     - All org roles work correctly (org-viewer, org-admin, org-contributor, org-owner)
     """
 
-    if role == 'org-owner':
-        pytest.skip()
     org_id = org1["id"]
 
     # Create a test user
@@ -1176,8 +1163,7 @@ def test_accept_org_invitation_invalid_token(client):
 @pytest.mark.organisation
 @pytest.mark.integration
 @pytest.mark.requires_system_admin
-@pytest.mark.skip(reason="not currently working, not sure why")
-def test_accept_org_invitation_owner_role(client, system_admin_token, keycloak_auth, org1):
+def test_accept_org_invitation_owner_role(client, org1_owner, org1_owner_token, keycloak_auth, org1):
     """
     Test accepting organisation invitation with org-owner role.
 
@@ -1198,7 +1184,7 @@ def test_accept_org_invitation_owner_role(client, system_admin_token, keycloak_a
         "/users/",
         data=json.dumps(create_user_data),
         headers={
-            "Authorization": f"Bearer {system_admin_token}",
+            "Authorization": f"Bearer {org1_owner_token}",
             "Content-Type": "application/json",
         },
     )
@@ -1207,17 +1193,17 @@ def test_accept_org_invitation_owner_role(client, system_admin_token, keycloak_a
 
     # Invite user with org-owner role
     member_data = {
-        "user_id": user_id,
-        "role": "org-owner",
+        "new_owner_id": user_id,
+        "current_owner_id": org1_owner["user_id"],
         "redirect_uri": "http://example.com",
     }
 
     with patch("helpers.sg.send", return_value=Mock(status_code=202)):
-        invite_response = client.post(
-            f"/organisations/{org_id}/members",
+            invite_response = client.post(
+            f"/organisations/{org_id}/owner",
             data=json.dumps(member_data),
             headers={
-                "Authorization": f"Bearer {system_admin_token}",
+                "Authorization": f"Bearer {org1_owner_token}",
                 "Content-Type": "application/json",
             },
         )
@@ -1237,8 +1223,9 @@ def test_accept_org_invitation_owner_role(client, system_admin_token, keycloak_a
     assert result["role"] == "org-owner"
     assert result["realm_role_assigned"] == "agari-org-owner"
 
-    # Verify old owner was saved in attributes before acceptance
-    # (This is checked in the invite flow, not in the accept response)
+    # Verify previous owner downgraded to org-admin
+    previous_owner_attrs = keycloak_auth.get_user_attributes(org1_owner["user_id"])
+    assert previous_owner_attrs['realm_role'][0] == 'org-admin'
 
 
 @pytest.mark.organisation_members

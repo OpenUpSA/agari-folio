@@ -1175,7 +1175,7 @@ class OrganisationRoles(Resource):
 
 @organisation_ns.route('/<string:org_id>/owner')
 class OrganisationOwner(Resource):
-    ### POST /organisations/owner ###
+    ### POST /organisations/<string:org_id>/owner ###
 
     @organisation_ns.doc('change_organisation_owner')
     @require_auth(keycloak_auth)
