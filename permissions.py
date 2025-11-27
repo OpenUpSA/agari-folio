@@ -49,6 +49,6 @@ PERMISSIONS = {
     "download_isolates": ["system-admin", "agari-org-owner", "agari-org-admin", "agari-org-contributor", "agari-org-viewer", "attr-project-admin", "attr-project-contributor", "attr-project-viewer"],
 
     # Other
-    "view_activity_log": ["system-admin", "agari-org-owner", "agari-org-admin", "attr-project-admin", "agari-org-partial"],
+    "view_activity_log": ["system-admin", "agari-org-owner", "agari-org-admin", "attr-project-admin"],
 
 }
