@@ -404,7 +404,7 @@ def extract_invite_roles(users_list, invite_type):
 def log_event(log_type, resource_id, log_entry, user_info=None):
     """
     Event types:
-    - project_created, project_deleted
+    - project_created, project_deleted, project_privacy
     - user_added, user_invited, user_accepted, project_user_deleted
     - org_user_added, org_user_invited, org_user_accepted
     - submission_created, file_uploaded, submission_validated, submission_published, submission_unpublished
@@ -503,15 +503,19 @@ def tsv_to_json(tsv_string, project_id):
             for i in range(min(len(values), len(headers))):
                 header = headers[i]
                 value = values[i]
-                
-                if not value or value.strip() == "":
-                    values[i] = None
-                    continue
-                
+
                 # Get field schema definition
                 field_schema = schema.get("properties", {}).get(header, {})
                 field_type = field_schema.get("type")
                 split_regex = field_schema.get("x-split-regex")
+                
+                if not value or value.strip() == "":
+                    # For string fields, use empty string; for others use None
+                    if field_type == "string":
+                        values[i] = ""
+                    else:
+                        values[i] = None
+                    continue
                 
                 # Handle array fields (with or without regex splitting)
                 if field_type == "array" and value:
@@ -558,7 +562,10 @@ def tsv_to_json(tsv_string, project_id):
                 if i < len(values):
                     record[headers[i]] = values[i]
                 else:
-                    record[headers[i]] = None
+                    # For missing values, use empty string for string fields, None for others
+                    field_schema = schema.get("properties", {}).get(headers[i], {})
+                    field_type = field_schema.get("type")
+                    record[headers[i]] = "" if field_type == "string" else None
             
             json_list.append(record)
 
@@ -808,7 +815,7 @@ async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
         for line in fasta_lines:
             if line.startswith('>'):
                 # Check if this header matches what we're looking for
-                if fasta_header in line:
+                if line.startswith(f'>{fasta_header} ') or line == f'>{fasta_header}' or line.startswith(f'>{fasta_header}\t'):
                     recording = True
                     header_found = True
                     sequence_lines.append(line)

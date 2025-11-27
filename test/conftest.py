@@ -86,29 +86,118 @@ def keycloak_set_user_password(user_id, new_password, keycloak_auth):
 def pathogen(client, system_admin_token):
     """Create a test pathogen and clean it up after the test"""
     pathogen_data = {
-        'name': 'Test Pathogen',
-        'description': 'Test pathogen for testing',
-        'scientific_name': 'Testus pathogenus'
+        "name": "Test Pathogen",
+        "description": "Test pathogen for testing",
+        "scientific_name": "Testus pathogenus",
     }
-    response = client.post(
-        '/pathogens/',
-        data=json.dumps(pathogen_data),
-        headers={
-            'Authorization': f'Bearer {system_admin_token}',
-            'Content-Type': 'application/json'
-        }
+
+    # Check if pathogen already exists
+    existing_pathogen = get_pathogen_by_name(
+        client, system_admin_token, pathogen_data["name"]
     )
-    assert response.status_code == 201, f"Failed to create pathogen: {response.get_json()}"
-    pathogen = response.get_json()["pathogen"]
-    pathogen_id = pathogen['id']
+
+    if existing_pathogen:
+        pathogen = existing_pathogen
+    else:
+        response = client.post(
+            "/pathogens/",
+            data=json.dumps(pathogen_data),
+            headers={
+                "Authorization": f"Bearer {system_admin_token}",
+                "Content-Type": "application/json",
+            },
+        )
+        assert response.status_code == 201, (
+            f"Failed to create pathogen: {response.get_json()}"
+        )
+        pathogen = response.get_json()["pathogen"]
+
+    pathogen_id = pathogen["id"]
 
     yield pathogen
 
     # Cleanup: Delete the pathogen
     client.delete(
-        f'/pathogens/{pathogen_id}?hard=true',
-        headers={'Authorization': f'Bearer {system_admin_token}'}
+        f"/pathogens/{pathogen_id}?hard=true",
+        headers={"Authorization": f"Bearer {system_admin_token}"},
     )
+
+
+@pytest.fixture
+def pathogen_with_schema(client, system_admin_token, pathogen):
+    """Create a test pathogen with schema assigned for e2e testing"""
+    from io import BytesIO
+
+    # First, create a minimal schema
+    schema_data = {
+        "name": "e2e_test_schema",
+        "pathogen_id": pathogen["id"],
+        "description": "E2E test schema",
+        "version": 1,
+        "schema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "isolate_id": {
+                    "type": "string",
+                    "description": "Unique isolate identifier",
+                },
+                "n50": {"type": ["string", "number"], "description": "N50 value"},
+                "serogroup": {
+                    "type": "string",
+                    "description": "Serogroup classification",
+                },
+            },
+            "required": ["isolate_id"],
+        },
+    }
+
+    # Create a dummy JSON file for the schema
+    schema_file = BytesIO(json.dumps(schema_data["schema"]).encode("utf-8"))
+
+    # Create schema via API
+    schema_response = client.post(
+        "/schemas/",
+        data={
+            "metadata": json.dumps(schema_data),
+            "file": (schema_file, "e2e_test_schema.json"),
+        },
+        headers={"Authorization": f"Bearer {system_admin_token}"},
+        content_type="multipart/form-data",
+    )
+    assert schema_response.status_code == 201, (
+        f"Failed to create schema: {schema_response.get_json() if schema_response.status_code != 308 else 'Got redirect (308)'}"
+    )
+    schema_id = schema_response.get_json()["schema"]["id"]
+
+    # Update pathogen with schema_id
+    pathogen_data = {
+        "name": pathogen["name"],
+        "description": pathogen["description"],
+        "scientific_name": pathogen["scientific_name"],
+        "schema_id": schema_id,
+    }
+    response = client.put(
+        f"/pathogens/{pathogen['id']}",
+        data=json.dumps(pathogen_data),
+        headers={
+            "Authorization": f"Bearer {system_admin_token}",
+            "Content-Type": "application/json",
+        },
+    )
+    assert response.status_code == 200, (
+        f"Failed to update pathogen: {response.get_json()}"
+    )
+    updated_pathogen = response.get_json()["pathogen"]
+
+    yield updated_pathogen
+
+    # Cleanup: Delete the schema only (pathogen is cleaned up by the pathogen fixture)
+    client.delete(
+        f"/schemas/{schema_id}?hard=true",
+        headers={"Authorization": f"Bearer {system_admin_token}"},
+    )
+
 
 @pytest.fixture
 def system_admin_token():
@@ -198,7 +287,6 @@ def org1_admin(client, org1, system_admin_token, keycloak_auth):
             'Content-Type': 'application/json'
         }
     )
-    print("TESTME: ", response.get_json())
     assert response.status_code == 200, f"Failed to add org1 admin user: {response.get_json()}"
 
     yield user
@@ -345,6 +433,21 @@ def public_project2(client, org1_admin_token, pathogen):
     # Cleanup: Delete the project
 
 
+@pytest.fixture
+def e2e_project(client, org1_admin_token, pathogen_with_schema):
+    """Create a test project with schema-enabled pathogen for e2e testing"""
+    project = make_project(
+        client, org1_admin_token, pathogen_with_schema, name="E2E Test Project"
+    )
+    yield project
+
+    # Cleanup: Delete the project
+    client.delete(
+        f"/projects/{project['id']}?hard=true",
+        headers={"Authorization": f"Bearer {org1_admin_token}"},
+    )
+
+
 # TODO: Move this to a data layer
 def make_project(client, org1_admin_token, pathogen, name):
     """Create a test project with public privacy and clean it up after the test"""
@@ -368,25 +471,44 @@ def make_project(client, org1_admin_token, pathogen, name):
 
 def get_org_by_name(client, system_admin_token, org_name):
     """Get organisation details by name"""
-    response = client.get(
-        '/organisations/',
-        headers={
-            'Authorization': f'Bearer {system_admin_token}',
-            'Content-Type': 'application/json'
-        }
-    )
-    assert response.status_code == 200, f"Failed to get organisations: {response.get_json()}"
-    orgs = response.get_json()
-    for org in orgs:
-        if org['name'] == org_name:
-            return org
-    return None
+    from database import get_db_cursor
+
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT * FROM organisations WHERE name = %s AND deleted_at IS NULL
+        """,
+            (org_name,),
+        )
+        org = cursor.fetchone()
+        return dict(org) if org else None
+
+
+def get_pathogen_by_name(client, system_admin_token, pathogen_name):
+    """Get pathogen details by name"""
+    from database import get_db_cursor
+
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT * FROM pathogens WHERE name = %s AND deleted_at IS NULL
+        """,
+            (pathogen_name,),
+        )
+        pathogen = cursor.fetchone()
+        return dict(pathogen) if pathogen else None
+
 
 def create_user_if_not_exists(client, system_admin_token, keycloak_auth, **kwargs):
     """Create a user if they do not already exist"""
     users = keycloak_auth.get_users_by_attribute('email', kwargs.get('email'), exact_match=True)
     if users:
-        return {'user_id': users[0]['id'], **kwargs}
+        user_id = users[0]["id"]
+        # Ensure password and enabled state for existing users too
+        keycloak_set_user_password(user_id, "pass123", keycloak_auth)
+        keycloak_auth.toggle_user_enabled(user_id, True)
+        return {"user_id": user_id, **kwargs}
+
     response = client.post(
         '/users/',
         data=json.dumps({'redirect_uri': 'http://example.com', **kwargs}),

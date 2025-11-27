@@ -1509,6 +1509,9 @@ class Project(Resource):
                 if not updated_project:
                     return {'error': 'Project not found or already deleted'}, 404
                 
+                if 'privacy' in data:
+                    user_info = extract_user_info(request.user)
+                    log_event("project_privacy", project_id, {"project_name": updated_project["name"], "new_privacy": data['privacy']}, user_info)
                 return {
                     'message': 'Project updated successfully',
                     'project': updated_project
@@ -1907,44 +1910,18 @@ class ProjectSubmission2(Resource):
                     WHERE id = %s AND project_id = %s
                 """, (submission_id, project_id))
                 submission = cursor.fetchone()
+                
                 if not submission:
                     return {'error': 'Submission not found'}, 404
                 
-                # Delete associated files first
-                cursor.execute("""
-                    DELETE FROM submission_files
-                    WHERE submission_id = %s
-                """, (submission_id,))
-
-                # delete the isolates from isolates table
-                cursor.execute("""
-                    DELETE FROM isolates
-                    WHERE submission_id = %s
-                """, (submission_id,))
-
-                ### DELETE MINIO OBJECTS
-
-                # Get all object_ids for files associated with this submission
+                 # 1. Get all object_ids for files associated with this submission FIRST
                 cursor.execute("""
                     SELECT object_id FROM submission_files
                     WHERE submission_id = %s
                 """, (submission_id,))
-
                 file_objects = cursor.fetchall()
 
-                # Delete each object from MinIO
-                for file_obj in file_objects:
-                    if file_obj['object_id']:
-                        try:
-                            delete_minio_object(file_obj['object_id'])
-                            logger.info(f"Deleted MinIO object: {file_obj['object_id']}")
-                        except Exception as delete_error:
-                            logger.exception(f"Failed to delete MinIO object {file_obj['object_id']}: {str(delete_error)}")
-                            # Continue with other deletions even if one fails
-                            continue
-
-                
-                # Delete from elasticsearch index
+                # 2. Delete from elasticsearch index
                 try:
                     delete_from_elastic(submission_id)
                     logger.info(f"Deleted submission {submission_id} from Elasticsearch index")
@@ -1953,11 +1930,23 @@ class ProjectSubmission2(Resource):
                     # Continue with other deletions even if ES deletion fails
                     pass
 
-                # Delete the submission
-                cursor.execute("""
-                    DELETE FROM submissions 
-                    WHERE id = %s AND project_id = %s
-                """, (submission_id, project_id)) 
+                # 3. Delete associated database records
+                cursor.execute("DELETE FROM isolates WHERE submission_id = %s", (submission_id,))
+                cursor.execute("DELETE FROM submission_files WHERE submission_id = %s", (submission_id,))
+                
+                # 4. Delete the submission record itself
+                cursor.execute("DELETE FROM submissions WHERE id = %s AND project_id = %s", (submission_id, project_id)) 
+
+            # 5. Now, delete the objects from MinIO using the list fetched earlier
+            for file_obj in file_objects:
+                if file_obj['object_id']:
+                    try:
+                        delete_minio_object(file_obj['object_id'])
+                        logger.info(f"Deleted MinIO object: {file_obj['object_id']}")
+                    except Exception as delete_error:
+                        logger.exception(f"Failed to delete MinIO object {file_obj['object_id']}: {str(delete_error)}")
+                        # Continue with other deletions even if one fails
+                        continue
 
                 return {
                     'message': f'Submission {submission_id} deleted successfully'
@@ -2173,6 +2162,19 @@ class ReplaceProjectSubmissionFile2(Resource):
                 file_record = cursor.fetchone()
                 if not file_record:
                     return {'error': 'File not found'}, 404
+                
+                # NEW: Check if this object_id is referenced by any isolates
+                cursor.execute("""
+                    SELECT COUNT(*) as ref_count
+                    FROM isolates 
+                    WHERE object_id = %s
+                """, (file_record['object_id'],))
+                
+                result = cursor.fetchone()
+                if result['ref_count'] > 0:
+                    return {
+                        'error': f'Cannot delete {file_record["filename"]}: {result["ref_count"]} isolates reference this object'
+                    }, 400
 
             # Delete from MinIO
             try:
@@ -2247,12 +2249,15 @@ class ProjectSubmissionValidate2(Resource):
                 # Separate different types of errors and parse JSON fields
                 validation_errors = []
                 sequence_errors = []
+                sequence_errors_count = 0
+                schema_errors_count = 0
                 
                 for iso in isolates:
                     if iso['status'] == 'error' and iso['error']:
                         try:
                             parsed_error = json.loads(iso['error']) if isinstance(iso['error'], str) else iso['error']
                             validation_errors.append(parsed_error)
+                            schema_errors_count += 1
                         except (json.JSONDecodeError, TypeError):
                             validation_errors.append(iso['error'])
                     
@@ -2260,6 +2265,7 @@ class ProjectSubmissionValidate2(Resource):
                         try:
                             parsed_seq_error = json.loads(iso['seq_error']) if isinstance(iso['seq_error'], str) else iso['seq_error']
                             sequence_errors.append(parsed_seq_error)
+                            sequence_errors_count += 1
                         except (json.JSONDecodeError, TypeError):
                             sequence_errors.append(iso['seq_error'])
 
@@ -2272,11 +2278,11 @@ class ProjectSubmissionValidate2(Resource):
                     'status': submission['status'],
                     'total_isolates': len(isolates),
                     'validated': len([iso for iso in isolates if iso['status'] == 'validated']),
-                    'schema_errors': len([iso for iso in isolates if iso['status'] == 'error']),
-                    'sequence_errors': len([iso for iso in isolates if iso['status'] == 'sequence_error']),
+                    'schema_errors_count': schema_errors_count,
+                    'sequence_errors_count': sequence_errors_count,
                     'validation_errors': validation_errors,
-                    'sequence_errors_details': sequence_errors,
-                    'error_count': len([iso for iso in isolates if iso['status'] in ['error', 'sequence_error']])
+                    'sequence_errors': sequence_errors,
+                    'error_count': schema_errors_count + sequence_errors_count
                 }
           
         except Exception as e:
@@ -2349,7 +2355,7 @@ class ProjectSubmissionValidate2(Resource):
                     'validation_errors': [f'Exactly 1 TSV file required, found {len(tsv_files)}']
                 }, 400
             
-            if len(fasta_files) < 1:
+            if settings.REQUIRE_FASTA_FILE and len(fasta_files) < 1:
                 with get_db_cursor() as cursor:
                     cursor.execute("""
                         UPDATE submissions 
@@ -3183,41 +3189,51 @@ class ActivityLogs(Resource):
             offset = (page - 1) * limit
 
             with get_db_cursor() as cursor:
-                #main_query = """
-                #    SELECT *
-                #    FROM logs
-                #    WHERE resource_id = %s
-                #    ORDER BY created_at DESC
-                #    LIMIT %s OFFSET %s
-                #"""
-                #cursor.execute(main_query, (resource_id, limit, offset))
+                paginate_activity_log = True
 
-                cursor.execute("""
-                    SELECT *
-                    FROM logs
-                    WHERE resource_id = %s
-                    ORDER BY created_at DESC
-                """, (resource_id,))
+                if not paginate_activity_log:
+                    cursor.execute("""
+                        SELECT *
+                        FROM logs
+                        WHERE resource_id = %s
+                        ORDER BY created_at DESC
+                    """, (resource_id,))
+                    logs = cursor.fetchall()
+                    return logs
+                else:
+                    cursor.execute("""
+                        SELECT COUNT(*) as total
+                        FROM logs
+                        WHERE resource_id = %s
+                    """, (resource_id,))
+                    total_entries = cursor.fetchone()['total']
 
-                logs = cursor.fetchall()
-                total_count = len(logs)
+                    main_query = """
+                        SELECT *
+                        FROM logs
+                        WHERE resource_id = %s
+                        ORDER BY created_at DESC
+                        LIMIT %s OFFSET %s
+                    """
+                    cursor.execute(main_query, (resource_id, limit, offset))
+                    logs = cursor.fetchall()
 
-                # Pagination metadata
-                total_pages = (total_count + limit - 1) // limit
-                has_next = page < total_pages
-                has_prev = page > 1
-                return logs
-                return {
-                    'logs': logs,
-                    'pagination': {
-                        'page': page,
-                        'limit': limit,
-                        'total_count': total_count,
-                        'total_pages': total_pages,
-                        'has_next': has_next,
-                        'has_prev': has_prev
+                    # Pagination metadata
+                    total_pages = (total_entries + limit - 1) // limit
+                    has_next = page < total_pages
+                    has_prev = page > 1
+
+                    return {
+                        'logs': logs,
+                        'pagination': {
+                            'page': page,
+                            'limit': limit,
+                            'total_entries': total_entries,
+                            'total_pages': total_pages,
+                            'has_next': has_next,
+                            'has_prev': has_prev
+                        }
                     }
-                }
         except Exception as e:
             logger.exception("Error retrieving activity logs")
             return {'error': f'Database error: {str(e)}'}, 500
