@@ -503,15 +503,19 @@ def tsv_to_json(tsv_string, project_id):
             for i in range(min(len(values), len(headers))):
                 header = headers[i]
                 value = values[i]
-                
-                if not value or value.strip() == "":
-                    values[i] = None
-                    continue
-                
+
                 # Get field schema definition
                 field_schema = schema.get("properties", {}).get(header, {})
                 field_type = field_schema.get("type")
                 split_regex = field_schema.get("x-split-regex")
+                
+                if not value or value.strip() == "":
+                    # For string fields, use empty string; for others use None
+                    if field_type == "string":
+                        values[i] = ""
+                    else:
+                        values[i] = None
+                    continue
                 
                 # Handle array fields (with or without regex splitting)
                 if field_type == "array" and value:
@@ -558,7 +562,10 @@ def tsv_to_json(tsv_string, project_id):
                 if i < len(values):
                     record[headers[i]] = values[i]
                 else:
-                    record[headers[i]] = None
+                    # For missing values, use empty string for string fields, None for others
+                    field_schema = schema.get("properties", {}).get(headers[i], {})
+                    field_type = field_schema.get("type")
+                    record[headers[i]] = "" if field_type == "string" else None
             
             json_list.append(record)
 
