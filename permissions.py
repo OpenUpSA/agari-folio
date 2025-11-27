@@ -46,6 +46,9 @@ PERMISSIONS = {
     "upload_submission": ["system-admin", "agari-org-owner", "agari-org-admin", "agari-org-contributor", "attr-project-admin", "attr-project-contributor"],
     "publish_submission": ["system-admin", "agari-org-owner", "agari-org-admin", "agari-org-contributor", "attr-project-admin", "attr-project-contributor"],
     "unpublish_submission": ["system-admin", "agari-org-owner", "agari-org-admin", "agari-org-contributor", "attr-project-admin", "attr-project-contributor"],
-    "download_isolates": ["system-admin", "agari-org-owner", "agari-org-admin", "agari-org-contributor", "agari-org-viewer", "attr-project-admin", "attr-project-contributor", "attr-project-viewer"]
+    "download_isolates": ["system-admin", "agari-org-owner", "agari-org-admin", "agari-org-contributor", "agari-org-viewer", "attr-project-admin", "attr-project-contributor", "attr-project-viewer"],
+
+    # Other
+    "view_activity_log": ["system-admin", "agari-org-owner", "agari-org-admin", "attr-project-admin"],
 
 }
