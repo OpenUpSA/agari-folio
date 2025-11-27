@@ -3185,20 +3185,24 @@ class ActivityLogs(Resource):
             offset = (page - 1) * limit
 
             with get_db_cursor() as cursor:
-                #main_query = """
-                #    SELECT *
-                #    FROM logs
-                #    WHERE resource_id = %s
-                #    ORDER BY created_at DESC
-                #    LIMIT %s OFFSET %s
-                #"""
-                #cursor.execute(main_query, (resource_id, limit, offset))
-                cursor.execute("""
-                    SELECT *
-                    FROM logs
-                    WHERE resource_id = %s
-                    ORDER BY created_at DESC
-                """, (resource_id,))
+                paginate_activity_log = True
+
+                if not paginate_activity_log:
+                    cursor.execute("""
+                        SELECT *
+                        FROM logs
+                        WHERE resource_id = %s
+                        ORDER BY created_at DESC
+                    """, (resource_id,))
+                else:
+                    main_query = """
+                        SELECT *
+                        FROM logs
+                        WHERE resource_id = %s
+                        ORDER BY created_at DESC
+                        LIMIT %s OFFSET %s
+                    """
+                    cursor.execute(main_query, (resource_id, limit, offset))
 
                 logs = cursor.fetchall()
                 total_count = len(logs)
@@ -3207,18 +3211,21 @@ class ActivityLogs(Resource):
                 total_pages = (total_count + limit - 1) // limit
                 has_next = page < total_pages
                 has_prev = page > 1
-                return logs
-                return {
-                    'logs': logs,
-                    'pagination': {
-                        'page': page,
-                        'limit': limit,
-                        'total_count': total_count,
-                        'total_pages': total_pages,
-                        'has_next': has_next,
-                        'has_prev': has_prev
+
+                if not paginate_activity_log:
+                    return logs
+                else:
+                    return {
+                        'logs': logs,
+                        'pagination': {
+                            'page': page,
+                            'limit': limit,
+                            'total_count': total_count,
+                            'total_pages': total_pages,
+                            'has_next': has_next,
+                            'has_prev': has_prev
+                        }
                     }
-                }
         except Exception as e:
             logger.exception("Error retrieving activity logs")
             return {'error': f'Database error: {str(e)}'}, 500
