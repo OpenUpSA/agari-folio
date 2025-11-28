@@ -828,17 +828,12 @@ class UserEmail(Resource):
                 return {"error": "No JSON data provided"}, 400
 
             user_info = extract_user_info(request.user)
-            current_user_id = user_info.get("user_id")
-            redirect_uri = data.get("redirect_uri")
+            redirect_uri = settings.FRONTEND_URL
             new_email = data.get("new_email")
 
-            if not redirect_uri:
-                return {"error": "redirect_uri is required for confirmation link"}, 400
             if not new_email:
                 return {"error": "new_email is required for confirmation link"}, 400
-
             # Check if user is trying to edit their own profile
-            print(user_info)
             return invite_email_change(user_info, redirect_uri, new_email)
         except Exception as e:
             logger.exception(f"Changing user email failed: {str(e)}")

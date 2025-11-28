@@ -307,7 +307,7 @@ def invite_email_change(user, redirect_uri, new_email):
 
     result, status_code = sendgrid_email(to_email, to_name, subject, html_content)
 
-    user_id = "af52b5d2-29bc-4b5d-ac65-2c1bc5583368" # user["user_id"]
+    user_id = user["user_id"]
     if status_code in [200, 201, 202, 204]:
         # assign temp invite attributes to user
         keycloak_auth.add_attribute_value(user_id, "invite_token", inv_token)
