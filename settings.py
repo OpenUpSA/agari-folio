@@ -17,10 +17,6 @@ KEYCLOAK_REALM = os.getenv('KEYCLOAK_REALM', 'agari')
 KEYCLOAK_CLIENT_ID = os.getenv('KEYCLOAK_CLIENT_ID', 'dms')
 KEYCLOAK_CLIENT_SECRET = os.getenv('KEYCLOAK_CLIENT_SECRET', 'VDyLEjGR3xDQvoQlrHq5AB6OwbW0Refc')
 
-# Overture (SONG and SCORE) Configuration
-OVERTURE_SONG = os.getenv('OVERTURE_SONG', 'http://song.local')
-OVERTURE_SCORE = os.getenv('OVERTURE_SCORE', 'http://score.local')
-
 # MinIO Configuration
 MINIO_ENDPOINT = os.getenv('MINIO_ENDPOINT', 'localhost:9000')
 MINIO_ACCESS_KEY = os.getenv('MINIO_ACCESS_KEY', 'admin')
@@ -45,3 +41,5 @@ REQUIRE_FASTA_FILE = os.getenv('REQUIRE_FASTA_FILE', 'false').lower() == 'true'
 
 # Application Configuration
 PORT = int(os.getenv('PORT', 8000))
+
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'agari.local')
