@@ -18,6 +18,12 @@ settings.DB_PORT = os.getenv("TEST_DB_PORT", 5434)
 # Import only after overriding service urls
 from app import app
 
+# Fix Flask-RESTX JSON encoder configuration for testing
+# The 'cls' parameter is not valid in newer Flask versions, use 'default' instead
+if 'RESTX_JSON' in app.config and 'cls' in app.config['RESTX_JSON']:
+    encoder_cls = app.config['RESTX_JSON']['cls']
+    app.config['RESTX_JSON'] = {'default': encoder_cls().default}
+
 
 @pytest.fixture
 def requests_mock():
@@ -116,12 +122,14 @@ def pathogen(client, system_admin_token):
 
     yield pathogen
 
-    # Cleanup: Delete the pathogen
-    client.delete(
-        f"/pathogens/{pathogen_id}?hard=true",
-        headers={"Authorization": f"Bearer {system_admin_token}"},
-    )
-
+    # Cleanup: Delete the pathogen and schemas attached to it
+    try:
+        client.delete(
+            f"/pathogens/{pathogen_id}?hard=true",
+            headers={"Authorization": f"Bearer {system_admin_token}"},
+        )
+    except Exception as e:
+        print(f"Error cleaning up pathogen {pathogen_id}: {e}")
 
 @pytest.fixture
 def pathogen_with_schema(client, system_admin_token, pathogen):
@@ -446,6 +454,160 @@ def e2e_project(client, org1_admin_token, pathogen_with_schema):
         f"/projects/{project['id']}?hard=true",
         headers={"Authorization": f"Bearer {org1_admin_token}"},
     )
+
+
+@pytest.fixture
+def private_project(client, org1_admin_token, pathogen):
+    """Create a private project"""
+    project_data = {
+        'name': 'Private Test Project',
+        'description': 'Test private project',
+        'pathogen_id': pathogen['id'],
+        'privacy': 'private'
+    }
+    response = client.post(
+        '/projects/',
+        data=json.dumps(project_data),
+        headers={
+            'Authorization': f'Bearer {org1_admin_token}',
+            'Content-Type': 'application/json'
+        }
+    )
+    assert response.status_code == 201
+    project = response.get_json()["project"]
+    yield project
+
+    client.delete(
+        f'/projects/{project["id"]}?hard=true',
+        headers={'Authorization': f'Bearer {org1_admin_token}'}
+    )
+
+
+@pytest.fixture
+def semi_private_project(client, org1_admin_token, pathogen):
+    """Create a semi-private project"""
+    project_data = {
+        'name': 'Semi-Private Test Project',
+        'description': 'Test semi-private project',
+        'pathogen_id': pathogen['id'],
+        'privacy': 'semi-private'
+    }
+    response = client.post(
+        '/projects/',
+        data=json.dumps(project_data),
+        headers={
+            'Authorization': f'Bearer {org1_admin_token}',
+            'Content-Type': 'application/json'
+        }
+    )
+    assert response.status_code == 201
+    project = response.get_json()["project"]
+    yield project
+
+    client.delete(
+        f'/projects/{project["id"]}?hard=true',
+        headers={'Authorization': f'Bearer {org1_admin_token}'}
+    )
+
+
+@pytest.fixture
+def project_admin(client, system_admin_token, keycloak_auth):
+    """Create a project admin user from org1"""
+    user_data = {
+        'username': 'project-admin@org1.ac.za',
+        'password': 'pass123',
+        'first_name': 'Project',
+        'last_name': 'Admin',
+        'email': 'project-admin@org1.ac.za'
+    }
+    user = create_user_if_not_exists(client, system_admin_token, keycloak_auth, **user_data)
+    yield user
+
+    client.delete(
+        f'/users/{user["user_id"]}?hard=true',
+        headers={'Authorization': f'Bearer {system_admin_token}'}
+    )
+
+
+@pytest.fixture
+def project_admin_token(project_admin):
+    """Get token for project admin"""
+    return keycloak_password_auth(project_admin["email"], 'pass123')
+
+
+@pytest.fixture
+def project_contributor(client, system_admin_token, keycloak_auth):
+    """Create a project contributor user from org1"""
+    user_data = {
+        'username': 'project-contributor@org1.ac.za',
+        'password': 'pass123',
+        'first_name': 'Project',
+        'last_name': 'Contributor',
+        'email': 'project-contributor@org1.ac.za'
+    }
+    user = create_user_if_not_exists(client, system_admin_token, keycloak_auth, **user_data)
+    yield user
+
+    client.delete(
+        f'/users/{user["user_id"]}?hard=true',
+        headers={'Authorization': f'Bearer {system_admin_token}'}
+    )
+
+
+@pytest.fixture
+def project_contributor_token(project_contributor):
+    """Get token for project contributor"""
+    return keycloak_password_auth(project_contributor["email"], 'pass123')
+
+
+@pytest.fixture
+def project_viewer(client, system_admin_token, keycloak_auth):
+    """Create a project viewer user from org1"""
+    user_data = {
+        'username': 'project-viewer@org1.ac.za',
+        'password': 'pass123',
+        'first_name': 'Project',
+        'last_name': 'Viewer',
+        'email': 'project-viewer@org1.ac.za'
+    }
+    user = create_user_if_not_exists(client, system_admin_token, keycloak_auth, **user_data)
+    yield user
+
+    client.delete(
+        f'/users/{user["user_id"]}?hard=true',
+        headers={'Authorization': f'Bearer {system_admin_token}'}
+    )
+
+
+@pytest.fixture
+def project_viewer_token(project_viewer):
+    """Get token for project viewer"""
+    return keycloak_password_auth(project_viewer["email"], 'pass123')
+
+
+@pytest.fixture
+def external_user(client, system_admin_token, keycloak_auth):
+    """Create an external user from org2 (not a project member)"""
+    user_data = {
+        'username': 'external-user@org2.ac.za',
+        'password': 'pass123',
+        'first_name': 'External',
+        'last_name': 'User',
+        'email': 'external-user@org2.ac.za'
+    }
+    user = create_user_if_not_exists(client, system_admin_token, keycloak_auth, **user_data)
+    yield user
+
+    client.delete(
+        f'/users/{user["user_id"]}?hard=true',
+        headers={'Authorization': f'Bearer {system_admin_token}'}
+    )
+
+
+@pytest.fixture
+def external_user_token(external_user):
+    """Get token for external user"""
+    return keycloak_password_auth(external_user["email"], 'pass123')
 
 
 # TODO: Move this to a data layer
