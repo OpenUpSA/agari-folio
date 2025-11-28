@@ -891,6 +891,10 @@ class KeycloakAuth:
         user['enabled'] = enabled
         requests.put(user_url, headers=headers, json=user)
 
+        # Update user attributes to reflect enabled status
+        self.remove_attribute_value(user_id, 'account_enabled', str(not enabled))
+        self.add_attribute_value(user_id, 'account_enabled', str(enabled))
+
 
     def get_user_access_token(self, user_id):
         """Get an access token for a specific user using token exchange or admin token"""
