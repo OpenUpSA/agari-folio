@@ -2678,11 +2678,6 @@ class Search(Resource):
         try:
             data = request.get_json()
 
-            print('========================================')
-            print("Incoming search query:")
-            print(data)
-            print('========================================')
-
             # convert json data to string and replace all .keyword with ''
             data_str = json.dumps(data).replace('.keyword', '')
             data = json.loads(data_str)
@@ -2736,10 +2731,6 @@ class Search(Resource):
 
             if not data:
                 return {'error': 'No JSON data provided'}, 400
-
-            print("Final Query ========================")
-            print(data['query'])
-            print("===================================")
 
             results = query_elastic(data)
 
@@ -2835,6 +2826,41 @@ class Reindex(Resource):
         except Exception as e:
             logger.exception(f"Error during reindexing: {str(e)}")
             return {'error': f'Reindexing error: {str(e)}'}, 500
+
+##########################
+### JOBS MONITORING
+##########################
+
+jobs_ns = api.namespace('jobs', description='Job monitoring endpoints')
+
+@jobs_ns.route('/')
+class JobsList(Resource):
+
+    ### GET /jobs ###
+
+    @jobs_ns.doc('list_jobs')
+    @require_auth(keycloak_auth)
+    @require_permission('system_admin_access')
+    def get(self):
+        """List all jobs from the jobs table"""
+        
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM jobs
+                    ORDER BY created_at DESC
+                """)
+                
+                jobs = cursor.fetchall()
+                
+                return {
+                    'jobs': jobs,
+                    'total': len(jobs)
+                }
+                
+        except Exception as e:
+            logger.exception(f"Error retrieving jobs: {str(e)}")
+            return {'error': f'Database error: {str(e)}'}, 500
 
 
 
