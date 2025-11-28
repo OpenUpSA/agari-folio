@@ -3243,7 +3243,7 @@ class ActivityLogs(Resource):
                     FROM logs
                     WHERE resource_id = %s
                 """, (resource_id,))
-                total_count = cursor.fetchone()['total']
+                total_entries = cursor.fetchone()['total']
 
                 cursor.execute("""
                     SELECT *
@@ -3255,7 +3255,7 @@ class ActivityLogs(Resource):
                 logs = cursor.fetchall()
 
                 # Pagination metadata
-                total_pages = (total_count + limit - 1) // limit
+                total_pages = (total_entries + limit - 1) // limit
                 has_next = page < total_pages
                 has_prev = page > 1
 
@@ -3264,7 +3264,7 @@ class ActivityLogs(Resource):
                     'pagination': {
                         'page': page,
                         'limit': limit,
-                        'total_count': total_count,
+                        'total_entries': total_entries,
                         'total_pages': total_pages,
                         'has_next': has_next,
                         'has_prev': has_prev
