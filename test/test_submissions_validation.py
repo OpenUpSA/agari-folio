@@ -261,7 +261,7 @@ def test_get_validation_status_success(client, org1_admin_token, public_project1
             submission_id,
             {"isolate_id": "TEST-003"},
             tsv_row=3,
-            status="sequence_error",
+            status="error",
             seq_error={"row": 3, "message": "Sequence validation failed"},
         )
 
@@ -276,8 +276,8 @@ def test_get_validation_status_success(client, org1_admin_token, public_project1
         assert result["project_id"] == public_project1["id"]
         assert result["total_isolates"] == 3
         assert result["validated"] == 1
-        assert result["schema_errors"] == 1
-        assert result["sequence_errors"] == 1
+        assert result["schema_errors_count"] == 1
+        assert result["sequence_errors_count"] == 1
         assert result["error_count"] == 2
         assert len(result["validation_errors"]) == 1
 
@@ -302,8 +302,8 @@ def test_get_validation_status_no_isolates(client, org1_admin_token, public_proj
         result = response.get_json()
         assert result["total_isolates"] == 0
         assert result["validated"] == 0
-        assert result["schema_errors"] == 0
-        assert result["sequence_errors"] == 0
+        assert result["schema_errors_count"] == 0
+        assert result["sequence_errors_count"] == 0
         assert result["error_count"] == 0
 
     finally:
