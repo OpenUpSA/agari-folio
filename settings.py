@@ -41,7 +41,7 @@ SENDGRID_FROM_NAME = os.getenv('SENDGRID_FROM_NAME', 'AGARI')
 
 # VALIDATION
 ALLOW_DUPLICATE_ISOLATE_IDS = os.getenv('ALLOW_DUPLICATE_ISOLATE_IDS', 'true').lower() == 'true'
-REQUIRE_FASTA_FILE = os.getenv('REQUIRE_FASTA_FILE', 'true').lower() == 'true'
+REQUIRE_FASTA_FILE = os.getenv('REQUIRE_FASTA_FILE', 'false').lower() == 'true'
 
 # Application Configuration
 PORT = int(os.getenv('PORT', 8000))

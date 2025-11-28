@@ -2339,8 +2339,6 @@ class ProjectSubmissionValidate2(Resource):
 
             split_on_fasta_headers = data.get('split_on_fasta_headers', True)
 
-            print('=== reading split on headers value ===', split_on_fasta_headers)
-
             # Basic validation: check file counts
             if len(tsv_files) != 1:
                 with get_db_cursor() as cursor:
