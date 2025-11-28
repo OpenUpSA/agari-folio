@@ -2200,7 +2200,6 @@ class ReplaceProjectSubmissionFile2(Resource):
                 'message': 'File deleted successfully',
                 'file_id': file_id
             }, 200
-            
         except Exception as e:
             logger.exception(f"Error deleting file {file_id} from submission {submission_id}: {str(e)}")
             return {'error': f'Deletion failed: {str(e)}'}, 500
@@ -3172,59 +3171,105 @@ class ActivityLogs(Resource):
 
     @study_ns.doc('list_logs')
     @require_auth(keycloak_auth)
-    @require_permission('view_activity_log', resource_type='project', resource_id_arg='resource_id')
     def get(self, resource_id):
         try:
+            # Check what type of resource this is
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT id FROM projects WHERE id = %s
+                """, (resource_id,))
+                is_project = cursor.fetchone() is not None
+
+                cursor.execute("""
+                    SELECT id FROM organisations WHERE id = %s
+                """, (resource_id,))
+                is_org = cursor.fetchone() is not None
+
+                cursor.execute("""
+                    SELECT id, project_id FROM submissions WHERE id = %s
+                """, (resource_id,))
+                submission = cursor.fetchone()
+                is_submission = submission is not None
+
+            if not is_project and not is_org and not is_submission:
+                return {'error': 'Resource not found'}, 404
+
+            # Check permissions based on resource type
+            user_info = extract_user_info(request.user)
+
+            if is_project:
+                has_perm, details = user_has_permission(
+                    user_info,
+                    'view_activity_log',
+                    resource_type='project',
+                    resource_id=resource_id
+                )
+            elif is_submission:
+                parent_project_id = submission['project_id']
+                has_perm, details = user_has_permission(
+                    user_info,
+                    'view_activity_log',
+                    resource_type='project',
+                    resource_id=parent_project_id
+                )
+            else:  # is_org
+                user_org_id = user_info.get('organisation_id')
+                user_roles = user_info.get('roles', [])
+                is_system_admin = 'system-admin' in user_roles
+                is_org_partial = 'agari-org-partial' in user_roles
+
+                # org-partial users cannot view organization logs
+                if is_org_partial:
+                    return {'error': 'Permission denied. Partial members cannot view organization activity logs.'}, 403
+
+                if isinstance(user_org_id, list):
+                    has_perm = resource_id in user_org_id or is_system_admin
+                else:
+                    has_perm = user_org_id == resource_id or is_system_admin
+
+                details = {'checked': 'organisation_membership'}
+
+            if not has_perm:
+                return {'error': 'Permission denied', 'details': details}, 403
+
+            # Fetch logs with pagination
             page = int(request.args.get('page', 1))
             limit = min(int(request.args.get('limit', 10)), 100)
             offset = (page - 1) * limit
 
             with get_db_cursor() as cursor:
-                paginate_activity_log = True
+                cursor.execute("""
+                    SELECT COUNT(*) as total
+                    FROM logs
+                    WHERE resource_id = %s
+                """, (resource_id,))
+                total_count = cursor.fetchone()['total']
 
-                if not paginate_activity_log:
-                    cursor.execute("""
-                        SELECT *
-                        FROM logs
-                        WHERE resource_id = %s
-                        ORDER BY created_at DESC
-                    """, (resource_id,))
-                    logs = cursor.fetchall()
-                    return logs
-                else:
-                    cursor.execute("""
-                        SELECT COUNT(*) as total
-                        FROM logs
-                        WHERE resource_id = %s
-                    """, (resource_id,))
-                    total_entries = cursor.fetchone()['total']
+                cursor.execute("""
+                    SELECT *
+                    FROM logs
+                    WHERE resource_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s OFFSET %s
+                """, (resource_id, limit, offset))
+                logs = cursor.fetchall()
 
-                    main_query = """
-                        SELECT *
-                        FROM logs
-                        WHERE resource_id = %s
-                        ORDER BY created_at DESC
-                        LIMIT %s OFFSET %s
-                    """
-                    cursor.execute(main_query, (resource_id, limit, offset))
-                    logs = cursor.fetchall()
+                # Pagination metadata
+                total_pages = (total_count + limit - 1) // limit
+                has_next = page < total_pages
+                has_prev = page > 1
 
-                    # Pagination metadata
-                    total_pages = (total_entries + limit - 1) // limit
-                    has_next = page < total_pages
-                    has_prev = page > 1
-
-                    return {
-                        'logs': logs,
-                        'pagination': {
-                            'page': page,
-                            'limit': limit,
-                            'total_entries': total_entries,
-                            'total_pages': total_pages,
-                            'has_next': has_next,
-                            'has_prev': has_prev
-                        }
+                return {
+                    'logs': logs,
+                    'pagination': {
+                        'page': page,
+                        'limit': limit,
+                        'total_count': total_count,
+                        'total_pages': total_pages,
+                        'has_next': has_next,
+                        'has_prev': has_prev
                     }
+                }
         except Exception as e:
             logger.exception("Error retrieving activity logs")
             return {'error': f'Database error: {str(e)}'}, 500
