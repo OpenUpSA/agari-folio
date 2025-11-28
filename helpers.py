@@ -3,8 +3,6 @@ import subprocess
 import json
 from datetime import datetime, date
 import hashlib
-import asyncio
-import random
 import uuid
 import requests
 import settings
