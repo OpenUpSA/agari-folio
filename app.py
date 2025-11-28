@@ -341,6 +341,20 @@ class Pathogen(Resource):
             
             with get_db_cursor() as cursor:
                 if hard_delete:
+
+                    # Check if there are associated schemas
+                    cursor.execute("""
+                        SELECT COUNT(*) as count FROM schemas 
+                        WHERE pathogen_id = %s
+                    """, (pathogen_id,))
+                    
+                    schema_count = cursor.fetchone()['count']
+                    
+                    if schema_count > 0:
+                        return {
+                            'error': f'Cannot delete pathogen: {schema_count} schema(s) are still associated with it. Delete schemas first or use soft delete.'
+                        }, 400
+
                     # Hard delete - permanently remove from database
                     cursor.execute("""
                         DELETE FROM pathogens 
