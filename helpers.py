@@ -448,6 +448,8 @@ def check_user_id(data, param_id):
 
 def tsv_to_json(tsv_string, project_id):
     import re
+
+    tsv_string = tsv_string.replace('\r\n', '\n').replace('\r', '\n')
     
     with get_db_cursor() as cursor:
         cursor.execute(
