@@ -739,11 +739,11 @@ async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
                     """
                     SELECT object_id 
                     FROM submission_files 
-                    WHERE filename = %s AND file_type = 'fasta'
+                    WHERE filename = %s AND file_type = 'fasta' AND submission_id = %s
                     ORDER BY created_at DESC 
                     LIMIT 1
                     """,
-                    (fasta_file,),
+                    (fasta_file, isolate['submission_id']),
                 )
                 file_record = cursor.fetchone()
                 
@@ -763,11 +763,11 @@ async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
                 """
                 SELECT object_id 
                 FROM submission_files 
-                WHERE filename = %s AND file_type = 'fasta'
+                WHERE filename = %s AND file_type = 'fasta' AND submission_id = %s
                 ORDER BY created_at DESC 
                 LIMIT 1
                 """,
-                (fasta_file,),
+                (fasta_file, isolate['submission_id']),
             )
             file_record = cursor.fetchone()
             
