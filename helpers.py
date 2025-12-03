@@ -495,11 +495,12 @@ def tsv_to_json(tsv_string, project_id):
         schema = schema_record["schema"]
 
         lines = tsv_string.strip().split("\n")
-        headers = lines[0].split("\t")
+        headers = [h.strip().replace('\r', '') for h in lines[0].split("\t")]
         json_list = []
 
         for line in lines[1:]:
             values = line.split("\t")
+            values = [v.strip().replace('\r', '') for v in values]
             
             # Process each value according to its schema definition
             for i in range(min(len(values), len(headers))):
