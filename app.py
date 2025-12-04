@@ -2008,6 +2008,69 @@ class ProjectSubmission2(Resource):
             return {'error': f'Database error: {str(e)}'}, 500
 
 
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/isolates')
+class ProjectSubmissionIsolates2(Resource):
+
+    ### GET /projects/<project_id>/submissions2/<submission_id>/isolates
+
+    @api.doc('list_submission_isolates_v2')
+    @require_auth(keycloak_auth)
+    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
+    def get(self, project_id, submission_id):
+
+        """List all isolates associated with a submission"""
+
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM isolates
+                    WHERE submission_id = %s
+                    ORDER BY created_at DESC
+                """, (submission_id,))
+                
+                isolates = cursor.fetchall()
+                
+                return {
+                    'submission_id': submission_id,
+                    'isolates': isolates,
+                    'total': len(isolates)
+                }
+                
+        except Exception as e:
+            logger.exception(f"Error listing isolates for submission {submission_id}: {str(e)}")
+            return {'error': f'Failed to list isolates: {str(e)}'}, 500
+        
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/isolates/<string:isolate_id>')
+class ProjectSubmissionIsolate2(Resource):
+
+    ### GET /projects/<project_id>/submissions2/<submission_id>/isolates/<isolate_id>
+
+    @api.doc('get_submission_isolate_v2')
+    @require_auth(keycloak_auth)
+    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
+    def get(self, project_id, submission_id, isolate_id):
+
+        """Get details of a specific isolate associated with a submission"""
+
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM isolates
+                    WHERE id = %s AND submission_id = %s
+                """, (isolate_id, submission_id))
+                
+                isolate = cursor.fetchone()
+                
+                if not isolate:
+                    return {'error': 'Isolate not found'}, 404
+                
+                return isolate
+                
+        except Exception as e:
+            logger.exception(f"Error retrieving isolate {isolate_id}: {str(e)}")
+            return {'error': f'Failed to retrieve isolate: {str(e)}'}, 500
+
+
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/upload2')
 class ProjectSubmissionFiles2(Resource):
 
@@ -2697,8 +2760,6 @@ class Search(Resource):
     @require_auth(keycloak_auth)
     def post(self):
 
-        print("Search samples called")
-
         """Search published samples in Elasticsearch"""
 
         try:
@@ -2730,8 +2791,7 @@ class Search(Resource):
                     "minimum_should_match": 1
                 }
             }
-
-            print(f"Access filter: {access_filter}")
+            
 
             # Add access filter to the query
             if 'query' in data and 'bool' in data['query']:
@@ -2759,8 +2819,6 @@ class Search(Resource):
                 return {'error': 'No JSON data provided'}, 400
 
             results = query_elastic(data)
-
-            print(results)
 
             return results, 200
 
