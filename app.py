@@ -2011,7 +2011,7 @@ class ProjectSubmission2(Resource):
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/isolates')
 class ProjectSubmissionIsolates2(Resource):
 
-    ### GET /projects/<project_id>/submissions2/<submission_id>/isolates
+    ### GET /projects/<project_id>/submissions/<submission_id>/isolates
 
     @api.doc('list_submission_isolates_v2')
     @require_auth(keycloak_auth)
@@ -2912,17 +2912,54 @@ class Reindex(Resource):
             return {'error': f'Reindexing error: {str(e)}'}, 500
 
 ##########################
-### JOBS MONITORING
+### ADMIN STATS
 ##########################
 
-jobs_ns = api.namespace('jobs', description='Job monitoring endpoints')
+admin_ns = api.namespace('admin', description='Admin statistics endpoints')
+@admin_ns.route('/stats')
 
-@jobs_ns.route('/')
+class AdminStats(Resource):
+    ### GET /admin/stats ###
+
+    @api.doc('get_admin_stats')
+    @require_auth(keycloak_auth)
+    @require_permission('system_admin_access')
+    def get(self):
+        """Get system-wide statistics for admin dashboard"""
+        
+        try:
+            stats = {}
+
+            with get_db_cursor() as cursor:
+                # Total users
+                cursor.execute("SELECT COUNT(*) as total_users FROM users")
+                stats['total_users'] = cursor.fetchone()['total_users']
+
+                # Total projects
+                cursor.execute("SELECT COUNT(*) as total_projects FROM projects")
+                stats['total_projects'] = cursor.fetchone()['total_projects']
+
+                # Total submissions
+                cursor.execute("SELECT COUNT(*) as total_submissions FROM submissions")
+                stats['total_submissions'] = cursor.fetchone()['total_submissions']
+
+                # Total isolates
+                cursor.execute("SELECT COUNT(*) as total_isolates FROM isolates")
+                stats['total_isolates'] = cursor.fetchone()['total_isolates']
+
+            return stats, 200
+
+        except Exception as e:
+            logger.exception(f"Error retrieving admin stats: {str(e)}")
+            return {'error': f'Statistics retrieval error: {str(e)}'}, 500
+
+
+@admin_ns.route('/jobs')
 class JobsList(Resource):
 
     ### GET /jobs ###
 
-    @jobs_ns.doc('list_jobs')
+    @admin_ns.doc('list_jobs')
     @require_auth(keycloak_auth)
     @require_permission('system_admin_access')
     def get(self):
