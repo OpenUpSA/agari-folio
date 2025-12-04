@@ -3229,67 +3229,9 @@ class ActivityLogs(Resource):
 
     @study_ns.doc('list_logs')
     @require_auth(keycloak_auth)
+    #@require_permission('view_activity_log')
     def get(self, resource_id):
         try:
-            # Check what type of resource this is
-            with get_db_cursor() as cursor:
-                cursor.execute("""
-                    SELECT id FROM projects WHERE id = %s
-                """, (resource_id,))
-                is_project = cursor.fetchone() is not None
-
-                cursor.execute("""
-                    SELECT id FROM organisations WHERE id = %s
-                """, (resource_id,))
-                is_org = cursor.fetchone() is not None
-
-                cursor.execute("""
-                    SELECT id, project_id FROM submissions WHERE id = %s
-                """, (resource_id,))
-                submission = cursor.fetchone()
-                is_submission = submission is not None
-
-            if not is_project and not is_org and not is_submission:
-                return {'error': 'Resource not found'}, 404
-
-            # Check permissions based on resource type
-            user_info = extract_user_info(request.user)
-
-            if is_project:
-                has_perm, details = user_has_permission(
-                    user_info,
-                    'view_activity_log',
-                    resource_type='project',
-                    resource_id=resource_id
-                )
-            elif is_submission:
-                parent_project_id = submission['project_id']
-                has_perm, details = user_has_permission(
-                    user_info,
-                    'view_activity_log',
-                    resource_type='project',
-                    resource_id=parent_project_id
-                )
-            else:  # is_org
-                user_org_id = user_info.get('organisation_id')
-                user_roles = user_info.get('roles', [])
-                is_system_admin = 'system-admin' in user_roles
-                is_org_partial = 'agari-org-partial' in user_roles
-
-                # org-partial users cannot view organization logs
-                if is_org_partial:
-                    return {'error': 'Permission denied. Partial members cannot view organization activity logs.'}, 403
-
-                if isinstance(user_org_id, list):
-                    has_perm = resource_id in user_org_id or is_system_admin
-                else:
-                    has_perm = user_org_id == resource_id or is_system_admin
-
-                details = {'checked': 'organisation_membership'}
-
-            if not has_perm:
-                return {'error': 'Permission denied', 'details': details}, 403
-
             # Fetch logs with pagination
             page = int(request.args.get('page', 1))
             limit = min(int(request.args.get('limit', 10)), 100)
