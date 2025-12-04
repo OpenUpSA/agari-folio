@@ -2959,7 +2959,7 @@ class JobsList(Resource):
     @require_auth(keycloak_auth)
     @require_permission('system_admin_access')
     def get(self):
-        """List all jobs from the jobs table"""
+        """List all jobs from the jobs table with summary view"""
         
         try:
             with get_db_cursor() as cursor:
@@ -2970,13 +2970,67 @@ class JobsList(Resource):
                 
                 jobs = cursor.fetchall()
                 
+                # Create summary view
+                jobs_summary = []
+                for job in jobs:
+                    summary = {
+                        'id': job['id'],
+                        'status': job['status'],
+                        'retry_count': job['retry_count'],
+                        'created_at': job['created_at'],
+                        'updated_at': job['updated_at']
+                    }
+                    
+                    # Extract useful info from payload if available
+                    payload = job.get('payload', {})
+                    if payload:
+                        data = payload.get('data', {})
+                        if 'submission_id' in data:
+                            summary['submission_id'] = data['submission_id']
+                        if 'split_on_fasta_headers' in data:
+                            summary['split_on_fasta_headers'] = data['split_on_fasta_headers']
+                        if 'job_type' in payload:
+                            summary['job_type'] = payload['job_type']
+                    
+                    jobs_summary.append(summary)
+                
                 return {
-                    'jobs': jobs,
-                    'total': len(jobs)
+                    'jobs': jobs_summary,
+                    'total': len(jobs_summary)
                 }
                 
         except Exception as e:
             logger.exception(f"Error retrieving jobs: {str(e)}")
+            return {'error': f'Database error: {str(e)}'}, 500
+
+
+@admin_ns.route('/jobs/<string:job_id>')
+class JobDetail(Resource):
+
+    ### GET /jobs/<job_id> ###
+
+    @admin_ns.doc('get_job')
+    @require_auth(keycloak_auth)
+    @require_permission('system_admin_access')
+    def get(self, job_id):
+        """Get full details of a specific job"""
+        
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM jobs
+                    WHERE id = %s
+                """, (job_id,))
+                
+                job = cursor.fetchone()
+                
+                if not job:
+                    return {'error': f'Job with id {job_id} not found'}, 404
+                
+                return job
+                
+        except Exception as e:
+            logger.exception(f"Error retrieving job {job_id}: {str(e)}")
             return {'error': f'Database error: {str(e)}'}, 500
 
 
