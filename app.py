@@ -2931,10 +2931,6 @@ class AdminStats(Resource):
             stats = {}
 
             with get_db_cursor() as cursor:
-                # Total users
-                cursor.execute("SELECT COUNT(*) as total_users FROM users")
-                stats['total_users'] = cursor.fetchone()['total_users']
-
                 # Total projects
                 cursor.execute("SELECT COUNT(*) as total_projects FROM projects")
                 stats['total_projects'] = cursor.fetchone()['total_projects']
