@@ -2390,6 +2390,22 @@ class ProjectSubmissionValidate2(Resource):
 
                 # Delete all existing isolates for this submission first (clean slate)
                 with get_db_cursor() as cursor:
+                    # First, get all isolate IDs to delete from Elasticsearch
+                    cursor.execute("""
+                        SELECT id FROM isolates 
+                        WHERE submission_id = %s
+                    """, (submission_id,))
+                    
+                    isolates_to_delete = cursor.fetchall()
+                    
+                    # Delete from Elasticsearch
+                    for isolate in isolates_to_delete:
+                        try:
+                            delete_from_elastic(isolate['id'])
+                        except Exception as es_error:
+                            logger.warning(f"Failed to delete isolate {isolate['id']} from Elasticsearch: {str(es_error)}")
+                    
+                    # Now delete from database
                     cursor.execute("""
                         DELETE FROM isolates 
                         WHERE submission_id = %s
@@ -2397,7 +2413,7 @@ class ProjectSubmissionValidate2(Resource):
                     
                     deleted_count = cursor.rowcount
                     if deleted_count > 0:
-                        print(f"Deleted {deleted_count} existing isolates for submission {submission_id}")
+                        print(f"Deleted {deleted_count} existing isolates for submission {submission_id} from database and Elasticsearch")
 
                 # Insert all rows fresh from the TSV, checking for duplicate isolate_ids
                 for row_index, row in enumerate(tsv_json):
