@@ -828,7 +828,9 @@ class UserEmail(Resource):
                 return {"error": "No JSON data provided"}, 400
 
             user_info = extract_user_info(request.user)
-            redirect_uri = settings.FRONTEND_URL
+            redirect_uri = data.get("redirect_uri")
+            if not redirect_uri:
+                redirect_uri = settings.FRONTEND_URL
             new_email = data.get("new_email")
 
             if not new_email:
