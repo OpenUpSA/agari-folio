@@ -43,10 +43,6 @@ jobs:
         echo "Waiting for minio..."
         timeout 60 bash -c 'until curl --silent --fail http://localhost:9000/minio/health/live; do sleep 2; done'
 
-        # Wait for MinIO bucket creation
-        echo "Waiting for minio bucket creation..."
-        timeout 60 bash -c 'until docker compose -f docker-compose.dev.yml ps create_minio_bucket | grep -q "exited"; do sleep 2; done'
-
         echo "All services are ready!"
 
     - name: Set up Python
