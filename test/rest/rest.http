@@ -168,8 +168,9 @@ Content-Type: application/json
 ###
 
 @inv_token = a1b06b98ea6f9715c81b4be4e0f8956a
+
 # @name confirm_email_change
-POST {{folio}}/invites/email//confirm
+POST {{folio}}/invites/email/{{inv_token}}/confirm
 
 ###
 
