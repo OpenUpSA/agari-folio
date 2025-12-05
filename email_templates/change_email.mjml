@@ -73,7 +73,7 @@ Click the button below to confirm this change. This link is valid for 24 hours.
     <mj-section padding="0 0 16px 0">
       <mj-column>
         <mj-text align="center">
-          <a href="https://agari.example/accept-invite?token={{TOKEN}}" class="agari-btn">
+          <a href="{{ accept_link }}" class="agari-btn">
             Confirm Email Change
           </a>
         </mj-text>

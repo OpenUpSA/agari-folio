@@ -6,6 +6,10 @@ import asyncio
 from jobs import get_next_job, mark_job_done, mark_job_failed
 from database import get_db_cursor
 from helpers import check_for_sequence_data, send_to_elastic2
+from logging import getLogger
+
+logger = getLogger(__name__)
+
 
 print("Starting job worker...")
 
@@ -26,6 +30,7 @@ async def process_sequence_validation(job):
     split_on_fasta_headers = job_data.get('split_on_fasta_headers', True)
     
     print(f"Processing sequence validation for submission {submission_id} with {len(isolate_ids)} isolates")
+    logger.info(f"Processing sequence validation for submission {submission_id} with {len(isolate_ids)} isolates")
     
     # Get isolates to process
     with get_db_cursor() as cursor:
@@ -40,11 +45,13 @@ async def process_sequence_validation(job):
         validated_isolates = cursor.fetchall()
     
     print(f"Found {len(validated_isolates)} isolates still validated and ready for sequence checking")
+    logger.info(f"Found {len(validated_isolates)} isolates still validated and ready for sequence checking")
     
     # Process each isolate with progress logging
     total_isolates = len(validated_isolates)
     for i, isolate in enumerate(validated_isolates, 1):
         print(f"Processing isolate {i}/{total_isolates}: {isolate['id']}")
+        logger.info(f"Processing isolate {i}/{total_isolates}: {isolate['id']}")
         
         try:
             # Add timeout wrapper for the async operation
@@ -54,10 +61,12 @@ async def process_sequence_validation(job):
             )
         except asyncio.TimeoutError:
             print(f"Timeout processing isolate {isolate['id']} - marking as error")
+            logger.error(f"Timeout processing isolate {isolate['id']} - marking as error")
             success = False
             result = "Processing timeout - sequence check took too long"
         except Exception as e:
             print(f"Exception processing isolate {isolate['id']}: {str(e)}")
+            logger.error(f"Exception processing isolate {isolate['id']}: {str(e)}")
             success = False
             result = f"Processing error: {str(e)}"
         
@@ -70,6 +79,7 @@ async def process_sequence_validation(job):
                     WHERE id = %s AND status = 'validated'
                 """, (result, isolate['id']))
                 print(f"Sequence saved for isolate {isolate['id']}: {result}")
+                logger.info(f"Sequence saved for isolate {isolate['id']}: {result}")
                 
                 # Get updated isolate data and send to Elasticsearch
                 cursor.execute("""
@@ -83,11 +93,14 @@ async def process_sequence_validation(job):
                 updated_isolate = cursor.fetchone()
                 if updated_isolate:
                     print(f"Sending isolate {isolate['id']} to Elasticsearch...")
+                    logger.info(f"Sending isolate {isolate['id']} to Elasticsearch...")
                     elastic_success = send_to_elastic2(updated_isolate)
                     if elastic_success:
                         print(f"Updated isolate {isolate['id']} sent to Elasticsearch")
+                        logger.info(f"Updated isolate {isolate['id']} sent to Elasticsearch")
                     else:
                         print(f"Failed to send isolate {isolate['id']} to Elasticsearch")
+                        logger.error(f"Failed to send isolate {isolate['id']} to Elasticsearch")
                     
             else:
                 # Error - set seq_error and change status to sequence_error
@@ -101,6 +114,7 @@ async def process_sequence_validation(job):
                     WHERE id = %s AND status = 'validated'
                 """, (json.dumps(seq_error_data), isolate['id']))
                 print(f"Sequence error for isolate {isolate['id']}: {result}")
+                logger.error(f"Sequence error for isolate {isolate['id']}: {result}")
                 
                 # Get updated isolate data and send to Elasticsearch
                 cursor.execute("""
@@ -114,12 +128,15 @@ async def process_sequence_validation(job):
                 updated_isolate = cursor.fetchone()
                 if updated_isolate:
                     print(f"Sending isolate {isolate['id']} with seq_error to Elasticsearch...")
+                    logger.info(f"Sending isolate {isolate['id']} with seq_error to Elasticsearch...")
                     elastic_success = send_to_elastic2(updated_isolate)
                     if elastic_success:
                         print(f"Updated isolate {isolate['id']} with seq_error sent to Elasticsearch")
+                        logger.info(f"Updated isolate {isolate['id']} with seq_error sent to Elasticsearch")
                     else:
                         print(f"Failed to send isolate {isolate['id']} with seq_error to Elasticsearch")
-    
+                        logger.error(f"Failed to send isolate {isolate['id']} with seq_error to Elasticsearch")
+
     # After processing all isolates, check final status and update submission
     with get_db_cursor() as cursor:
         cursor.execute("""
@@ -145,23 +162,10 @@ async def process_sequence_validation(job):
         """, (final_status, submission_id))
         
         print(f"Submission {submission_id} final status: {final_status}")
+        logger.info(f"Submission {submission_id} final status: {final_status}")
         print(f"Total isolates: {counts['total']}, Validation errors: {counts['validation_errors']}, Validated: {counts['validated_isolates']}")
+        logger.info(f"Total isolates: {counts['total']}, Validation errors: {counts['validation_errors']}, Validated: {counts['validated_isolates']}")
 
-
-def run_sync_job(job):
-    """Handle synchronous jobs"""
-    if job['job_type'] == 'test_counting':
-        # Test job - count to 1000
-        import random
-        if random.random() < 0.3:  # 30% chance of failure
-            raise Exception("Simulated random failure!")
-        
-        for i in range(1, 1001):
-            if i % 200 == 0:
-                print(f"Job {job['id']}: Counting... {i}")
-            time.sleep(0.005)
-    else:
-        raise Exception(f"Unknown sync job type: {job['job_type']}")
 
 
 async def run_async_job(job):
@@ -169,7 +173,8 @@ async def run_async_job(job):
     if job['job_type'] == 'validate_sequences':
         await process_sequence_validation(job)
     else:
-        raise Exception(f"Unknown async job type: {job['job_type']}")
+        logger.exception(f"Unknown async job type: {job['job_type']}")
+        return f"Unknown async job type: {job['job_type']}"
 
 
 # Main worker loop
@@ -193,21 +198,10 @@ while True:
                         loop.run_until_complete(asyncio.wait_for(task, timeout=600))
                     except asyncio.TimeoutError:
                         print(f"Job {job['id']} timed out after 10 minutes")
+                        logger.exception(f"Job {job['id']} timed out after 10 minutes")
                         raise Exception("Job timed out after 10 minutes")
                     finally:
                         loop.close()
-                else:
-                    # Sync job with timeout
-                    import signal
-                    def timeout_handler(signum, frame):
-                        raise Exception("Job timed out")
-                    
-                    signal.signal(signal.SIGALRM, timeout_handler)
-                    signal.alarm(300)  # 5 minute timeout for sync jobs
-                    try:
-                        run_sync_job(job)
-                    finally:
-                        signal.alarm(0)  # Clear the alarm
                 
                 # Mark as done
                 mark_job_done(job['id'])
@@ -215,6 +209,7 @@ while True:
                 
             except Exception as e:
                 print(f"Job {job['id']} failed: {e}")
+                logger.exception(f"Job {job['id']} failed: {e}")
                 failure_info = mark_job_failed(job['id'], str(e))
                 
                 # If job failed permanently, update submission status to 'error'
@@ -236,18 +231,22 @@ while True:
                                     WHERE id = %s AND status = 'validating'
                                 """, (json.dumps({"job_error": failure_info['error_msg']}), submission_id))
                                 print(f"Submission {submission_id} marked as 'error' due to permanent job failure")
+                                logger.error(f"Submission {submission_id} marked as 'error' due to permanent job failure")
                         else:
                             print(f"Warning: Could not extract submission_id from permanently failed job {job['id']}")
+                            logger.warning(f"Warning: Could not extract submission_id from permanently failed job {job['id']}")
                     except Exception as update_error:
                         print(f"Error updating submission status after job failure: {update_error}")
-            
+                        logger.error(f"Error updating submission status after job failure: {update_error}")
         else:
-            print("No jobs found, waiting...")
+            print("Waiting for splitting jobs...")
             time.sleep(1)
             
     except KeyboardInterrupt:
         print("Worker interrupted")
+        logger.info("Worker interrupted")
         break
     except Exception as e:
         print(f"Worker error: {e}")
+        logger.error(f"Worker error: {e}")
         time.sleep(5)

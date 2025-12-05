@@ -341,6 +341,20 @@ class Pathogen(Resource):
             
             with get_db_cursor() as cursor:
                 if hard_delete:
+
+                    # Check if there are associated schemas
+                    cursor.execute("""
+                        SELECT COUNT(*) as count FROM schemas 
+                        WHERE pathogen_id = %s
+                    """, (pathogen_id,))
+                    
+                    schema_count = cursor.fetchone()['count']
+                    
+                    if schema_count > 0:
+                        return {
+                            'error': f'Cannot delete pathogen: {schema_count} schema(s) are still associated with it. Delete schemas first or use soft delete.'
+                        }, 400
+
                     # Hard delete - permanently remove from database
                     cursor.execute("""
                         DELETE FROM pathogens 
@@ -828,17 +842,14 @@ class UserEmail(Resource):
                 return {"error": "No JSON data provided"}, 400
 
             user_info = extract_user_info(request.user)
-            current_user_id = user_info.get("user_id")
             redirect_uri = data.get("redirect_uri")
+            if not redirect_uri:
+                redirect_uri = settings.FRONTEND_URL
             new_email = data.get("new_email")
 
-            if not redirect_uri:
-                return {"error": "redirect_uri is required for confirmation link"}, 400
             if not new_email:
                 return {"error": "new_email is required for confirmation link"}, 400
-
             # Check if user is trying to edit their own profile
-            print(user_info)
             return invite_email_change(user_info, redirect_uri, new_email)
         except Exception as e:
             logger.exception(f"Changing user email failed: {str(e)}")
@@ -1175,7 +1186,7 @@ class OrganisationRoles(Resource):
 
 @organisation_ns.route('/<string:org_id>/owner')
 class OrganisationOwner(Resource):
-    ### POST /organisations/owner ###
+    ### POST /organisations/<string:org_id>/owner ###
 
     @organisation_ns.doc('change_organisation_owner')
     @require_auth(keycloak_auth)
@@ -1997,6 +2008,69 @@ class ProjectSubmission2(Resource):
             return {'error': f'Database error: {str(e)}'}, 500
 
 
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/isolates')
+class ProjectSubmissionIsolates2(Resource):
+
+    ### GET /projects/<project_id>/submissions/<submission_id>/isolates
+
+    @api.doc('list_submission_isolates_v2')
+    @require_auth(keycloak_auth)
+    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
+    def get(self, project_id, submission_id):
+
+        """List all isolates associated with a submission"""
+
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM isolates
+                    WHERE submission_id = %s
+                    ORDER BY created_at DESC
+                """, (submission_id,))
+                
+                isolates = cursor.fetchall()
+                
+                return {
+                    'submission_id': submission_id,
+                    'isolates': isolates,
+                    'total': len(isolates)
+                }
+                
+        except Exception as e:
+            logger.exception(f"Error listing isolates for submission {submission_id}: {str(e)}")
+            return {'error': f'Failed to list isolates: {str(e)}'}, 500
+        
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/isolates/<string:isolate_id>')
+class ProjectSubmissionIsolate2(Resource):
+
+    ### GET /projects/<project_id>/submissions2/<submission_id>/isolates/<isolate_id>
+
+    @api.doc('get_submission_isolate_v2')
+    @require_auth(keycloak_auth)
+    @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
+    def get(self, project_id, submission_id, isolate_id):
+
+        """Get details of a specific isolate associated with a submission"""
+
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM isolates
+                    WHERE id = %s AND submission_id = %s
+                """, (isolate_id, submission_id))
+                
+                isolate = cursor.fetchone()
+                
+                if not isolate:
+                    return {'error': 'Isolate not found'}, 404
+                
+                return isolate
+                
+        except Exception as e:
+            logger.exception(f"Error retrieving isolate {isolate_id}: {str(e)}")
+            return {'error': f'Failed to retrieve isolate: {str(e)}'}, 500
+
+
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/upload2')
 class ProjectSubmissionFiles2(Resource):
 
@@ -2205,7 +2279,6 @@ class ReplaceProjectSubmissionFile2(Resource):
                 'message': 'File deleted successfully',
                 'file_id': file_id
             }, 200
-            
         except Exception as e:
             logger.exception(f"Error deleting file {file_id} from submission {submission_id}: {str(e)}")
             return {'error': f'Deletion failed: {str(e)}'}, 500
@@ -2249,12 +2322,15 @@ class ProjectSubmissionValidate2(Resource):
                 # Separate different types of errors and parse JSON fields
                 validation_errors = []
                 sequence_errors = []
+                sequence_errors_count = 0
+                schema_errors_count = 0
                 
                 for iso in isolates:
                     if iso['status'] == 'error' and iso['error']:
                         try:
                             parsed_error = json.loads(iso['error']) if isinstance(iso['error'], str) else iso['error']
                             validation_errors.append(parsed_error)
+                            schema_errors_count += 1
                         except (json.JSONDecodeError, TypeError):
                             validation_errors.append(iso['error'])
                     
@@ -2262,6 +2338,7 @@ class ProjectSubmissionValidate2(Resource):
                         try:
                             parsed_seq_error = json.loads(iso['seq_error']) if isinstance(iso['seq_error'], str) else iso['seq_error']
                             sequence_errors.append(parsed_seq_error)
+                            sequence_errors_count += 1
                         except (json.JSONDecodeError, TypeError):
                             sequence_errors.append(iso['seq_error'])
 
@@ -2274,11 +2351,11 @@ class ProjectSubmissionValidate2(Resource):
                     'status': submission['status'],
                     'total_isolates': len(isolates),
                     'validated': len([iso for iso in isolates if iso['status'] == 'validated']),
-                    'schema_errors': len([iso for iso in isolates if iso['status'] == 'error']),
-                    'sequence_errors': len([iso for iso in isolates if iso['status'] == 'sequence_error']),
+                    'schema_errors_count': schema_errors_count,
+                    'sequence_errors_count': sequence_errors_count,
                     'validation_errors': validation_errors,
-                    'sequence_errors_details': sequence_errors,
-                    'error_count': len([iso for iso in isolates if iso['status'] in ['error', 'sequence_error']])
+                    'sequence_errors': sequence_errors,
+                    'error_count': schema_errors_count + sequence_errors_count
                 }
           
         except Exception as e:
@@ -2335,8 +2412,6 @@ class ProjectSubmissionValidate2(Resource):
 
             split_on_fasta_headers = data.get('split_on_fasta_headers', True)
 
-            print('=== reading split on headers value ===', split_on_fasta_headers)
-
             # Basic validation: check file counts
             if len(tsv_files) != 1:
                 with get_db_cursor() as cursor:
@@ -2380,6 +2455,22 @@ class ProjectSubmissionValidate2(Resource):
 
                 # Delete all existing isolates for this submission first (clean slate)
                 with get_db_cursor() as cursor:
+                    # First, get all isolate IDs to delete from Elasticsearch
+                    cursor.execute("""
+                        SELECT id FROM isolates 
+                        WHERE submission_id = %s
+                    """, (submission_id,))
+                    
+                    isolates_to_delete = cursor.fetchall()
+                    
+                    # Delete from Elasticsearch
+                    for isolate in isolates_to_delete:
+                        try:
+                            delete_from_elastic(isolate['id'])
+                        except Exception as es_error:
+                            logger.warning(f"Failed to delete isolate {isolate['id']} from Elasticsearch: {str(es_error)}")
+                    
+                    # Now delete from database
                     cursor.execute("""
                         DELETE FROM isolates 
                         WHERE submission_id = %s
@@ -2387,7 +2478,7 @@ class ProjectSubmissionValidate2(Resource):
                     
                     deleted_count = cursor.rowcount
                     if deleted_count > 0:
-                        print(f"Deleted {deleted_count} existing isolates for submission {submission_id}")
+                        print(f"Deleted {deleted_count} existing isolates for submission {submission_id} from database and Elasticsearch")
 
                 # Insert all rows fresh from the TSV, checking for duplicate isolate_ids
                 for row_index, row in enumerate(tsv_json):
@@ -2669,17 +2760,10 @@ class Search(Resource):
     @require_auth(keycloak_auth)
     def post(self):
 
-        print("Search samples called")
-
         """Search published samples in Elasticsearch"""
 
         try:
             data = request.get_json()
-
-            print('========================================')
-            print("Incoming search query:")
-            print(data)
-            print('========================================')
 
             # convert json data to string and replace all .keyword with ''
             data_str = json.dumps(data).replace('.keyword', '')
@@ -2707,8 +2791,7 @@ class Search(Resource):
                     "minimum_should_match": 1
                 }
             }
-
-            print(f"Access filter: {access_filter}")
+            
 
             # Add access filter to the query
             if 'query' in data and 'bool' in data['query']:
@@ -2735,13 +2818,7 @@ class Search(Resource):
             if not data:
                 return {'error': 'No JSON data provided'}, 400
 
-            print("Final Query ========================")
-            print(data['query'])
-            print("===================================")
-
             results = query_elastic(data)
-
-            print(results)
 
             return results, 200
 
@@ -2833,6 +2910,128 @@ class Reindex(Resource):
         except Exception as e:
             logger.exception(f"Error during reindexing: {str(e)}")
             return {'error': f'Reindexing error: {str(e)}'}, 500
+
+##########################
+### ADMIN STATS
+##########################
+
+admin_ns = api.namespace('admin', description='Admin statistics endpoints')
+@admin_ns.route('/stats')
+
+class AdminStats(Resource):
+    ### GET /admin/stats ###
+
+    @api.doc('get_admin_stats')
+    @require_auth(keycloak_auth)
+    @require_permission('system_admin_access')
+    def get(self):
+        """Get system-wide statistics for admin dashboard"""
+        
+        try:
+            stats = {}
+
+            with get_db_cursor() as cursor:
+                # Total projects
+                cursor.execute("SELECT COUNT(*) as total_projects FROM projects")
+                stats['total_projects'] = cursor.fetchone()['total_projects']
+
+                # Total submissions
+                cursor.execute("SELECT COUNT(*) as total_submissions FROM submissions")
+                stats['total_submissions'] = cursor.fetchone()['total_submissions']
+
+                # Total isolates
+                cursor.execute("SELECT COUNT(*) as total_isolates FROM isolates")
+                stats['total_isolates'] = cursor.fetchone()['total_isolates']
+
+            return stats, 200
+
+        except Exception as e:
+            logger.exception(f"Error retrieving admin stats: {str(e)}")
+            return {'error': f'Statistics retrieval error: {str(e)}'}, 500
+
+
+@admin_ns.route('/jobs')
+class JobsList(Resource):
+
+    ### GET /jobs ###
+
+    @admin_ns.doc('list_jobs')
+    @require_auth(keycloak_auth)
+    @require_permission('system_admin_access')
+    def get(self):
+        """List all jobs from the jobs table with summary view"""
+        
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM jobs
+                    ORDER BY created_at DESC
+                """)
+                
+                jobs = cursor.fetchall()
+                
+                # Create summary view
+                jobs_summary = []
+                for job in jobs:
+                    summary = {
+                        'id': job['id'],
+                        'status': job['status'],
+                        'retry_count': job['retry_count'],
+                        'created_at': job['created_at'],
+                        'updated_at': job['updated_at']
+                    }
+                    
+                    # Extract useful info from payload if available
+                    payload = job.get('payload', {})
+                    if payload:
+                        data = payload.get('data', {})
+                        if 'submission_id' in data:
+                            summary['submission_id'] = data['submission_id']
+                        if 'split_on_fasta_headers' in data:
+                            summary['split_on_fasta_headers'] = data['split_on_fasta_headers']
+                        if 'job_type' in payload:
+                            summary['job_type'] = payload['job_type']
+                    
+                    jobs_summary.append(summary)
+                
+                return {
+                    'jobs': jobs_summary,
+                    'total': len(jobs_summary)
+                }
+                
+        except Exception as e:
+            logger.exception(f"Error retrieving jobs: {str(e)}")
+            return {'error': f'Database error: {str(e)}'}, 500
+
+
+@admin_ns.route('/jobs/<string:job_id>')
+class JobDetail(Resource):
+
+    ### GET /jobs/<job_id> ###
+
+    @admin_ns.doc('get_job')
+    @require_auth(keycloak_auth)
+    @require_permission('system_admin_access')
+    def get(self, job_id):
+        """Get full details of a specific job"""
+        
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM jobs
+                    WHERE id = %s
+                """, (job_id,))
+                
+                job = cursor.fetchone()
+                
+                if not job:
+                    return {'error': f'Job with id {job_id} not found'}, 404
+                
+                return job
+                
+        except Exception as e:
+            logger.exception(f"Error retrieving job {job_id}: {str(e)}")
+            return {'error': f'Database error: {str(e)}'}, 500
 
 
 
@@ -3142,6 +3341,8 @@ class EmailChangeConfirm(Resource):
         invite_email = user["attributes"].get("invite_new_email", [""])[0]
 
         success = keycloak_auth.change_username(user_id, invite_email)
+        # I don't think the email field is actually used anywhere. But if it is, why?
+        keycloak_auth.update_user(user_id, {'email': invite_email})
         if not success:
             return success
 
@@ -3177,55 +3378,47 @@ class ActivityLogs(Resource):
 
     @study_ns.doc('list_logs')
     @require_auth(keycloak_auth)
-    @require_permission('manage_project_users')
+    #@require_permission('view_activity_log')
     def get(self, resource_id):
         try:
+            # Fetch logs with pagination
             page = int(request.args.get('page', 1))
             limit = min(int(request.args.get('limit', 10)), 100)
             offset = (page - 1) * limit
 
             with get_db_cursor() as cursor:
-                paginate_activity_log = False
+                cursor.execute("""
+                    SELECT COUNT(*) as total
+                    FROM logs
+                    WHERE resource_id = %s
+                """, (resource_id,))
+                total_entries = cursor.fetchone()['total']
 
-                if not paginate_activity_log:
-                    cursor.execute("""
-                        SELECT *
-                        FROM logs
-                        WHERE resource_id = %s
-                        ORDER BY created_at DESC
-                    """, (resource_id,))
-                else:
-                    main_query = """
-                        SELECT *
-                        FROM logs
-                        WHERE resource_id = %s
-                        ORDER BY created_at DESC
-                        LIMIT %s OFFSET %s
-                    """
-                    cursor.execute(main_query, (resource_id, limit, offset))
-
+                cursor.execute("""
+                    SELECT *
+                    FROM logs
+                    WHERE resource_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s OFFSET %s
+                """, (resource_id, limit, offset))
                 logs = cursor.fetchall()
-                total_count = len(logs)
 
                 # Pagination metadata
-                total_pages = (total_count + limit - 1) // limit
+                total_pages = (total_entries + limit - 1) // limit
                 has_next = page < total_pages
                 has_prev = page > 1
 
-                if not paginate_activity_log:
-                    return logs
-                else:
-                    return {
-                        'logs': logs,
-                        'pagination': {
-                            'page': page,
-                            'limit': limit,
-                            'total_count': total_count,
-                            'total_pages': total_pages,
-                            'has_next': has_next,
-                            'has_prev': has_prev
-                        }
+                return {
+                    'logs': logs,
+                    'pagination': {
+                        'page': page,
+                        'limit': limit,
+                        'total_entries': total_entries,
+                        'total_pages': total_pages,
+                        'has_next': has_next,
+                        'has_prev': has_prev
                     }
+                }
         except Exception as e:
             logger.exception("Error retrieving activity logs")
             return {'error': f'Database error: {str(e)}'}, 500

@@ -3,8 +3,6 @@ import subprocess
 import json
 from datetime import datetime, date
 import hashlib
-import asyncio
-import random
 import uuid
 import requests
 import settings
@@ -309,7 +307,7 @@ def invite_email_change(user, redirect_uri, new_email):
 
     result, status_code = sendgrid_email(to_email, to_name, subject, html_content)
 
-    user_id = "af52b5d2-29bc-4b5d-ac65-2c1bc5583368" # user["user_id"]
+    user_id = user["user_id"]
     if status_code in [200, 201, 202, 204]:
         # assign temp invite attributes to user
         keycloak_auth.add_attribute_value(user_id, "invite_token", inv_token)
@@ -444,8 +442,35 @@ def check_user_id(data, param_id):
 #############################
 ### SUBMISSION HELPERS
 #############################
-
-
+    
+def get_minio_client(self):
+    """Get MinIO client instance"""
+    try:
+        from minio import Minio
+        
+        # Get MinIO settings
+        minio_endpoint = settings.MINIO_ENDPOINT
+        minio_access_key = settings.MINIO_ACCESS_KEY
+        minio_secret_key = settings.MINIO_SECRET_KEY
+        minio_secure = getattr(settings, 'MINIO_INTERNAL_SECURE', False)
+        
+        client = Minio(
+            endpoint=minio_endpoint,
+            access_key=minio_access_key,
+            secret_key=minio_secret_key,
+            secure=minio_secure
+        )
+        
+        # Ensure bucket exists
+        bucket_name = settings.MINIO_BUCKET or 'agari-data'
+        if not client.bucket_exists(bucket_name):
+            client.make_bucket(bucket_name)
+        
+        return client
+        
+    except Exception as e:
+        raise e
+    
 def tsv_to_json(tsv_string, project_id):
     import re
 
@@ -509,55 +534,50 @@ def tsv_to_json(tsv_string, project_id):
 
                 # Get field schema definition
                 field_schema = schema.get("properties", {}).get(header, {})
-                field_type = field_schema.get("type")
-                split_regex = field_schema.get("x-split-regex")
                 
-                if not value or value.strip() == "":
-                    # For string fields, use empty string; for others use None
-                    if field_type == "string":
-                        values[i] = ""
-                    else:
-                        values[i] = None
-                    continue
-                
-                # Handle array fields (with or without regex splitting)
-                if field_type == "array" and value:
-                    # Try regex splitting first if pattern exists
-                    if split_regex:
-                        try:
-                            split_values = re.split(split_regex, value)
-                            # Strip whitespace and filter out empty strings
-                            split_values = [v.strip() for v in split_values if v.strip()]
-                            if len(split_values) > 1:  # Only use regex result if it actually split
-                                values[i] = split_values
-                            else:
-                                # Fallback to comma splitting
+                # Handle oneOf schemas
+                if "oneOf" in field_schema:
+                    values[i] = process_oneof_field(value, field_schema)
+                else:
+                    # Original logic for non-oneOf fields
+                    field_type = field_schema.get("type")
+                    split_regex = field_schema.get("x-split-regex")
+                    
+                    if not value or value.strip() == "":
+                        if field_type == "string":
+                            values[i] = ""
+                        else:
+                            values[i] = None
+                        continue
+                    
+                    if field_type == "array" and value:
+                        if split_regex:
+                            try:
+                                split_values = re.split(split_regex, value)
+                                split_values = [v.strip() for v in split_values if v.strip()]
+                                if len(split_values) > 1:
+                                    values[i] = split_values
+                                else:
+                                    split_values = [v.strip() for v in value.split(",")]
+                                    values[i] = [v for v in split_values if v]
+                            except re.error:
                                 split_values = [v.strip() for v in value.split(",")]
                                 values[i] = [v for v in split_values if v]
-                        except re.error:
-                            # If regex is invalid, fallback to comma splitting
+                        else:
                             split_values = [v.strip() for v in value.split(",")]
                             values[i] = [v for v in split_values if v]
+                    
+                    elif field_type == "number":
+                        try:
+                            if '.' in value:
+                                values[i] = float(value.strip())
+                            else:
+                                values[i] = int(value.strip())
+                        except ValueError:
+                            values[i] = value.strip()
+                    
                     else:
-                        # No regex pattern, use comma splitting for arrays
-                        split_values = [v.strip() for v in value.split(",")]
-                        values[i] = [v for v in split_values if v]
-                
-                # Handle type conversion for non-array fields
-                elif field_type == "number":
-                    try:
-                        # Try to convert to int first, then float
-                        if '.' in value:
-                            values[i] = float(value.strip())
-                        else:
-                            values[i] = int(value.strip())
-                    except ValueError:
-                        # If conversion fails, keep as string (validation will catch this later)
                         values[i] = value.strip()
-                
-                # Keep strings as strings, but strip whitespace
-                else:
-                    values[i] = value.strip()
 
             # Create record ensuring we handle cases where there are fewer values than headers
             record = {}
@@ -565,42 +585,69 @@ def tsv_to_json(tsv_string, project_id):
                 if i < len(values):
                     record[headers[i]] = values[i]
                 else:
-                    # For missing values, use empty string for string fields, None for others
                     field_schema = schema.get("properties", {}).get(headers[i], {})
-                    field_type = field_schema.get("type")
-                    record[headers[i]] = "" if field_type == "string" else None
+                    if "oneOf" in field_schema:
+                        record[headers[i]] = ""
+                    else:
+                        field_type = field_schema.get("type")
+                        record[headers[i]] = "" if field_type == "string" else None
             
             json_list.append(record)
 
         return json_list
+
+
+def process_oneof_field(value, field_schema):
+    """Process a field with oneOf schema"""
+    import re
     
-def get_minio_client(self):
-    """Get MinIO client instance"""
-    try:
-        from minio import Minio
+    # If empty, return empty string (matches the maxLength: 0 option)
+    if not value or value.strip() == "":
+        return ""
+    
+    value = value.strip()
+    
+    # Try to determine the correct type from oneOf options
+    oneof_options = field_schema.get("oneOf", [])
+    
+    for option in oneof_options:
+        # Skip the empty string option
+        if option.get("maxLength") == 0:
+            continue
+            
+        option_type = option.get("type")
         
-        # Get MinIO settings
-        minio_endpoint = settings.MINIO_ENDPOINT
-        minio_access_key = settings.MINIO_ACCESS_KEY
-        minio_secret_key = settings.MINIO_SECRET_KEY
-        minio_secure = getattr(settings, 'MINIO_INTERNAL_SECURE', False)
+        # Try number conversion
+        if option_type == "number":
+            try:
+                if '.' in value:
+                    return float(value)
+                else:
+                    return int(value)
+            except ValueError:
+                continue
         
-        client = Minio(
-            endpoint=minio_endpoint,
-            access_key=minio_access_key,
-            secret_key=minio_secret_key,
-            secure=minio_secure
-        )
+        # Try array with enum
+        if option_type == "array":
+            split_regex = field_schema.get("x-split-regex", ",\\s*")
+            try:
+                split_values = re.split(split_regex, value)
+                split_values = [v.strip() for v in split_values if v.strip()]
+                if split_values:
+                    return split_values
+            except:
+                # Fallback to comma split
+                split_values = [v.strip() for v in value.split(",") if v.strip()]
+                if split_values:
+                    return split_values
         
-        # Ensure bucket exists
-        bucket_name = settings.MINIO_BUCKET or 'agari-data'
-        if not client.bucket_exists(bucket_name):
-            client.make_bucket(bucket_name)
-        
-        return client
-        
-    except Exception as e:
-        raise e
+        # Check if it matches an enum
+        if "enum" in option:
+            if value in option["enum"]:
+                return value
+    
+    # If no type matched, return as string
+    return value
 
 ##############################
 ### VALIDATION HELPERS
@@ -659,18 +706,6 @@ def validate_against_schema(data, row, project_id):
     
     # Collect all validation errors for this specific row
     for error in validator.iter_errors(data):
-
-        field_name = ".".join(str(x) for x in error.path) if error.path else "root"
-
-        is_date_pattern_error = (
-            error.schema.get("format") == "date" and 
-            "pattern" in error.schema and 
-            "does not match" in error.message
-        )
-        
-        if is_date_pattern_error:
-            print(f"Skipping date pattern validation error for field {field_name}: {error.message}")
-            continue  # Skip this error
 
         error_info = {
             "row": row,
@@ -742,11 +777,11 @@ async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
                     """
                     SELECT object_id 
                     FROM submission_files 
-                    WHERE filename = %s AND file_type = 'fasta'
+                    WHERE filename = %s AND file_type = 'fasta' AND submission_id = %s
                     ORDER BY created_at DESC 
                     LIMIT 1
                     """,
-                    (fasta_file,),
+                    (fasta_file, isolate['submission_id']),
                 )
                 file_record = cursor.fetchone()
                 
@@ -766,11 +801,11 @@ async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
                 """
                 SELECT object_id 
                 FROM submission_files 
-                WHERE filename = %s AND file_type = 'fasta'
+                WHERE filename = %s AND file_type = 'fasta' AND submission_id = %s
                 ORDER BY created_at DESC 
                 LIMIT 1
                 """,
-                (fasta_file,),
+                (fasta_file, isolate['submission_id']),
             )
             file_record = cursor.fetchone()
             
