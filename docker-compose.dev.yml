@@ -97,7 +97,41 @@ services:
       placement:
         max_replicas_per_node: 1
 
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: admin123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  create_minio_bucket:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      sleep 10 &&
+      mc alias set localminio http://minio:9000 admin admin123 &&
+      mc mb localminio/agari-data || echo 'Bucket already exists'
+      exit 0;
+      "
+    links:
+      - minio
+
 volumes:
   keycloak-db-data:
   folio-db-data:
   index-os-data: null
+  minio-data:
