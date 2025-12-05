@@ -658,18 +658,6 @@ def validate_against_schema(data, row, project_id):
     # Collect all validation errors for this specific row
     for error in validator.iter_errors(data):
 
-        field_name = ".".join(str(x) for x in error.path) if error.path else "root"
-
-        is_date_pattern_error = (
-            error.schema.get("format") == "date" and 
-            "pattern" in error.schema and 
-            "does not match" in error.message
-        )
-        
-        if is_date_pattern_error:
-            print(f"Skipping date pattern validation error for field {field_name}: {error.message}")
-            continue  # Skip this error
-
         error_info = {
             "row": row,
             "field": ".".join(str(x) for x in error.path) if error.path else "root",
