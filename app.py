@@ -3341,6 +3341,8 @@ class EmailChangeConfirm(Resource):
         invite_email = user["attributes"].get("invite_new_email", [""])[0]
 
         success = keycloak_auth.change_username(user_id, invite_email)
+        # I don't think the email field is actually used anywhere. But if it is, why?
+        keycloak_auth.update_user(user_id, {'email': invite_email})
         if not success:
             return success
 
