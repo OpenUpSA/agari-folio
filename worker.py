@@ -3,6 +3,8 @@ import signal
 import sys
 import json
 import asyncio
+from io import StringIO
+from Bio import SeqIO
 from jobs import get_next_job, mark_job_done, mark_job_failed
 from database import get_db_cursor
 from helpers import check_for_sequence_data, send_to_elastic2
