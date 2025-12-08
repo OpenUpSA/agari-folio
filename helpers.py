@@ -27,7 +27,6 @@ from sendgrid.helpers.mail import (
 import base64
 from minio import Minio
 from Bio import SeqIO
-from io import StringIO
 
 from database import get_db_cursor
 import os
