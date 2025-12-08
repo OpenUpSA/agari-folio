@@ -11,6 +11,7 @@ from flask import render_template_string
 import pandas as pd
 from io import StringIO
 import re
+import textwrap
 from auth import KeycloakAuth
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import (
@@ -1103,8 +1104,11 @@ async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
         if len(sequence_found.seq) == 0:
             return False, f"Empty sequence found for header: {fasta_header}"
         
-        # Reconstruct FASTA format for storage
-        sequence_data = f">{sequence_found.description}\n{str(sequence_found.seq)}"
+        # Reconstruct FASTA format for storage with line wrapping
+        # Wrap sequence at 80 characters per line (standard FASTA format)
+        sequence_str = str(sequence_found.seq)
+        wrapped_sequence = textwrap.fill(sequence_str, width=80, break_long_words=True, break_on_hyphens=False)
+        sequence_data = f">{sequence_found.description}\n{wrapped_sequence}"
         
         if not sequence_data.strip():
             return False, f"No sequence data found for isolate '{isolate_sample_id}'"
