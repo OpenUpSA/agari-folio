@@ -1106,9 +1106,6 @@ async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
         # Reconstruct FASTA format for storage
         sequence_data = f">{sequence_found.description}\n{str(sequence_found.seq)}"
         
-        if not sequence_data.strip():
-            return False, f"No sequence data found for isolate '{isolate_sample_id}'"
-        
         # 7. If file and header found, pass to save_sequence_data for processing
         new_object_id = await save_sequence_data(sequence_data, isolate['submission_id'], isolate['id'])
         
