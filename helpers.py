@@ -26,6 +26,7 @@ from sendgrid.helpers.mail import (
 )
 import base64
 from minio import Minio
+from Bio import SeqIO
 
 from database import get_db_cursor
 import os
@@ -1076,34 +1077,34 @@ async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
             socket.setdefaulttimeout(original_timeout)  # Restore timeout even on error
             return False, f"Error loading FASTA file from MinIO: {str(e)}"
         
-        # 5. Parse the FASTA file to check if header is in the file
-        fasta_lines = fasta_content.splitlines()
-        sequence_lines = []
-        recording = False
-        header_found = False
+        # 5. Parse the FASTA file using BioPython to check if header is in the file
+        fasta_handle = StringIO(fasta_content)
         
-        for line in fasta_lines:
-            if line.startswith('>'):
-                # Check if this header matches what we're looking for
-                if line.startswith(f'>{fasta_header} ') or line == f'>{fasta_header}' or line.startswith(f'>{fasta_header}\t'):
-                    recording = True
-                    header_found = True
-                    sequence_lines.append(line)
-                else:
-                    # If we were recording and hit a different header, stop
-                    if recording:
-                        break
-            else:
-                if recording:
-                    sequence_lines.append(line)
-
-        print(sequence_lines)
+        sequence_found = None
+        try:
+            for record in SeqIO.parse(fasta_handle, "fasta"):
+                # BioPython's record.id is the header without '>'
+                # record.description contains the full header line
+                # Check various header match patterns
+                if (record.id == fasta_header or 
+                    record.description == fasta_header or
+                    record.description.startswith(fasta_header + ' ') or
+                    record.description.startswith(fasta_header + '\t')):
+                    sequence_found = record
+                    break
+        except ValueError as e:
+            return False, f"Invalid FASTA format: {str(e)}"
         
         # 6. Return error if header not found
-        if not header_found:
+        if not sequence_found:
             return False, f"Header '{fasta_header}' not found in {fasta_file} for isolate '{isolate_sample_id}'"
         
-        sequence_data = '\n'.join(sequence_lines)
+        # Validate sequence isn't empty
+        if len(sequence_found.seq) == 0:
+            return False, f"Empty sequence found for header: {fasta_header}"
+        
+        # Reconstruct FASTA format for storage
+        sequence_data = f">{sequence_found.description}\n{str(sequence_found.seq)}"
         
         if not sequence_data.strip():
             return False, f"No sequence data found for isolate '{isolate_sample_id}'"
