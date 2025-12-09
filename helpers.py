@@ -1014,65 +1014,38 @@ async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
                - On success: (True, object_id)
                - On error: (False, error_message)
     """
-    try:
-        # 1. First, check if this isolate already has an object_id
-        isolate_id = isolate.get('id')
-        if isolate_id:
-            with get_db_cursor() as cursor:
-                cursor.execute(
-                    "SELECT object_id FROM isolates WHERE id = %s AND object_id IS NOT NULL",
-                    (isolate_id,),
-                )
-                existing_record = cursor.fetchone()
-                
-                if existing_record:
-                    existing_object_id = existing_record["object_id"]
-                    print(f"Isolate {isolate_id} already has object_id: {existing_object_id}")
-                    return True, existing_object_id
-        
-        # 2. If no existing object_id, proceed with sequence extraction
-        # Get the isolate data - it should be a dictionary already
-        isolate_data = isolate.get('isolate_data', {})
-        if isinstance(isolate_data, str):
-            isolate_data = json.loads(isolate_data)
-        
-        fasta_file = isolate_data.get("fasta_file_name", "")
-        fasta_header = isolate_data.get("fasta_header_name", "")
-        isolate_sample_id = isolate_data.get("isolate_id", "")
-        
-        # Check if FASTA file is provided
-        if not fasta_file:
-            return False, "Missing FASTA file name in isolate data"
-        
-        # If no header specified, link to the complete original file instead of extracting
-        if not split_on_fasta_headers:
-            print(f"No header specified for isolate {isolate_sample_id} - linking to complete FASTA file")
-            
-            # Get the object_id from submission_files table where filename matches
-            with get_db_cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT object_id 
-                    FROM submission_files 
-                    WHERE filename = %s AND file_type = 'fasta' AND submission_id = %s
-                    ORDER BY created_at DESC 
-                    LIMIT 1
-                    """,
-                    (fasta_file, isolate['submission_id']),
-                )
-                file_record = cursor.fetchone()
-                
-                if not file_record:
-                    return False, f"FASTA file '{fasta_file}' not found in submission_files"
-            
-            # Return the original file's object_id (no extraction needed)
-            print(f"Linked isolate {isolate_sample_id} to original file with object_id: {file_record['object_id']}")
-            return True, file_record["object_id"]
-        
-        # EXISTING: Header specified - extract specific sequence
-        print(f"Looking for FASTA File: {fasta_file}, Header: {fasta_header}")
-        
-        # 3. Get the object_id from submission_files table where filename matches
+    # 1. First, check if this isolate already has an object_id
+    isolate_id = isolate.get('id')
+    if isolate_id:
+        with get_db_cursor() as cursor:
+            cursor.execute(
+                "SELECT object_id FROM isolates WHERE id = %s AND object_id IS NOT NULL",
+                (isolate_id,),
+            )
+            existing_record = cursor.fetchone()
+            if existing_record:
+                existing_object_id = existing_record["object_id"]
+                print(f"Isolate {isolate_id} already has object_id: {existing_object_id}")
+                return True, existing_object_id
+
+    # 2. If no existing object_id, proceed with sequence extraction
+    # Get the isolate data - it should be a dictionary already
+    isolate_data = isolate.get('isolate_data', {})
+    if isinstance(isolate_data, str):
+        isolate_data = json.loads(isolate_data)
+
+    fasta_file = isolate_data.get("fasta_file_name", "")
+    fasta_header = isolate_data.get("fasta_header_name", "")
+    isolate_sample_id = isolate_data.get("isolate_id", "")
+
+    # Check if FASTA file is provided
+    if not fasta_file:
+        return False, "Missing FASTA file name in isolate data"
+
+    # If no header specified, link to the complete original file instead of extracting
+    if not split_on_fasta_headers:
+        print(f"No header specified for isolate {isolate_sample_id} - linking to complete FASTA file")
+        # Get the object_id from submission_files table where filename matches
         with get_db_cursor() as cursor:
             cursor.execute(
                 """
@@ -1085,88 +1058,106 @@ async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
                 (fasta_file, isolate['submission_id']),
             )
             file_record = cursor.fetchone()
-            
             if not file_record:
                 return False, f"FASTA file '{fasta_file}' not found in submission_files"
-        
-        object_id = file_record["object_id"]
-        
-        # 3. Load the FASTA file from MinIO
-        minio_client = Minio(
-            endpoint=settings.MINIO_ENDPOINT,
-            access_key=settings.MINIO_ACCESS_KEY,
-            secret_key=settings.MINIO_SECRET_KEY,
-            secure=settings.MINIO_INTERNAL_SECURE
+        # Return the original file's object_id (no extraction needed)
+        print(f"Linked isolate {isolate_sample_id} to original file with object_id: {file_record['object_id']}")
+        return True, file_record["object_id"]
+
+    # EXISTING: Header specified - extract specific sequence
+    print(f"Looking for FASTA File: {fasta_file}, Header: {fasta_header}")
+    # 3. Get the object_id from submission_files table where filename matches
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT object_id 
+            FROM submission_files 
+            WHERE filename = %s AND file_type = 'fasta' AND submission_id = %s
+            ORDER BY created_at DESC 
+            LIMIT 1
+            """,
+            (fasta_file, isolate['submission_id']),
         )
-        
-        bucket_name = settings.MINIO_BUCKET
-        
-        try:
-            # Add timeout to MinIO operations
-            import socket
-            original_timeout = socket.getdefaulttimeout()
-            socket.setdefaulttimeout(30) 
-            
-            response = minio_client.get_object(bucket_name, object_id)
-            fasta_content = response.read().decode('utf-8')
-            print("====================")
-            print(fasta_content)
-            print("====================")
-            response.close()
-            response.release_conn()
-            
-            # Restore original timeout
-            socket.setdefaulttimeout(original_timeout)
-        except Exception as e:
-            socket.setdefaulttimeout(original_timeout)  # Restore timeout even on error
-            return False, f"Error loading FASTA file from MinIO: {str(e)}"
-        
-        # 5. Parse the FASTA file using BioPython to check if header is in the file
-        fasta_handle = StringIO(fasta_content)
-        
-        sequence_found = None
-        try:
-            for record in SeqIO.parse(fasta_handle, "fasta"):
-                # BioPython's record.id is the header without '>'
-                # record.description contains the full header line
-                # Check various header match patterns
-                if (record.id == fasta_header or 
-                    record.description == fasta_header or
-                    record.description.startswith(fasta_header + ' ') or
-                    record.description.startswith(fasta_header + '\t')):
-                    sequence_found = record
-                    break
-        except ValueError as e:
-            return False, f"Invalid FASTA format: {str(e)}"
-        
-        # 6. Return error if header not found
-        if not sequence_found:
-            return False, f"Header '{fasta_header}' not found in {fasta_file} for isolate '{isolate_sample_id}'"
-        
-        # Validate sequence isn't empty
-        if len(sequence_found.seq) == 0:
-            return False, f"Empty sequence found for header: {fasta_header}"
-        
-        # Reconstruct FASTA format for storage
-        sequence_data = f">{sequence_found.description}\n{str(sequence_found.seq)}"
-        
-        if not sequence_data.strip():
-            return False, f"No sequence data found for isolate '{isolate_sample_id}'"
-        
-        # 7. If file and header found, pass to save_sequence_data for processing
-        new_object_id = await save_sequence_data(sequence_data, isolate['submission_id'], isolate['id'])
-        
-        # 8. Return the object_id of new FASTA file or error
-        if new_object_id:
-            return True, new_object_id
-        else:
-            return False, "Failed to save sequence data"
-            
+        file_record = cursor.fetchone()
+        if not file_record:
+            return False, f"FASTA file '{fasta_file}' not found in submission_files"
+
+    object_id = file_record["object_id"]
+
+    # 3. Load the FASTA file from MinIO
+    minio_client = Minio(
+        endpoint=settings.MINIO_ENDPOINT,
+        access_key=settings.MINIO_ACCESS_KEY,
+        secret_key=settings.MINIO_SECRET_KEY,
+        secure=settings.MINIO_INTERNAL_SECURE
+    )
+
+    bucket_name = settings.MINIO_BUCKET
+
+    try:
+        # Add timeout to MinIO operations
+        import socket
+        original_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(30)
+
+        response = minio_client.get_object(bucket_name, object_id)
+        fasta_content = response.read().decode('utf-8')
+        print("====================")
+        print(fasta_content)
+        print("====================")
+        response.close()
+        response.release_conn()
+
+        # Restore original timeout
+        socket.setdefaulttimeout(original_timeout)
     except Exception as e:
-        return False, f"Error processing sequence data: {str(e)}"
+        socket.setdefaulttimeout(original_timeout)  # Restore timeout even on error
+        return False, f"Error loading FASTA file from MinIO: {str(e)}"
+
+    # 5. Parse the FASTA file using BioPython to check if header is in the file
+    fasta_handle = StringIO(fasta_content)
+
+    sequence_found = None
+    try:
+        for record in SeqIO.parse(fasta_handle, "fasta"):
+            # BioPython's record.id is the header without '>'
+            # record.description contains the full header line
+            # Check various header match patterns
+            if (record.id == fasta_header or 
+                record.description == fasta_header or
+                record.description.startswith(fasta_header + ' ') or
+                record.description.startswith(fasta_header + '\t')):
+                sequence_found = record
+                break
+    except ValueError as e:
+        return False, f"Invalid FASTA format: {str(e)}"
+
+    # 6. Return error if header not found
+    if not sequence_found:
+        return False, f"Header '{fasta_header}' not found in {fasta_file} for isolate '{isolate_sample_id}'"
+
+    # Validate sequence isn't empty
+    if len(sequence_found.seq) == 0:
+        return False, f"Empty sequence found for header: {fasta_header}"
+
+    # Reconstruct FASTA format for storage
+    sequence_data = f">{sequence_found.description}\n{str(sequence_found.seq)}"
+
+    if not sequence_data.strip():
+        return False, f"No sequence data found for isolate '{isolate_sample_id}'"
+
+    # 7. If file and header found, pass to save_sequence_data for processing
+    # Pass the original object_id as parent_file_id
+    new_object_id = await save_sequence_data(sequence_data, isolate['submission_id'], isolate['id'], parent_file_id=object_id)
+
+    # 8. Return the object_id of new FASTA file or error
+    if new_object_id:
+        return True, new_object_id
+    else:
+        return False, "Failed to save sequence data"
 
 
-async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
+async def save_sequence_data(sequence, submission_id=None, isolate_id=None, parent_file_id=None):
     """
     Save sequence data to a FASTA file and upload it to MinIO.
     
@@ -1182,22 +1173,22 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
         if not sequence or not sequence.strip():
             print("Error: No sequence data provided")
             return None
-        
+
         # 1. Generate a unique filename for the FASTA file
         unique_id = str(uuid.uuid4())
         filename = f"isolate_sequence_{unique_id}.fasta"
-        
+
         # 2. Create FASTA file content (sequence should already be in FASTA format)
         fasta_content = sequence.strip()
-        
+
         # Ensure it's valid FASTA format (starts with >)
         if not fasta_content.startswith('>'):
             print("Error: Sequence data is not in valid FASTA format")
             return None
-        
+
         print(f"Saving sequence data to file: {filename}")
-        print(f"Submission ID: {submission_id}, Isolate ID: {isolate_id}")
-        
+        print(f"Submission ID: {submission_id}, Isolate ID: {isolate_id}, Parent File ID: {parent_file_id}")
+
         # 3. Upload the FASTA file to MinIO
         minio_client = Minio(
             endpoint=settings.MINIO_ENDPOINT,
@@ -1205,28 +1196,28 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
             secret_key=settings.MINIO_SECRET_KEY,
             secure=settings.MINIO_INTERNAL_SECURE
         )
-        
+
         bucket_name = settings.MINIO_BUCKET
-        
+
         # Ensure bucket exists
         if not minio_client.bucket_exists(bucket_name):
             minio_client.make_bucket(bucket_name)
-        
+
         # Convert string to bytes for upload
         fasta_bytes = fasta_content.encode('utf-8')
-        
+
         # Generate object_id for MinIO storage
         object_id = unique_id
-        
+
         # Upload to MinIO with timeout
         from io import BytesIO
         data = BytesIO(fasta_bytes)
-        
+
         # Add timeout for MinIO operations
         import socket
         original_timeout = socket.getdefaulttimeout()
-        socket.setdefaulttimeout(30) 
-        
+        socket.setdefaulttimeout(30)
+
         try:
             minio_client.put_object(
                 bucket_name=bucket_name,
@@ -1240,21 +1231,21 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
             socket.setdefaulttimeout(original_timeout)  # Restore timeout even on error
             print(f"Failed to upload to MinIO: {str(e)}")
             return None
-        
+
         print(f"Successfully uploaded sequence data to MinIO with object_id: {object_id}")
-        
+
         # Optionally, save file metadata to database (submission_files table)
         try:
             with get_db_cursor() as cursor:
                 cursor.execute(
                     """
-                    INSERT INTO submission_files (submission_id, isolate_id, filename, object_id, file_type, file_size, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                    INSERT INTO submission_files (submission_id, isolate_id, filename, object_id, file_type, file_size, parent_file_id, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
                     """,
-                    (submission_id, isolate_id, filename, object_id, 'fasta', len(fasta_bytes)),
+                    (submission_id, isolate_id, filename, object_id, 'fasta', len(fasta_bytes), parent_file_id),
                 )
                 print(f"File metadata saved to database: {filename}")
-                
+
                 # Also update the isolates table with the object_id
                 if isolate_id:
                     cursor.execute(
@@ -1266,14 +1257,14 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
                         (object_id, isolate_id),
                     )
                     print(f"Updated isolate {isolate_id} with object_id: {object_id}")
-                    
+
         except Exception as db_error:
             print(f"Warning: Could not save file metadata to database: {db_error}")
             # Continue anyway, as the file was uploaded successfully
-        
+
         # 3. Return the object_id of the uploaded file
         return object_id
-        
+
     except Exception as e:
         print(f"Error saving sequence data: {str(e)}")
         return None
@@ -1362,9 +1353,6 @@ def send_to_elastic2(document):
         print(f"Error serializing document: {e}")
         return False
     
-    # NEW ES INDEX AND FRONTEND WORKAROUND
-    # This will flatten the isolate_data field into top-level fields which is compatible with new ES mapping and existing frontend code
-
     # Flatten isolate_data if it exists
     if 'isolate_data' in serialized_document and serialized_document['isolate_data']:
         isolate_data = serialized_document['isolate_data']

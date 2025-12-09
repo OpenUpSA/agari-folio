@@ -2214,16 +2214,6 @@ class ProjectSubmissionFiles2(Resource):
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files2/<string:file_id>')
 class ReplaceProjectSubmissionFile2(Resource):
 
-    ### PUT /projects/<project_id>/submissions2/<submission_id>/files2/<file_id>
-
-    @api.doc('replace_file_v2')
-    @require_auth(keycloak_auth)
-    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
-    def put(self, project_id, submission_id, file_id):
-        """Replace an existing submission file with a new upload (streaming to MinIO)"""
-        # Similar to upload but replaces existing file record
-        pass  # Implementation would be similar to the upload_file_v2 method
-
     
     ### DELETE /projects/<project_id>/submissions2/<submission_id>/files2/<file_id>
     
@@ -2304,6 +2294,20 @@ class ReplaceProjectSubmissionFile2(Resource):
         except Exception as e:
             logger.exception(f"Error deleting file {file_id} from submission {submission_id}: {str(e)}")
             return {'error': f'Deletion failed: {str(e)}'}, 500
+
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/overwrite')
+class ProjectSubmissionOverwrite(Resource):
+    ### POST /projects/<project_id>/submissions/<submission_id>/overwrite
+
+    @api.doc('overwrite_submission_v2')
+    @require_auth(keycloak_auth)
+    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
+    def post(self, project_id, submission_id):
+
+        """Overwrite existing submission data with new uploaded files"""
+        # Implementation would involve deleting existing isolates and re-validating
+        pass  # Placeholder for actual implementation
+
 
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/validate2')
