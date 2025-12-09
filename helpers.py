@@ -93,11 +93,24 @@ def bulk_send_to_elastic(documents):
 
     bulk_lines = []
     for doc in documents:
-        doc_id = doc.get("id")
-        action = {"index": {"_id": doc_id}} if doc_id else {"index": {}}
-        bulk_lines.append(json.dumps(action))
-        # Use json_serial for datetime/date serialization
-        bulk_lines.append(json.dumps(doc, default=json_serial))
+            # Flatten isolate_data if present (same logic as send_to_elastic2)
+            if 'isolate_data' in doc and doc['isolate_data']:
+                isolate_data = doc['isolate_data']
+                if isinstance(isolate_data, str):
+                    try:
+                        isolate_data = json.loads(isolate_data)
+                    except Exception:
+                        isolate_data = {}
+                if isinstance(isolate_data, dict):
+                    for key, value in isolate_data.items():
+                        if key not in doc:
+                            doc[key] = value
+                del doc['isolate_data']
+            doc_id = doc.get("id")
+            action = {"index": {"_id": doc_id}} if doc_id else {"index": {}}
+            bulk_lines.append(json.dumps(action))
+            # Use json_serial for datetime/date serialization
+            bulk_lines.append(json.dumps(doc, default=json_serial))
     bulk_data = "\n".join(bulk_lines) + "\n"
 
     url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_bulk"
