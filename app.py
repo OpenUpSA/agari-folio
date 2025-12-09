@@ -1437,6 +1437,7 @@ class Project(Resource):
                         ORDER BY name
                     """, (project_id, organisation_id))
                 else:
+                    # Add a check that org-partial cannot see private org projects that they are not assigned to
                     user_projects = keycloak_auth.get_user_projects()
                     cursor.execute("""
                         SELECT *
@@ -1634,9 +1635,9 @@ class ProjectRestore(Resource):
 
 @project_ns.route('/<string:project_id>/users')
 class ProjectUsers(Resource):
-    
+
     ### GET /projects/<project_id>/users ###
-    
+
     @api.doc('list_project_users')
     @require_auth(keycloak_auth)
     @require_permission('view_project_users', resource_type='project', resource_id_arg='project_id')
@@ -1645,10 +1646,32 @@ class ProjectUsers(Resource):
         """List users associated with a project"""
 
         try:
+            organisation_id = keycloak_auth.get_user_org()
+            org_users = keycloak_auth.get_users_by_attribute('organisation_id', organisation_id)
+            org_admins = []
+            org_contributors = []
+            org_viewers = []
+            org_owners = []
+
+            for user in org_users:
+                user_roles = keycloak_auth.get_realm_roles(user['user_id'])
+                if user_roles[0] == 'agari-org-admin':
+                    org_admins.append(user)
+                elif user_roles[0] == 'agari-org-contributor':
+                    org_contributors.append(user)
+                elif user_roles[0] == 'agari-org-viewer':
+                    org_viewers.append(user)
+                elif user_roles[0] == 'agari-org-owner':
+                    org_owners.append(user)
+
             # Get all users with any project role
             all_project_admins = keycloak_auth.get_users_by_attribute('project-admin', project_id)
             all_project_contributors = keycloak_auth.get_users_by_attribute('project-contributor', project_id)
             all_project_viewers = keycloak_auth.get_users_by_attribute('project-viewer', project_id)
+
+            all_project_admins.extend(org_admins)
+            all_project_contributors.extend(org_contributors)
+            all_project_viewers.extend(org_viewers)
 
             # Create sets of user IDs for each role
             admin_user_ids = {user['user_id'] for user in all_project_admins}
@@ -1657,11 +1680,9 @@ class ProjectUsers(Resource):
 
             # Apply role hierarchy: admin > contributor > viewer
             # Remove lower privilege roles if user has higher privilege
-            
             # If user is admin, remove them from contributor and viewer lists
             contributor_user_ids = contributor_user_ids - admin_user_ids
             viewer_user_ids = viewer_user_ids - admin_user_ids
-            
             # If user is contributor (but not admin), remove them from viewer list
             viewer_user_ids = viewer_user_ids - contributor_user_ids
 
