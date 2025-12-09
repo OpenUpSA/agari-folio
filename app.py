@@ -37,7 +37,8 @@ from helpers import (
     delete_minio_object,
     delete_from_elastic,
     PROJECT_ROLE_MAPPING,
-    ORG_ROLE_MAPPING
+    ORG_ROLE_MAPPING,
+    bulk_send_to_elastic
 )
 import uuid
 import hashlib
@@ -2540,9 +2541,9 @@ class ProjectSubmissionValidate2(Resource):
                     
                     existing_isolates = cursor.fetchall()
                     
+                    isolates_to_index = []
                     for isolate in existing_isolates:
                         isolate_data = isolate.get('isolate_data', {})
-                        
                         # Run validation against schema
                         is_valid, errors = validate_against_schema(isolate_data, isolate['tsv_row'], project_id)
 
@@ -2570,9 +2571,12 @@ class ProjectSubmissionValidate2(Resource):
                             """, (isolate['id'],))
 
                             isolate_data = cursor.fetchone()
-
                             if isolate_data:
-                                send_to_elastic2(isolate_data)
+                                isolates_to_index.append(isolate_data)
+
+                    # Bulk index all validated isolates after validation
+                    if isolates_to_index:
+                        bulk_send_to_elastic(isolates_to_index)
 
                 # After validating all isolates, check if any have errors
                 with get_db_cursor() as cursor:
@@ -2714,8 +2718,8 @@ class ProjectSubmissionPublish2(Resource):
             """, (submission_id,))
             published_isolates = cursor.fetchall()
 
-            for isolate in published_isolates:
-                send_to_elastic2(isolate)
+            if published_isolates:
+                bulk_send_to_elastic(published_isolates)
 
         log_event("submission_published", submission_id, {"published_isolates": len(published_isolates)}, user_info)
         return {'message': f'Submission published successfully with {len(published_isolates)} isolates'}, 200
@@ -2758,8 +2762,8 @@ class ProjectSubmissionUnpublish2(Resource):
             """, (submission_id,))
             unpublished_isolates = cursor.fetchall()
 
-            for isolate in unpublished_isolates:
-                send_to_elastic2(isolate)
+            if unpublished_isolates:
+                bulk_send_to_elastic(unpublished_isolates)
 
         log_event("submission_unpublished", submission_id, {"unpublished_isolates": len(unpublished_isolates)}, user_info)
         return {'message': f'Submission unpublished successfully. {len(unpublished_isolates)} isolates reverted to validated status'}, 200
@@ -2893,14 +2897,18 @@ class Reindex(Resource):
                 isolates_batch = cursor.fetchall()
                 reindexed_count = 0
 
+                to_reindex = []
                 for isolate in isolates_batch:
                     es_exists = check_isolate_in_elastic(isolate['id'])
                     if not es_exists:
-                        elastic_operation = send_to_elastic2(isolate)
-                        
-                        if elastic_operation:
-                            reindexed_count += 1
-                        else:
+                        to_reindex.append(isolate)
+
+                elastic_operation = True
+                if to_reindex:
+                    elastic_operation = bulk_send_to_elastic(to_reindex)
+                    reindexed_count += len(to_reindex) if elastic_operation else 0
+                    if not elastic_operation:
+                        for isolate in to_reindex:
                             failures.append({
                                 'isolate_id': isolate['id'],
                                 'error': 'Failed to index isolate in Elasticsearch'

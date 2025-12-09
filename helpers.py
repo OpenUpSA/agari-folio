@@ -71,6 +71,9 @@ def load_json_schema(filename: str) -> Dict[str, Any]:
 
 
 
+
+import requests
+import json
 from settings import (
     SENDGRID_API_KEY,
     SENDGRID_FROM_EMAIL,
@@ -80,6 +83,34 @@ from settings import (
     KEYCLOAK_CLIENT_ID,
     KEYCLOAK_CLIENT_SECRET,
 )
+
+
+# Bulk ES helper
+def bulk_send_to_elastic(documents):
+    """Send a batch of documents to Elasticsearch using the _bulk API."""
+    if not documents:
+        return True
+
+    bulk_lines = []
+    for doc in documents:
+        doc_id = doc.get("id")
+        action = {"index": {"_id": doc_id}} if doc_id else {"index": {}}
+        bulk_lines.append(json.dumps(action))
+        # Use json_serial for datetime/date serialization
+        bulk_lines.append(json.dumps(doc, default=json_serial))
+    bulk_data = "\n".join(bulk_lines) + "\n"
+
+    url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_bulk"
+    headers = {"Content-Type": "application/x-ndjson"}
+    try:
+        response = requests.post(url, data=bulk_data, headers=headers, timeout=30)
+        if response.status_code not in (200, 201):
+            print(f"Bulk indexing failed: {response.text}")
+            return False
+        return True
+    except Exception as e:
+        print(f"Exception during bulk ES indexing: {e}")
+        return False
 
 sg_api_key = SENDGRID_API_KEY
 sg_from_email = SENDGRID_FROM_EMAIL
