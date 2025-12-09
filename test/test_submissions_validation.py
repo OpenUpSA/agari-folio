@@ -976,11 +976,13 @@ def test_validate_submission_sends_validated_isolates_to_elasticsearch(
         setup_tsv_rows(tsv_rows)
 
         url = get_validation_endpoint(public_project1["id"], submission_id)
-        response = make_request(client, "POST", url, token=org1_admin_token)
-
-        assert response.status_code == 200
-        # Verify send_to_elastic2 was called for each validated isolate
-        assert mock_validation_stack["elastic"].call_count == 2
+        with patch("app.bulk_send_to_elastic") as mock_bulk:
+            response = make_request(client, "POST", url, token=org1_admin_token)
+            assert response.status_code == 200
+            # Verify bulk_send_to_elastic was called once with both isolates
+            mock_bulk.assert_called_once()
+            args, kwargs = mock_bulk.call_args
+            assert len(args[0]) == 2
 
     finally:
         cleanup_submission(submission_id)
