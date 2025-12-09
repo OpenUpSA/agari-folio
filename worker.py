@@ -6,7 +6,7 @@ import asyncio
 from io import StringIO
 from jobs import get_next_job, mark_job_done, mark_job_failed
 from database import get_db_cursor
-from helpers import check_for_sequence_data, send_to_elastic2
+from helpers import check_for_sequence_data, send_to_elastic2, bulk_send_to_elastic
 from logging import getLogger
 
 logger = getLogger(__name__)
@@ -48,16 +48,18 @@ async def process_sequence_validation(job):
     print(f"Found {len(validated_isolates)} isolates still validated and ready for sequence checking")
     logger.info(f"Found {len(validated_isolates)} isolates still validated and ready for sequence checking")
     
+
     # Process each isolate with progress logging
     total_isolates = len(validated_isolates)
+    isolates_to_update = []
     for i, isolate in enumerate(validated_isolates, 1):
         print(f"Processing isolate {i}/{total_isolates}: {isolate['id']}")
         logger.info(f"Processing isolate {i}/{total_isolates}: {isolate['id']}")
-        
+
         try:
             # Add timeout wrapper for the async operation
             success, result = await asyncio.wait_for(
-                check_for_sequence_data(isolate, split_on_fasta_headers=split_on_fasta_headers), 
+                check_for_sequence_data(isolate, split_on_fasta_headers=split_on_fasta_headers),
                 timeout=120  # 2 minutes timeout per isolate
             )
         except asyncio.TimeoutError:
@@ -70,7 +72,7 @@ async def process_sequence_validation(job):
             logger.error(f"Exception processing isolate {isolate['id']}: {str(e)}")
             success = False
             result = f"Processing error: {str(e)}"
-        
+
         with get_db_cursor() as cursor:
             if success:
                 # Success - update with object_id, keep status as 'validated'
@@ -81,28 +83,6 @@ async def process_sequence_validation(job):
                 """, (result, isolate['id']))
                 print(f"Sequence saved for isolate {isolate['id']}: {result}")
                 logger.info(f"Sequence saved for isolate {isolate['id']}: {result}")
-                
-                # Get updated isolate data and send to Elasticsearch
-                cursor.execute("""
-                    SELECT i.*, s.project_id, p.pathogen_id
-                    FROM isolates i
-                    LEFT JOIN submissions s ON i.submission_id = s.id
-                    LEFT JOIN projects p ON s.project_id = p.id
-                    WHERE i.id = %s
-                """, (isolate['id'],))
-                
-                updated_isolate = cursor.fetchone()
-                if updated_isolate:
-                    print(f"Sending isolate {isolate['id']} to Elasticsearch...")
-                    logger.info(f"Sending isolate {isolate['id']} to Elasticsearch...")
-                    elastic_success = send_to_elastic2(updated_isolate)
-                    if elastic_success:
-                        print(f"Updated isolate {isolate['id']} sent to Elasticsearch")
-                        logger.info(f"Updated isolate {isolate['id']} sent to Elasticsearch")
-                    else:
-                        print(f"Failed to send isolate {isolate['id']} to Elasticsearch")
-                        logger.error(f"Failed to send isolate {isolate['id']} to Elasticsearch")
-                    
             else:
                 # Error - set seq_error and change status to sequence_error
                 seq_error_data = {
@@ -116,27 +96,30 @@ async def process_sequence_validation(job):
                 """, (json.dumps(seq_error_data), isolate['id']))
                 print(f"Sequence error for isolate {isolate['id']}: {result}")
                 logger.error(f"Sequence error for isolate {isolate['id']}: {result}")
-                
-                # Get updated isolate data and send to Elasticsearch
-                cursor.execute("""
-                    SELECT i.*, s.project_id, p.pathogen_id
-                    FROM isolates i
-                    LEFT JOIN submissions s ON i.submission_id = s.id
-                    LEFT JOIN projects p ON s.project_id = p.id
-                    WHERE i.id = %s
-                """, (isolate['id'],))
-                
-                updated_isolate = cursor.fetchone()
-                if updated_isolate:
-                    print(f"Sending isolate {isolate['id']} with seq_error to Elasticsearch...")
-                    logger.info(f"Sending isolate {isolate['id']} with seq_error to Elasticsearch...")
-                    elastic_success = send_to_elastic2(updated_isolate)
-                    if elastic_success:
-                        print(f"Updated isolate {isolate['id']} with seq_error sent to Elasticsearch")
-                        logger.info(f"Updated isolate {isolate['id']} with seq_error sent to Elasticsearch")
-                    else:
-                        print(f"Failed to send isolate {isolate['id']} with seq_error to Elasticsearch")
-                        logger.error(f"Failed to send isolate {isolate['id']} with seq_error to Elasticsearch")
+
+            # Get updated isolate data for bulk ES update
+            cursor.execute("""
+                SELECT i.*, s.project_id, p.pathogen_id
+                FROM isolates i
+                LEFT JOIN submissions s ON i.submission_id = s.id
+                LEFT JOIN projects p ON s.project_id = p.id
+                WHERE i.id = %s
+            """, (isolate['id'],))
+            updated_isolate = cursor.fetchone()
+            if updated_isolate:
+                isolates_to_update.append(updated_isolate)
+
+    # Bulk update all isolates in Elasticsearch after processing
+    if isolates_to_update:
+        print(f"Bulk updating {len(isolates_to_update)} isolates in Elasticsearch...")
+        logger.info(f"Bulk updating {len(isolates_to_update)} isolates in Elasticsearch...")
+        elastic_success = bulk_send_to_elastic(isolates_to_update)
+        if elastic_success:
+            print(f"Bulk update successful.")
+            logger.info(f"Bulk update successful.")
+        else:
+            print(f"Bulk update failed.")
+            logger.error(f"Bulk update failed.")
 
     # After processing all isolates, check final status and update submission
     with get_db_cursor() as cursor:
