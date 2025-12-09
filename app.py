@@ -2308,6 +2308,9 @@ class ProjectSubmissionOverwrite(Resource):
         # Implementation would involve deleting existing isolates and re-validating
         pass  # Placeholder for actual implementation
 
+        user_info = extract_user_info(request.user)
+        log_event("project_overwrite", project_id, {"submission_id": {submission_id}}, user_info)
+
 
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/validate2')
