@@ -24,7 +24,6 @@ from helpers import (
     role_project_member,
     role_org_member,
     role_org_member_attr,
-    check_user_id,
     access_toggled_notification,
     log_event,
     get_minio_client,
@@ -683,7 +682,7 @@ class UserList(Resource):
         return keycloak_response
 
 
-@user_ns.route('/<string:user_id>')        
+@user_ns.route('/<string:user_id>')
 class User(Resource):
 
     ### GET /users/<user_id> ###
@@ -692,7 +691,7 @@ class User(Resource):
     @require_auth(keycloak_auth)
     def get(self, user_id):
         """Get user details by ID
-        
+
         Users can view their own profile.
         Admins can view any user's profile.
         """
@@ -701,18 +700,19 @@ class User(Resource):
             # Get current user info
             user_info = extract_user_info(request.user)
             current_user_id = user_info.get('user_id')
-            
+
             # Check if user is trying to view their own profile
             is_self_view = current_user_id == user_id
-            
+
             # Check permissions - allow self-view or admin access
             if not is_self_view:
                 has_perm, details = user_has_permission(user_info, 'manage_users')
+                user_info = keycloak_auth.get_user(user_id)
                 if not has_perm:
                     return {'error': 'Permission denied. You can only view your own profile or need admin permissions.', 'details': details}, 403
-            
+
             return user_info
-            
+
         except Exception as e:
             logger.exception(f"Error retrieving user {user_id}: {str(e)}")
             return {'error': f'Failed to retrieve user: {str(e)}'}, 500
