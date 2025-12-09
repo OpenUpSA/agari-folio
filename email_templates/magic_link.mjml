@@ -72,7 +72,7 @@
     <mj-section padding="0 0 16px 0">
       <mj-column>
         <mj-text align="center">
-          <a href="{{ magic_link }}" class="agari-btn">
+          <a href="{{ magic_link }}" class="agari-btn" style="display: inline-block; min-width: auto; width: auto;">
             Sign in
           </a>
         </mj-text>
