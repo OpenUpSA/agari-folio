@@ -74,8 +74,8 @@
         <mj-section padding="16px 24px 0 24px">
           <mj-column>
             <mj-text align="center">
-              <a href="{{ accept_link }}" class="agari-btn">
-                Accept Invitation
+              <a href="{{ accept_link }}" class="agari-btn" style="display: inline-block; min-width: auto; width: auto;">
+          Accept Invitation
               </a>
             </mj-text>
           </mj-column>
