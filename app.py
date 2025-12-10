@@ -199,6 +199,43 @@ class PermissionsCheckResource(Resource):
             logger.exception(f"Error checking permission: {str(e)}")
             return {'error': f'Failed to check permission: {str(e)}'}, 500
 
+@default_ns.route('/userid')
+class GetUserId(Resource):
+
+    ### POST /info/userid ###
+
+    @api.doc('get_userid')
+    def post(self):
+
+        """Check if user exists and return user ID based on email"""
+
+        try:
+            data = request.get_json()
+            if not data:
+                return {'error': 'No JSON data provided'}, 400
+
+            email = data.get('email')
+            if not email:
+                return {'error': 'Email is required'}, 400
+
+            users = keycloak_auth.get_all_users()
+            user_found = None
+            for user in users:
+                if user.get('username') == email or user.get('email') == email:
+                    user_found = user
+                    break
+
+            if not user_found:
+                return {'error': f'User with email "{email}" not found'}, 404
+
+            return {
+                'user_id': user_found.get('user_id') or user_found.get('id'),
+            }
+
+        except Exception as e:
+            logger.exception(f"Error checking user by email: {str(e)}")
+            return {'error': f'Failed to check user: {str(e)}'}, 500
+
 
 ##########################
 ### PATHOGENS
