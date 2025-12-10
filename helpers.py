@@ -629,10 +629,9 @@ def tsv_to_json_pandas(tsv_string, project_id):
                 # Ensure string type, replace NaN with empty string
                 df[column] = df[column].fillna('')
 
-    # IMPROVEMENT 7: Convert to list of dicts efficiently
-    # pandas to_dict is much faster than manual iteration
+    # Replace all NaN with None so JSON is valid for Postgres
+    df = df.where(pd.notnull(df), None)
     json_list = df.to_dict('records')
-    
     return json_list
 
 
