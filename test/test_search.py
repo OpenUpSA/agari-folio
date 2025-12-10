@@ -600,26 +600,10 @@ def test_search_access_control_private_project_all_roles(
 @pytest.mark.search
 @pytest.mark.rbac
 @pytest.mark.e2e
-@pytest.mark.xfail(
-    reason="BUG: publish2 endpoint doesn't fetch visibility field (app.py:2688-2693). "
-    "Should add 'p.privacy as visibility' to the SELECT query. "
-    "Currently visibility field is missing from ES documents, so access control fails."
-)
 def test_search_access_control_private_project_external_user(
     client, external_user_token, private_project_with_submission
 ):
-    """Test that external users cannot search private project data
-
-    KNOWN ISSUE: This test currently fails because the publish2 endpoint doesn't
-    include the visibility field when indexing documents to Elasticsearch.
-    The SELECT query needs to be updated to include: p.privacy as visibility, p.name as project_name
-    """
-    # Debug: Print project details
-    print(f"\\nPrivate project ID: {private_project_with_submission['project']['id']}")
-    print(
-        f"Private project privacy: {private_project_with_submission['project']['privacy']}"
-    )
-
+    """Test that external users cannot search private project data"""
     search_query = {
         "query": {
             "match": {"project_id": private_project_with_submission["project"]["id"]}
@@ -637,16 +621,6 @@ def test_search_access_control_private_project_external_user(
 
     assert response.status_code == 200
     result = response.get_json()
-
-    # Debug
-    print(f"Got {result['hits']['total']['value']} results")
-    if result["hits"]["hits"]:
-        print(
-            f"First result visibility: {result['hits']['hits'][0]['_source'].get('visibility', 'NOT SET')}"
-        )
-        print(
-            f"First result project_id: {result['hits']['hits'][0]['_source'].get('project_id', 'NOT SET')}"
-        )
 
     # External users should not see private project data
     # The access filter should prevent this
