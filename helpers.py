@@ -545,7 +545,7 @@ def tsv_to_json_pandas(tsv_string, project_id):
         schema = schema_record["schema"]
 
     # IMPROVEMENT 1: Use pandas to parse TSV
-    # Handles edge cases like quoted fields, embedded tabs, etc.
+    
     try:
         df = pd.read_csv(
             StringIO(tsv_string),
@@ -558,10 +558,10 @@ def tsv_to_json_pandas(tsv_string, project_id):
     except Exception as e:
         raise ValueError(f"Failed to parse TSV: {str(e)}")
 
-    # IMPROVEMENT 2: Strip whitespace from column names
+    
     df.columns = df.columns.str.strip()
 
-    # IMPROVEMENT 3: Process columns based on schema using vectorized operations
+    
     properties = schema.get("properties", {})
     
     for column in df.columns:
@@ -601,7 +601,7 @@ def process_array_field(value, split_regex=None):
     """
     Process array field with optional regex splitting.
     
-    IMPROVEMENT: Cleaner logic, better error handling
+    
     """
     if pd.isna(value) or not value or not isinstance(value, str):
         return []
@@ -648,7 +648,7 @@ def process_oneof_field_pandas(value, field_schema):
     """
     Process a field with oneOf schema.
     
-    IMPROVEMENT: Same logic but cleaner structure
+    
     """
     # If empty, return empty string
     if pd.isna(value) or not value or (isinstance(value, str) and not value.strip()):
@@ -1056,9 +1056,6 @@ async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
 
         response = minio_client.get_object(bucket_name, object_id)
         fasta_content = response.read().decode('utf-8')
-        print("====================")
-        print(fasta_content)
-        print("====================")
         response.close()
         response.release_conn()
 
