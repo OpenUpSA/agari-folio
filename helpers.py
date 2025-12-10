@@ -654,23 +654,27 @@ def process_oneof_field_pandas(value, field_schema):
     
     
     """
-    # If empty, return empty string
+    # If empty, check if oneOf contains a date type; if so, return None, else ""
     if pd.isna(value) or not value or (isinstance(value, str) and not value.strip()):
+        oneof_options = field_schema.get("oneOf", [])
+        for option in oneof_options:
+            if option.get("type") == "string" and option.get("format") == "date":
+                return None
         return ""
-    
+
     if isinstance(value, str):
         value = value.strip()
-    
+
     # Try to determine the correct type from oneOf options
     oneof_options = field_schema.get("oneOf", [])
-    
+
     for option in oneof_options:
         # Skip the empty string option
         if option.get("maxLength") == 0:
             continue
-        
+
         option_type = option.get("type")
-        
+
         # Try number conversion
         if option_type == "number":
             try:
@@ -680,7 +684,7 @@ def process_oneof_field_pandas(value, field_schema):
                     return int(value)
             except (ValueError, TypeError):
                 continue
-        
+
         # Try array with enum
         if option_type == "array":
             split_regex = field_schema.get("x-split-regex", ",\\s*")
@@ -694,12 +698,12 @@ def process_oneof_field_pandas(value, field_schema):
                 split_values = [v.strip() for v in str(value).split(",") if v.strip()]
                 if split_values:
                     return split_values
-        
+
         # Check if it matches an enum
         if "enum" in option:
             if value in option["enum"]:
                 return value
-    
+
     # If no type matched, return as string
     return str(value) if value is not None else ""
 
