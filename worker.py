@@ -99,7 +99,7 @@ async def process_sequence_validation(job):
 
             # Get updated isolate data for bulk ES update
             cursor.execute("""
-                SELECT i.*, s.project_id, p.pathogen_id
+                SELECT i.*, s.project_id, p.pathogen_id, p.privacy as visibility
                 FROM isolates i
                 LEFT JOIN submissions s ON i.submission_id = s.id
                 LEFT JOIN projects p ON s.project_id = p.id

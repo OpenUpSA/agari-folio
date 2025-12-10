@@ -85,45 +85,7 @@ from settings import (
 )
 
 
-# Bulk ES helper
-def bulk_send_to_elastic(documents):
-    """Send a batch of documents to Elasticsearch using the _bulk API."""
-    if not documents:
-        return True
 
-    bulk_lines = []
-    for doc in documents:
-            # Flatten isolate_data if present (same logic as send_to_elastic2)
-            if 'isolate_data' in doc and doc['isolate_data']:
-                isolate_data = doc['isolate_data']
-                if isinstance(isolate_data, str):
-                    try:
-                        isolate_data = json.loads(isolate_data)
-                    except Exception:
-                        isolate_data = {}
-                if isinstance(isolate_data, dict):
-                    for key, value in isolate_data.items():
-                        if key not in doc:
-                            doc[key] = value
-                del doc['isolate_data']
-            doc_id = doc.get("id")
-            action = {"index": {"_id": doc_id}} if doc_id else {"index": {}}
-            bulk_lines.append(json.dumps(action))
-            # Use json_serial for datetime/date serialization
-            bulk_lines.append(json.dumps(doc, default=json_serial))
-    bulk_data = "\n".join(bulk_lines) + "\n"
-
-    url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_bulk"
-    headers = {"Content-Type": "application/x-ndjson"}
-    try:
-        response = requests.post(url, data=bulk_data, headers=headers, timeout=30)
-        if response.status_code not in (200, 201):
-            print(f"Bulk indexing failed: {response.text}")
-            return False
-        return True
-    except Exception as e:
-        print(f"Exception during bulk ES indexing: {e}")
-        return False
 
 sg_api_key = SENDGRID_API_KEY
 sg_from_email = SENDGRID_FROM_EMAIL
@@ -1462,4 +1424,44 @@ def delete_from_elastic(submission_id):
             return False
     except Exception as e:
         print(f"Error deleting documents from Elasticsearch: {e}")
+        return False
+    
+# Bulk ES helper
+def bulk_send_to_elastic(documents):
+    """Send a batch of documents to Elasticsearch using the _bulk API."""
+    if not documents:
+        return True
+
+    bulk_lines = []
+    for doc in documents:
+            # Flatten isolate_data if present (same logic as send_to_elastic2)
+            if 'isolate_data' in doc and doc['isolate_data']:
+                isolate_data = doc['isolate_data']
+                if isinstance(isolate_data, str):
+                    try:
+                        isolate_data = json.loads(isolate_data)
+                    except Exception:
+                        isolate_data = {}
+                if isinstance(isolate_data, dict):
+                    for key, value in isolate_data.items():
+                        if key not in doc:
+                            doc[key] = value
+                del doc['isolate_data']
+            doc_id = doc.get("id")
+            action = {"index": {"_id": doc_id}} if doc_id else {"index": {}}
+            bulk_lines.append(json.dumps(action))
+            # Use json_serial for datetime/date serialization
+            bulk_lines.append(json.dumps(doc, default=json_serial))
+    bulk_data = "\n".join(bulk_lines) + "\n"
+
+    url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_bulk"
+    headers = {"Content-Type": "application/x-ndjson"}
+    try:
+        response = requests.post(url, data=bulk_data, headers=headers, timeout=30)
+        if response.status_code not in (200, 201):
+            print(f"Bulk indexing failed: {response.text}")
+            return False
+        return True
+    except Exception as e:
+        print(f"Exception during bulk ES indexing: {e}")
         return False
