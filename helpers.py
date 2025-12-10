@@ -565,6 +565,7 @@ def tsv_to_json_pandas(tsv_string, project_id):
 
         field_type = field_schema.get("type")
         split_regex = field_schema.get("x-split-regex")
+        field_format = field_schema.get("format")
 
         # Handle arrays
         if field_type == "array":
@@ -574,13 +575,12 @@ def tsv_to_json_pandas(tsv_string, project_id):
         elif field_type == "number":
             df[column] = df[column].apply(lambda x: convert_to_number(x))
 
-        # Handle dates (string with format date)
-        elif field_type == "string" and field_schema.get("format") == "date":
-            df[column] = df[column].apply(lambda x: x if x and x.strip() else None)
+        # Handle dates (string with format date): set None if missing/empty/NaN
+        elif field_type == "string" and field_format == "date":
+            df[column] = df[column].apply(lambda x: x if (x is not None and isinstance(x, str) and x.strip()) else None)
 
-        # Handle strings
+        # Handle strings (not date): always use empty string for missing/None/NaN
         elif field_type == "string":
-            # For string fields, always use empty string for missing/None/NaN
             df[column] = df[column].apply(lambda x: x if (x is not None and not (isinstance(x, float) and pd.isna(x))) else "")
 
         # Other types: leave as is
