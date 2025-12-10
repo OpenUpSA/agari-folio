@@ -489,17 +489,9 @@ def tsv_to_json(tsv_string, project_id):
 
 def tsv_to_json_pandas(tsv_string, project_id):
     """
-    Refactored TSV to JSON conversion using pandas for parsing and jsonschema for validation.
-    
-    IMPROVEMENTS:
-    1. Pandas handles TSV parsing robustly (edge cases, escaping, quotes)
-    2. Vectorized operations are much faster for large datasets
-    3. Automatic type inference with better null handling
-    4. Less manual string manipulation
-    5. Built-in handling of missing values
-    6. Cleaner, more maintainable code
+    TSV to JSON conversion using pandas, with schema-driven type handling.
+    Matches legacy functionality but is faster and more robust.
     """
-    
     with get_db_cursor() as cursor:
         # Get schema
         cursor.execute(
@@ -544,54 +536,55 @@ def tsv_to_json_pandas(tsv_string, project_id):
 
         schema = schema_record["schema"]
 
-    # IMPROVEMENT 1: Use pandas to parse TSV
-    
+    # Parse TSV with pandas
     try:
         df = pd.read_csv(
             StringIO(tsv_string),
             sep='\t',
-            dtype=str,  # Read everything as string initially
-            keep_default_na=False,  # Don't convert empty strings to NaN
-            na_values=[''],  # But still recognize empty strings as NA
-            skipinitialspace=True  # Strip leading whitespace
+            dtype=str,
+            keep_default_na=False,
+            na_values=[''],
+            skipinitialspace=True
         )
     except Exception as e:
         raise ValueError(f"Failed to parse TSV: {str(e)}")
 
-    
     df.columns = df.columns.str.strip()
-
-    
     properties = schema.get("properties", {})
-    
+
     for column in df.columns:
         if column not in properties:
             continue  # Skip columns not in schema
-            
+
         field_schema = properties[column]
-        
+
         # Handle oneOf fields
         if "oneOf" in field_schema:
-            # Apply the oneOf processing to each value in the column
             df[column] = df[column].apply(lambda x: process_oneof_field_pandas(x, field_schema))
-        else:
-            # Process based on field type
-            field_type = field_schema.get("type")
-            split_regex = field_schema.get("x-split-regex")
-            
-            if field_type == "array":
-                # Process array fields
-                df[column] = df[column].apply(lambda x: process_array_field(x, split_regex))
-            
-            elif field_type == "number":
-                # Convert to numeric, keeping strings that can't be converted
-                df[column] = df[column].apply(lambda x: convert_to_number(x))
-            
-            elif field_type == "string":
-                # Ensure string type, replace NaN with empty string
-                df[column] = df[column].fillna('')
+            continue
 
-    # Replace all NaN with None so JSON is valid for Postgres
+        field_type = field_schema.get("type")
+        split_regex = field_schema.get("x-split-regex")
+
+        # Handle arrays
+        if field_type == "array":
+            df[column] = df[column].apply(lambda x: process_array_field(x, split_regex))
+
+        # Handle numbers
+        elif field_type == "number":
+            df[column] = df[column].apply(lambda x: convert_to_number(x))
+
+        # Handle dates (string with format date)
+        elif field_type == "string" and field_schema.get("format") == "date":
+            df[column] = df[column].apply(lambda x: x if x and x.strip() else None)
+
+        # Handle strings
+        elif field_type == "string":
+            df[column] = df[column].apply(lambda x: x if x is not None else "")
+
+        # Other types: leave as is
+
+    # Replace all NaN with None for JSON compatibility
     df = df.where(pd.notnull(df), None)
     json_list = df.to_dict('records')
     return json_list
