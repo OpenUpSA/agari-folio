@@ -49,6 +49,16 @@ Run folio
 python app.py
 ```
 
+## Event logging
+
+The even log endpoint can return logs of the following types
+
+  - project_created, project_deleted, project_privacy, project_overwrite
+  - user_added, user_invited, user_accepted, project_user_deleted
+  - org_user_added, org_user_invited, org_user_accepted
+  - submission_created, file_uploaded, submission_validated, submission_published, submission_unpublished
+  - data_download
+
 ## Tests
 
 ```
