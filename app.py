@@ -2481,30 +2481,44 @@ class ProjectSubmissionValidate2(Resource):
 
                 # Delete all existing isolates for this submission first (clean slate)
                 with get_db_cursor() as cursor:
-                    # First, get all isolate IDs to delete from Elasticsearch
+                    # First, get all isolate IDs and object_ids to delete from Elasticsearch and MinIO
                     cursor.execute("""
-                        SELECT id FROM isolates 
+                        SELECT id, object_id FROM isolates 
                         WHERE submission_id = %s
                     """, (submission_id,))
-                    
                     isolates_to_delete = cursor.fetchall()
-                    
-                    # Delete from Elasticsearch
+
+                    # Delete from Elasticsearch, MinIO, and submission_files if needed
                     for isolate in isolates_to_delete:
                         try:
                             delete_from_elastic(isolate['id'])
                         except Exception as es_error:
                             logger.warning(f"Failed to delete isolate {isolate['id']} from Elasticsearch: {str(es_error)}")
-                    
+
+                        # If split_on_fasta_headers is True and isolate has object_id, delete from MinIO and submission_files
+                        if split_on_fasta_headers and isolate.get('object_id'):
+                            try:
+                                # Delete from MinIO
+                                delete_minio_object(isolate['object_id'])
+                            except Exception as minio_error:
+                                logger.warning(f"Failed to delete MinIO object {isolate['object_id']}: {str(minio_error)}")
+                            try:
+                                # Delete from submission_files
+                                cursor.execute("""
+                                    DELETE FROM submission_files
+                                    WHERE object_id = %s
+                                """, (isolate['object_id'],))
+                            except Exception as sf_error:
+                                logger.warning(f"Failed to delete submission_files entry for object_id {isolate['object_id']}: {str(sf_error)}")
+
                     # Now delete from database
                     cursor.execute("""
                         DELETE FROM isolates 
                         WHERE submission_id = %s
                     """, (submission_id,))
-                    
                     deleted_count = cursor.rowcount
                     if deleted_count > 0:
-                        print(f"Deleted {deleted_count} existing isolates for submission {submission_id} from database and Elasticsearch")
+                        print(f"Deleted {deleted_count} existing isolates for submission {submission_id} from database, Elasticsearch, and MinIO if needed")
 
                 # Insert all rows fresh from the TSV, checking for duplicate isolate_ids
                 for row_index, row in enumerate(tsv_json):
