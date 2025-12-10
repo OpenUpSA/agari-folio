@@ -1427,38 +1427,56 @@ def delete_from_elastic(submission_id):
 def bulk_send_to_elastic(documents):
     """Send a batch of documents to Elasticsearch using the _bulk API."""
     if not documents:
+        logger.info("No documents to send to Elasticsearch (bulk)")
         return True
 
     bulk_lines = []
-    for doc in documents:
-            # Flatten isolate_data if present (same logic as send_to_elastic2)
-            if 'isolate_data' in doc and doc['isolate_data']:
-                isolate_data = doc['isolate_data']
-                if isinstance(isolate_data, str):
-                    try:
-                        isolate_data = json.loads(isolate_data)
-                    except Exception:
-                        isolate_data = {}
-                if isinstance(isolate_data, dict):
-                    for key, value in isolate_data.items():
-                        if key not in doc:
-                            doc[key] = value
-                del doc['isolate_data']
-            doc_id = doc.get("id")
-            action = {"index": {"_id": doc_id}} if doc_id else {"index": {}}
-            bulk_lines.append(json.dumps(action))
-            # Use json_serial for datetime/date serialization
-            bulk_lines.append(json.dumps(doc, default=json_serial))
+    for idx, doc in enumerate(documents):
+        logger.debug(f"Preparing document {idx} for bulk ES: id={doc.get('id')}, keys={list(doc.keys())}")
+        # Flatten isolate_data if present (same logic as send_to_elastic2)
+        if 'isolate_data' in doc and doc['isolate_data']:
+            isolate_data = doc['isolate_data']
+            if isinstance(isolate_data, str):
+                try:
+                    isolate_data = json.loads(isolate_data)
+                except Exception:
+                    logger.warning(f"Could not parse isolate_data for doc id={doc.get('id')}")
+                    isolate_data = {}
+            if isinstance(isolate_data, dict):
+                for key, value in isolate_data.items():
+                    if key not in doc:
+                        doc[key] = value
+            del doc['isolate_data']
+        doc_id = doc.get("id")
+        action = {"index": {"_id": doc_id}} if doc_id else {"index": {}}
+        bulk_lines.append(json.dumps(action))
+        # Use json_serial for datetime/date serialization
+        bulk_lines.append(json.dumps(doc, default=json_serial))
+        logger.debug(f"Bulk action: {action}, doc: {doc}")
     bulk_data = "\n".join(bulk_lines) + "\n"
+
+    logger.info(f"Sending bulk data to Elasticsearch: url={settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_bulk, num_docs={len(documents)}")
+    # Optionally log the bulk_data (can be large)
+    logger.debug(f"Bulk payload (truncated): {bulk_data[:1000]}...")
 
     url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_bulk"
     headers = {"Content-Type": "application/x-ndjson"}
     try:
         response = requests.post(url, data=bulk_data, headers=headers, timeout=30)
+        logger.info(f"Bulk ES response status: {response.status_code}")
         if response.status_code not in (200, 201):
-            print(f"Bulk indexing failed: {response.text}")
+            logger.error(f"Bulk indexing failed: {response.text}")
             return False
+        # Log errors from ES bulk response if present
+        try:
+            resp_json = response.json()
+            if resp_json.get('errors'):
+                logger.error(f"Bulk ES response contains errors: {resp_json}")
+            else:
+                logger.info("Bulk ES response: all documents indexed successfully")
+        except Exception as e:
+            logger.warning(f"Could not parse bulk ES response as JSON: {e}")
         return True
     except Exception as e:
-        print(f"Exception during bulk ES indexing: {e}")
+        logger.error(f"Exception during bulk ES indexing: {e}")
         return False
