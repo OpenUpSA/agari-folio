@@ -41,7 +41,20 @@ username={{username}}
 &client_secret={{client_secret}}
 
 ###
+
 @token = {{login.response.body.access_token}}
+@refresh_token = {{login.response.body.refresh_token}}
+
+###
+
+# @name refresh_token
+POST {{folio}}/users/refresh-token
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "refresh_token": ""
+}
 
 ### Keycloak generate magic link
 @redirect_uri = https://agari.openup.org.za

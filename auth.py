@@ -1023,6 +1023,33 @@ class KeycloakAuth:
             return {'success': False, 'error': f"Unexpected error: {str(e)}"}
 
 
+    def refresh_access_token(self, refresh_token):
+        try:
+            token_url = f"{self.keycloak_url}/realms/{self.realm}/protocol/openid-connect/token"
+            data = {
+                'grant_type': 'refresh_token',
+                'client_id': self.client_id,
+                'client_secret': self.client_secret,
+                'refresh_token': refresh_token
+            }
+
+            response = requests.post(token_url, data=data)
+            response.raise_for_status()
+
+            token_data = response.json()
+            return {
+                'access_token': token_data.get('access_token'),
+                'refresh_token': token_data.get('refresh_token'),
+                'expires_in': token_data.get('expires_in'),
+                'refresh_expires_in': token_data.get('refresh_expires_in'),
+                'token_type': token_data.get('token_type', 'Bearer')
+            }
+
+        except requests.RequestException as e:
+            logger.error(f"Error refreshing access token: {e}")
+            return None
+
+
 def require_auth(keycloak_auth):
 
     """Decorator to require authentication"""

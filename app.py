@@ -857,6 +857,31 @@ class UserEmail(Resource):
             return {"error": f"Changing user email failed: {str(e)}"}, 500
 
 
+@user_ns.route('/refresh-token')
+class RefreshToken(Resource):
+
+    ### POST /users/refresh-token ###
+
+    @api.doc('refresh_access_token')
+    def post(self):
+        try:
+            data = request.get_json()
+            if not data or 'refresh_token' not in data:
+                return {'error': 'refresh_token is required'}, 400
+
+            refresh_token = data.get('refresh_token')
+            new_tokens = keycloak_auth.refresh_access_token(refresh_token)
+
+            if not new_tokens:
+                return {'error': 'Failed to refresh token. Token may be expired or invalid.'}, 401
+
+            return new_tokens, 200
+
+        except Exception as e:
+            logger.error(f"Error in refresh token endpoint: {e}")
+            return {'error': f'Failed to refresh token: {str(e)}'}, 500
+
+
 ##########################
 ### ORGANISATIONS
 ##########################
@@ -2305,9 +2330,11 @@ class ProjectSubmissionOverwrite(Resource):
     def post(self, project_id, submission_id):
 
         """Overwrite existing submission data with new uploaded files"""
+        user_info = extract_user_info(request.user)
+        log_event("project_overwrite", project_id, {"submission_id": {submission_id}}, user_info)
+
         # Implementation would involve deleting existing isolates and re-validating
         pass  # Placeholder for actual implementation
-
 
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/validate2')
