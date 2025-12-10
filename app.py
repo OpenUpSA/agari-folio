@@ -1445,16 +1445,18 @@ class Project(Resource):
     ### GET /projects/<project_id> ###
 
     @api.doc('get_project')
+    @require_auth(keycloak_auth)
     def get(self, project_id):
 
         """Get single project details based on user permissions"""
 
+        user_info = extract_user_info(request.user)
         organisation_id = keycloak_auth.get_user_org()
 
         try:
                 
             with get_db_cursor() as cursor:
-                if organisation_id is not None:
+                if organisation_id is not None and user_info["roles"][0] != "agari-org-partial":
                     cursor.execute("""
                         SELECT *
                         FROM projects
