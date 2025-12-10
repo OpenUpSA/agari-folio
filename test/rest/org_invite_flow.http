@@ -1,6 +1,7 @@
 @folio = http://127.0.0.1:8000/
 #@folio = https://folio-staging.openup.org.za
 
+@keycloak = http://keycloak.local
 
 @realm = agari
 @client_id = dms
@@ -11,7 +12,7 @@
 
 ### Get access token
 # @name login
-POST https://keycloak-staging.openup.org.za/realms/{{realm}}/protocol/openid-connect/token
+POST {{keycloak}}/realms/{{realm}}/protocol/openid-connect/token
 Content-Type: application/x-www-form-urlencoded
 
 username={{username}}

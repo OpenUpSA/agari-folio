@@ -1050,6 +1050,40 @@ class KeycloakAuth:
             return None
 
 
+    def get_all_users(self):
+        admin_token = self.get_admin_token()
+        if not admin_token:
+            return []
+
+        try:
+            users_url = f"{self.keycloak_url}/admin/realms/{self.realm}/users"
+
+            headers = {
+                'Authorization': f'Bearer {admin_token}',
+                'Content-Type': 'application/json'
+            }
+
+            # Fetch all users (adjust max if you have more than 1000 users)
+            params = {'max': 1000}
+
+            response = requests.get(users_url, headers=headers, params=params)
+            response.raise_for_status()
+
+            users = response.json()
+
+            # Format user data
+            formatted_users = []
+            for user in users:
+                user_data = self._format_user_data(user)
+                formatted_users.append(user_data)
+
+            return formatted_users
+
+        except requests.RequestException as e:
+            logger.error(f"Error fetching all users: {e}")
+            return []
+
+
 def require_auth(keycloak_auth):
 
     """Decorator to require authentication"""
