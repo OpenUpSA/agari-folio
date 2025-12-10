@@ -585,8 +585,18 @@ def tsv_to_json_pandas(tsv_string, project_id):
         # Other types: leave as is
 
     # Replace all NaN with None for JSON compatibility
+    import math
+    def clean_nans(obj):
+        if isinstance(obj, float) and math.isnan(obj):
+            return None
+        if isinstance(obj, dict):
+            return {k: clean_nans(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [clean_nans(x) for x in obj]
+        return obj
+
     df = df.where(pd.notnull(df), None)
-    json_list = df.to_dict('records')
+    json_list = [clean_nans(row) for row in df.to_dict('records')]
     return json_list
 
 
