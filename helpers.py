@@ -580,11 +580,12 @@ def tsv_to_json_pandas(tsv_string, project_id):
 
         # Handle strings
         elif field_type == "string":
-            df[column] = df[column].apply(lambda x: x if x is not None else "")
+            # For string fields, always use empty string for missing/None/NaN
+            df[column] = df[column].apply(lambda x: x if (x is not None and not (isinstance(x, float) and pd.isna(x))) else "")
 
         # Other types: leave as is
 
-    # Replace all NaN with None for JSON compatibility
+    # For non-string fields, ensure NaN is replaced with None
     import math
     def clean_nans(obj):
         if isinstance(obj, float) and math.isnan(obj):
