@@ -2755,9 +2755,11 @@ class ProjectSubmissionPublish2(Resource):
 
             # Get published isolates to re-index in Elasticsearch
             cursor.execute("""
-                SELECT i.*, s.project_id, p.pathogen_id FROM isolates i
+                SELECT i.*, s.project_id, p.pathogen_id, p.privacy as visibility, p.name as project_name, pat.name as pathogen_name
+                FROM isolates i
                 LEFT JOIN submissions s ON i.submission_id = s.id
                 LEFT JOIN projects p ON s.project_id = p.id
+                LEFT JOIN pathogens pat ON i.pathogen_id = pat.id
                 WHERE i.submission_id = %s
                 AND i.status = 'published'
             """, (submission_id,))
@@ -2799,9 +2801,11 @@ class ProjectSubmissionUnpublish2(Resource):
 
             # Get unpublished isolates to re-index in Elasticsearch with updated status
             cursor.execute("""
-                SELECT i.*, s.project_id, p.pathogen_id FROM isolates i
+                SELECT i.*, s.project_id, p.pathogen_id, p.privacy as visibility, p.name as project_name, pat.name as pathogen_name
+                FROM isolates i
                 LEFT JOIN submissions s ON i.submission_id = s.id
                 LEFT JOIN projects p ON s.project_id = p.id
+                LEFT JOIN pathogens pat ON i.pathogen_id = pat.id
                 WHERE i.submission_id = %s
                 AND i.status = 'validated'
             """, (submission_id,))
