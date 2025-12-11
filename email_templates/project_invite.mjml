@@ -73,7 +73,7 @@
         <!-- Custom Flex Button -->
         <mj-section padding="16px 24px 0 24px">
           <mj-column>
-            <mj-text align="center">
+            <mj-text>
               <a href="{{ accept_link }}" class="agari-btn" style="display: inline-block; min-width: auto; width: auto;">
           Accept Invitation
               </a>
