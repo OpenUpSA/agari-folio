@@ -2167,6 +2167,7 @@ class ProjectSubmissionFiles2(Resource):
 
         """Upload a file to submission with streaming to MinIO"""
 
+
         try:
             user_info = extract_user_info(request.user)
             with get_db_cursor() as cursor:
@@ -2174,18 +2175,15 @@ class ProjectSubmissionFiles2(Resource):
                     SELECT * FROM submissions 
                     WHERE id = %s AND project_id = %s
                 """, (submission_id, project_id))
-                
                 submission = cursor.fetchone()
                 if not submission:
                     return {'error': 'Submission not found'}, 404
-
                 if submission['status'] not in ['draft', 'error', 'validating', 'validated']:
                     return {'error': f'Cannot upload files to submission in status: {submission["status"]}.'}, 400
 
             # Check file upload
             if 'file' not in request.files:
                 return {'error': 'No file provided'}, 400
-            
             file = request.files['file']
             if not file or not file.filename:
                 return {'error': 'Invalid file'}, 400
@@ -2203,33 +2201,47 @@ class ProjectSubmissionFiles2(Resource):
             file_data = []
             file_size = 0
             md5_hash = hashlib.md5()
-            
-            # Read file in chunks for streaming
             while True:
-                chunk = file.stream.read(8192)  
+                chunk = file.stream.read(8192)
                 if not chunk:
                     break
                 file_data.append(chunk)
                 file_size += len(chunk)
                 md5_hash.update(chunk)
-            
             file_md5 = md5_hash.hexdigest()
-            
+
+            # Check for duplicate file (same filename and md5_hash)
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, filename, file_type, file_size, object_id
+                    FROM submission_files
+                    WHERE submission_id = %s AND filename = %s AND md5_hash = %s
+                """, (submission_id, file.filename, file_md5))
+                duplicate = cursor.fetchone()
+                if duplicate:
+                    logger.info(f"Duplicate file upload skipped: {file.filename} (md5: {file_md5}) for submission {submission_id}")
+                    return {
+                        'message': 'File with same name and content already exists. Skipping upload.',
+                        'submission_id': submission_id,
+                        'file': {
+                            'id': duplicate['id'],
+                            'filename': duplicate['filename'],
+                            'file_type': duplicate['file_type'],
+                            'file_size': duplicate['file_size'],
+                            'object_id': duplicate['object_id']
+                        }
+                    }, 200
+
             # Generate object_id for MinIO
             object_id = str(uuid.uuid4())
-            
             # Upload directly to MinIO
             file_content = b''.join(file_data)
-            
             try:
                 # Get MinIO credentials and upload
-                minio_bucket = settings.MINIO_BUCKET 
+                minio_bucket = settings.MINIO_BUCKET
                 minio_client = get_minio_client(self)
-                
-                # Upload to MinIO with object_id as the key
                 from io import BytesIO
                 file_stream = BytesIO(file_content)
-                
                 result = minio_client.put_object(
                     bucket_name=minio_bucket,
                     object_name=object_id,
@@ -2237,13 +2249,11 @@ class ProjectSubmissionFiles2(Resource):
                     length=file_size,
                     content_type='application/octet-stream'
                 )
-                
                 logger.info(f"Uploaded {file.filename} ({file_size} bytes) to MinIO bucket '{minio_bucket}' with object_id {object_id}")
-                
             except Exception as upload_error:
                 logger.exception(f"Failed to upload file to MinIO: {str(upload_error)}")
                 return {'error': f'MinIO upload failed: {str(upload_error)}'}, 500
-            
+
             # Store file record in database
             with get_db_cursor() as cursor:
                 cursor.execute("""
@@ -2252,7 +2262,6 @@ class ProjectSubmissionFiles2(Resource):
                     VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING *
                 """, (submission_id, file.filename, file_type, object_id, file_size, file_md5))
-                
                 file_record = cursor.fetchone()
 
             log_event("file_uploaded", project_id, {"submission_id": {submission_id}, "files": file_record}, user_info)
@@ -2267,10 +2276,10 @@ class ProjectSubmissionFiles2(Resource):
                     'object_id': file_record['object_id']
                 }
             }, 201
-            
         except Exception as e:
             logger.exception(f"Error uploading file to submission {submission_id}")
             return {'error': f'Upload failed: {str(e)}'}, 500
+         
     
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files2/<string:file_id>')
