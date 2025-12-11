@@ -1430,7 +1430,29 @@ def delete_from_elastic(submission_id):
     except Exception as e:
         print(f"Error deleting documents from Elasticsearch: {e}")
         return False
-    
+
+def delete_isolate_from_elastic(isolate_id):
+    """
+    Delete a single isolate document from Elasticsearch by its id.
+    """
+    es_url = settings.ELASTICSEARCH_URL
+    es_delete_url = f"{es_url}/agari-samples/_delete_by_query"
+    query_body = {
+        "query": {
+            "term": {
+                "id": isolate_id
+            }
+        }
+    }
+    try:
+        response = requests.post(es_delete_url, json=query_body)
+        response.raise_for_status()
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to delete isolate {isolate_id} from Elasticsearch: {str(e)}")
+        return False
+
+
 # Bulk ES helper
 def bulk_send_to_elastic(documents):
     """Send a batch of documents to Elasticsearch using the _bulk API."""
