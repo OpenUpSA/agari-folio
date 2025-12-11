@@ -2937,6 +2937,10 @@ class Search(Resource):
 
             if not data:
                 return {'error': 'No JSON data provided'}, 400
+            
+            print("==================")
+            print(data)
+            print("==================")
 
             results = query_elastic(data)
 
