@@ -1146,7 +1146,7 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None, pare
             return None
 
         print(f"Saving sequence data to file: {filename}")
-        print(f"Submission ID: {submission_id}, Isolate ID: {isolate_id}, Parent File ID: {parent_file_id}")
+        print(f"Submission ID: {submission_id}, Isolate ID: {isolate_id}")
 
         # 3. Upload the FASTA file to MinIO
         minio_client = Minio(
@@ -1198,10 +1198,10 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None, pare
             with get_db_cursor() as cursor:
                 cursor.execute(
                     """
-                    INSERT INTO submission_files (submission_id, isolate_id, filename, object_id, file_type, file_size, parent_file_id, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                    INSERT INTO submission_files (submission_id, isolate_id, filename, object_id, file_type, file_size, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s,NOW())
                     """,
-                    (submission_id, isolate_id, filename, object_id, 'fasta', len(fasta_bytes), parent_file_id),
+                    (submission_id, isolate_id, filename, object_id, 'fasta', len(fasta_bytes)),
                 )
                 print(f"File metadata saved to database: {filename}")
 
