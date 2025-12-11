@@ -25,7 +25,7 @@ username={{username}}
 @token = {{login.response.body.access_token}}
 
 ##########################
-### 1. Get user id 
+### 1. Get user id (obsolete)
 ##########################
 # @name create_users
 POST {{folio}}/users/
@@ -39,6 +39,17 @@ Content-Type: application/json
 }
 
 ##########################
+### 1. Get user id
+##########################
+# @name get_userid
+POST {{folio}}/info/userid
+Content-Type: application/json
+
+{
+    "email": "test-user20@example.com"
+}
+
+##########################
 ### 2. Send invite to user
 ##########################
 @org_id = b8a17c57-d543-4e27-a8df-815b6420a381
@@ -49,7 +60,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-    "user_id": "e9f23458-7fb1-484a-bf30-82db540c362e",
+    "user_id": "af52b5d2-29bc-4b5d-ac65-2c1bc5583368",
     "role": "org-viewer",
     "redirect_uri": "http://127.0.0.1"
 }
@@ -59,7 +70,7 @@ Content-Type: application/json
 ### https://agari-staging.openup.org.za/accept-invite-org?userid=887d7ebc-9e5e-47ae-bf1c-8562f48bdad7&token=5460558cfec1e17fb18693a036eac41d
 ### Use the token in the request below to confirm the invite 
 ##########################
-@inv_token = 2678e2768931eb5e507fe8aa09643599
+@inv_token = 231dd74a783c4684167187470eb9b896
 
 # @name accept_organisation_invite
 POST {{folio}}/invites/organisation/{{inv_token}}/accept

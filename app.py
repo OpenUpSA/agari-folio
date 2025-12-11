@@ -207,7 +207,10 @@ class GetUserId(Resource):
     @api.doc('get_userid')
     def post(self):
 
-        """Check if user exists and return user ID based on email"""
+        """
+        Check if user exists and return user ID based on email
+        If user doesnt exist, create a temp user and return the ID
+        """
 
         try:
             data = request.get_json()
@@ -226,10 +229,12 @@ class GetUserId(Resource):
                     break
 
             if not user_found:
-                return {'error': f'User with email "{email}" not found'}, 404
+                user = magic_link(email, "", 0, False, True)
+                keycloak_auth.toggle_user_enabled(user["user_id"], enabled=False)
+                return {'user_id': user["user_id"]}
 
             return {
-                'user_id': user_found.get('user_id') or user_found.get('id'),
+                'user_id': user_found.get('user_id'),
             }
 
         except Exception as e:
@@ -716,7 +721,7 @@ class UserList(Resource):
         if not redirect_uri:
             return {'error': 'Redirect is required'}, 400
 
-        keycloak_response = magic_link(email, redirect_uri, expiration_seconds, send_email)
+        keycloak_response = magic_link(email, redirect_uri, expiration_seconds, send_email, True)
         return keycloak_response
 
 
@@ -3410,6 +3415,7 @@ class OrganisationInviteConfirm(Resource):
     def post(self, token):
         user = keycloak_auth.get_users_by_attribute('invite_org_token', token)[0]
         user_id = user["user_id"]
+        keycloak_auth.toggle_user_enabled(user_id, enabled=True)
 
         invite_org_id = user["attributes"].get("invite_org_id", [""])[0]
         invite_org_role = user["attributes"].get(f"invite_org_role_{invite_org_id}", [""])[0]

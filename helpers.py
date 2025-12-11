@@ -139,7 +139,7 @@ def mjml_to_html(template_name):
     return html_template
 
 
-def magic_link(email, redirect_uri, expiration_seconds=600, send_email=True):
+def magic_link(email, redirect_uri, expiration_seconds=600, send_email=True, force_create=False):
     admin_token = keycloak_auth.get_admin_token()
     if not admin_token:
         return {"error": "Failed to authenticate with Keycloak admin"}, 500
@@ -152,7 +152,7 @@ def magic_link(email, redirect_uri, expiration_seconds=600, send_email=True):
         "client_id": keycloak_auth.client_id,
         "redirect_uri": redirect_uri,
         "expiration_seconds": 90000,
-        "force_create": True,
+        "force_create": force_create,
         "reusable": True,
         "send_email": False,
     }
@@ -183,12 +183,6 @@ def magic_link(email, redirect_uri, expiration_seconds=600, send_email=True):
     else:
         logger.error(f"Magic link creation failed: {keycloak_response.text}")
         return {"error": f"Failed to create magic link."}, 500
-
-
-def quiet_create_user(email, redirect_uri):
-    keycloak_response = magic_link(email, redirect_uri, 0, False)
-
-    return keycloak_response
 
 
 def invite_user_to_project(user, redirect_uri, project_id, role):
