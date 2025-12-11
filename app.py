@@ -2564,7 +2564,7 @@ class ProjectSubmissionValidate2(Resource):
                     # Delete from Elasticsearch, MinIO, and submission_files if needed
                     for isolate in isolates_to_delete:
                         try:
-                            delete_from_elastic(isolate['id'])
+                            delete_from_elastic(submission_id)
                         except Exception as es_error:
                             logger.warning(f"Failed to delete isolate {isolate['id']} from Elasticsearch: {str(es_error)}")
 
