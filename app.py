@@ -36,6 +36,7 @@ from helpers import (
     get_object_id_url,
     delete_minio_object,
     delete_from_elastic,
+    delete_isolate_from_elastic,
     PROJECT_ROLE_MAPPING,
     ORG_ROLE_MAPPING,
     bulk_send_to_elastic
@@ -2564,7 +2565,7 @@ class ProjectSubmissionValidate2(Resource):
                     # Delete from Elasticsearch, MinIO, and submission_files if needed
                     for isolate in isolates_to_delete:
                         try:
-                            delete_from_elastic(submission_id)
+                            delete_isolate_from_elastic(isolate['id'])
                         except Exception as es_error:
                             logger.warning(f"Failed to delete isolate {isolate['id']} from Elasticsearch: {str(es_error)}")
 
