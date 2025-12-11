@@ -2913,34 +2913,28 @@ class Search(Resource):
             }
             
 
-            # Add access filter to the query
-            if 'query' in data and 'bool' in data['query']:
-                if 'must' not in data['query']['bool']:
-                    data['query']['bool']['must'] = []
-                elif not isinstance(data['query']['bool']['must'], list):
-                    data['query']['bool']['must'] = [data['query']['bool']['must']]
-                
-                data['query']['bool']['must'].append(access_filter)
-            elif 'query' in data:
-                existing_query = data['query']
-
-                data['query'] = {
-                    "bool": {
-                        "must": [
-                            existing_query
-                        ]
-                    }
-                }
-
-            else:
-                data['query'] = access_filter
-
+            # Always enforce access filter
             if not data:
                 return {'error': 'No JSON data provided'}, 400
-            
-            print("==================")
-            print(data)
-            print("==================")
+
+            user_query = data.get('query')
+            if user_query and isinstance(user_query, dict) and 'bool' in user_query and 'must' in user_query['bool']:
+                # Already a bool/must, just append access filter
+                if not isinstance(user_query['bool']['must'], list):
+                    user_query['bool']['must'] = [user_query['bool']['must']]
+                user_query['bool']['must'].append(access_filter)
+            else:
+                # Wrap whatever is there (or nothing) in a bool/must with access filter
+                must_clauses = []
+                if user_query:
+                    must_clauses.append(user_query)
+                must_clauses.append(access_filter)
+                data['query'] = {
+                    "bool": {
+                        "must": must_clauses
+                    }
+                }
+           
 
             results = query_elastic(data)
 
