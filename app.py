@@ -2935,7 +2935,7 @@ class Search(Resource):
             
             # Access filter logic:
             # - Include documents where project_id is in user's accessible projects (any visibility)
-            # - OR include documents that are public (any project)
+            # - OR include documents that are public | semi-private (any project)
             if user_project_ids:
                 access_filter = {
                     "bool": {
@@ -2948,9 +2948,9 @@ class Search(Resource):
                                 }
                             },
                             {
-                                # Any public documents
-                                "term": {
-                                    "visibility.keyword": "public"
+                                # Any public or semi-private documents
+                                "terms": {
+                                    "visibility.keyword": ["public", "semi-private"]
                                 }
                             }
                         ],
@@ -2958,10 +2958,10 @@ class Search(Resource):
                     }
                 }
             else:
-                # No user projects, only show public
+                # No user projects, only show public or semi-private documents
                 access_filter = {
-                    "term": {
-                        "visibility.keyword": "public"
+                    "terms": {
+                        "visibility.keyword": ["public", "semi-private"]
                     }
                 }
             

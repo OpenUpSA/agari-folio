@@ -314,6 +314,137 @@ def private_project_with_submission(
             except Exception as e:
                 print(f"Cleanup error: {e}")
 
+@pytest.fixture
+def semi_private_project_with_submission(
+    client, org1_admin_token, pathogen_with_schema, org1_admin
+):
+    """Create a semi-private project with published submission"""
+    import os
+
+    # Create semi-private project
+    project_data = {
+        "name": "Semi-Private Search Test Project",
+        "description": "Semi-private project for search testing",
+        "pathogen_id": pathogen_with_schema["id"],
+        "privacy": "semi-private",
+    }
+    response = client.post(
+        "/projects/",
+        data=json.dumps(project_data),
+        headers={
+            "Authorization": f"Bearer {org1_admin_token}",
+            "Content-Type": "application/json",
+        },
+    )
+    assert response.status_code == 201
+    project = response.get_json()["project"]
+
+    # Create and publish submission
+    submission_data = {"submission_name": "Private Search Test Submission"}
+    response = client.post(
+        f"/projects/{project['id']}/submissions2",
+        data=json.dumps(submission_data),
+        headers={
+            "Authorization": f"Bearer {org1_admin_token}",
+            "Content-Type": "application/json",
+        },
+    )
+    assert response.status_code == 201
+    submission = response.get_json()["submission"]
+
+    # Upload and publish files
+    tsv_file_path = os.path.join(
+        os.path.dirname(__file__), "data", "tsv_files", "cholera_2.tsv"
+    )
+    with open(tsv_file_path, "rb") as f:
+        response = client.post(
+            f"/projects/{project['id']}/submissions/{submission['id']}/upload2",
+            data={"file": (f, "cholera_2.tsv")},
+            headers={"Authorization": f"Bearer {org1_admin_token}"},
+            content_type="multipart/form-data",
+        )
+    assert response.status_code == 201
+
+    fasta_file_path = os.path.join(
+        os.path.dirname(__file__), "data", "tsv_files", "cholera_002.fasta"
+    )
+    with open(fasta_file_path, "rb") as f:
+        response = client.post(
+            f"/projects/{project['id']}/submissions/{submission['id']}/upload2",
+            data={"file": (f, "cholera_002.fasta")},
+            headers={"Authorization": f"Bearer {org1_admin_token}"},
+            content_type="multipart/form-data",
+        )
+        assert response.status_code == 201
+
+        # Validate and publish
+        response = client.post(
+            f"/projects/{project['id']}/submissions/{submission['id']}/validate2",
+            headers={
+                "Authorization": f"Bearer {org1_admin_token}",
+                "Content-Type": "application/json",
+            },
+        )
+        # Validation can return 200 or 400 depending on validation results
+        assert response.status_code in [200, 400]
+
+        # Manually mark isolates as validated since async worker isn't running in tests
+        with get_db_cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE isolates
+                SET status = 'validated',
+                    seq_error = NULL,
+                    object_id = (
+                        SELECT object_id FROM submission_files 
+                        WHERE submission_id = %s AND file_type = 'fasta' 
+                        LIMIT 1
+                    )
+                WHERE submission_id = %s
+                AND error IS NULL
+                """,
+                (submission["id"], submission["id"]),
+            )
+            print(f"Manually validated {cursor.rowcount} isolates for private project")
+
+        response = client.post(
+            f"/projects/{project['id']}/submissions/{submission['id']}/publish2",
+            headers={
+                "Authorization": f"Bearer {org1_admin_token}",
+                "Content-Type": "application/json",
+            },
+        )
+        assert response.status_code == 200
+
+        # Force Elasticsearch refresh
+        import requests
+
+        try:
+            requests.post("http://localhost:9200/agari-samples/_refresh")
+        except Exception:
+            pass
+
+        try:
+            yield {
+                "submission": submission,
+                "project": project,
+                "pathogen": pathogen_with_schema,
+            }
+        finally:
+            # Cleanup
+            try:
+                client.delete(
+                    f"/projects/{project['id']}/submissions2/{submission['id']}",
+                    headers={"Authorization": f"Bearer {org1_admin_token}"},
+                )
+                client.delete(
+                    f"/projects/{project['id']}?hard=true",
+                    headers={"Authorization": f"Bearer {org1_admin_token}"},
+                )
+            except Exception as e:
+                print(f"Cleanup error: {e}")
+                
+
 
 # ============================================================================
 # Search Tests - Basic Functionality
@@ -524,6 +655,31 @@ def test_search_access_control_public_project(
     # External user should be able to see public project data
     assert result["hits"]["total"]["value"] > 0
 
+@pytest.mark.search
+@pytest.mark.rbac
+@pytest.mark.e2e
+def test_search_access_control_semi_private_project(
+    client, external_user_token, semi_private_project_with_submission
+):
+    """Test that external users can search semi private project data"""
+    project_id = semi_private_project_with_submission["project"]["id"]
+
+    search_query = {"query": {"match": {"project_id": project_id}}}
+
+    response = client.post(
+        "/search/",
+        data=json.dumps(search_query),
+        headers={
+            "Authorization": f"Bearer {external_user_token}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    assert response.status_code == 200
+    result = response.get_json()
+
+    # External user should be able to see public project data
+    assert result["hits"]["total"]["value"] > 0
 
 @pytest.mark.search
 @pytest.mark.rbac
