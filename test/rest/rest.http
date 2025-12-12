@@ -210,7 +210,7 @@ Authorization: Bearer {{token}}
 ###
 
 # @name delete_user
-DELETE {{folio}}/users/e9f23458-7fb1-484a-bf30-82db540c362e/hard-delete
+DELETE {{folio}}/users/{{users_id}}/hard-delete
 Authorization: Bearer {{token}}
 
 ##########################
