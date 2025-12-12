@@ -2895,6 +2895,8 @@ class Search(Resource):
 
             user_project_ids.extend(organisation_project_ids)
 
+            print(f"===== User project IDs for search: {user_project_ids}")
+
             access_filter = {
                 "bool": {
                     "should": [
@@ -2912,7 +2914,9 @@ class Search(Resource):
                     "minimum_should_match": 1
                 }
             }
-            
+
+            print(f"===== Access filter for search: {access_filter}")
+
 
             # Always enforce access filter
             if not data:
@@ -2935,6 +2939,8 @@ class Search(Resource):
                         "must": must_clauses
                     }
                 }
+
+            print(f"===== Final search query: {json.dumps(data, indent=2)}")
            
 
             results = query_elastic(data)
