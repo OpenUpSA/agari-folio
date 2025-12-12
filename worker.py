@@ -6,7 +6,7 @@ import asyncio
 from io import StringIO
 from jobs import get_next_job, mark_job_done, mark_job_failed
 from database import get_db_cursor
-from helpers import check_for_sequence_data, send_to_elastic2, bulk_send_to_elastic
+from helpers import check_for_sequence_data, bulk_send_to_elastic
 from logging import getLogger
 
 logger = getLogger(__name__)
