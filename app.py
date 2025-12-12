@@ -94,8 +94,12 @@ default_ns = api.namespace('info', description='Utility endpoints')
 class Health(Resource):
 
     ### GET /info/health ###
+    ### Check application health status ###
 
     @api.doc('get_health')
+    @api.response(200, 'Success', example={
+        'status': 'healthy'
+    })
     def get(self):
         """Check application health status"""
         return {'status': 'healthy'}
@@ -104,10 +108,18 @@ class Health(Resource):
 class DatabaseHealth(Resource):
 
     ### GET /info/health/db ###
+    ### Check database connectivity ###
 
     @api.doc('get_db_health')
+    @api.response(200, 'Success', example={
+        'status': 'healthy'
+    })
+    @api.response(503, 'Service Unavailable', example={
+        'status': 'unhealthy',
+        'error': 'Database connection failed'
+    })
     def get(self):
-        """Check database connectivity and schema"""
+        """Check database connectivity"""
         db_test = test_connection()
         if db_test:
             return {
@@ -120,43 +132,31 @@ class DatabaseHealth(Resource):
 class WhoAmI(Resource):
 
     ### GET /info/whoami ###
+    ### Get current user information from JWT token ###
 
     @api.doc('get_whoami')
     @require_auth(keycloak_auth)
     def get(self):
-
         """Get current user information from JWT token"""
-        
         return extract_user_info(request.user)
 
 @default_ns.route('/permissions')
 class Permissions(Resource):
 
     ### GET /info/permissions ###
+    ### Get all defined permissions ###
 
     @api.doc('get_permissions')
     @require_auth(keycloak_auth)
     def get(self):
-
         """Get all defined permissions"""
-        
         return PERMISSIONS
-    
-@default_ns.route('/permissions/check/<permission_name>')
-class PermissionsCheck(Resource):
-
-    ### GET /info/permissions/check/<permission_name> ###
-
-    @api.doc('check_permission')
-    @require_auth(keycloak_auth)
-    def get(self, permission_name):
-
-        return
 
 @default_ns.route('/permissions/check')
 class PermissionsCheckResource(Resource):
 
     ### POST /info/permissions/check ###
+    ### Check if the current user has a specific permission for a resource ###
 
     @api.doc('check_permission_for_resource')
     @require_auth(keycloak_auth)
@@ -166,10 +166,9 @@ class PermissionsCheckResource(Resource):
 
         Request Body:
         {
-            "resource_type": "project|study",
+            "resource_type": "project",
             "resource_id": "<uuid>",
-            "permission": "edit_project|delete_project|etc",
-            "parent_project_id": "<uuid>"  # Optional, for study checks
+            "permission": "edit_project|delete_project|etc"
         }
 
         Returns detailed permission check information for debugging
@@ -206,6 +205,21 @@ class GetUserId(Resource):
     ### POST /info/userid ###
 
     @api.doc('get_userid')
+    @api.response(200, 'Success', example={
+        'user_id': '123e4567-e89b-12d3-a456-426614174000'
+    })
+    @api.response(404, 'User Not Found', example={
+        'error': 'User with email "<email>" not found'
+    })
+    @api.response(400, 'Bad Request', example={
+        'error': 'Email is required'
+    })
+    @api.response(400, 'Bad Request', example={
+        'error': 'No JSON data provided'
+    })
+    @api.response(500, 'Internal Server Error', example={
+        'error': 'Failed to check user: <error_message>'
+    })
     def post(self):
 
         """Check if user exists and return user ID based on email"""
