@@ -96,6 +96,9 @@ class Health(Resource):
     ### GET /info/health ###
 
     @api.doc('get_health')
+    @api.response(200, 'Success', example={
+        'status': 'healthy'
+    })
     def get(self):
         """Check application health status"""
         return {'status': 'healthy'}
