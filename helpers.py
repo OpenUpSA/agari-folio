@@ -1510,3 +1510,32 @@ def bulk_send_to_elastic(documents):
     except Exception as e:
         logger.error(f"Exception during bulk ES indexing: {e}")
         return False
+    
+def update_project_visibility_in_elastic(project_id, new_visibility):
+    """
+    Bulk update all isolates in Elasticsearch for a project_id to set visibility.
+    """
+    es_url = settings.ELASTICSEARCH_URL
+    es_index = settings.ELASTICSEARCH_INDEX
+    update_url = f"{es_url}/{es_index}/_update_by_query"
+    query = {
+        "script": {
+            "source": "ctx._source.visibility = params.visibility",
+            "lang": "painless",
+            "params": {"visibility": new_visibility}
+        },
+        "query": {
+            "term": {"project_id": project_id}
+        }
+    }
+    try:
+        resp = requests.post(update_url, json=query, timeout=30)
+        if resp.status_code in (200, 201):
+            logger.info(f"Updated visibility for project_id {project_id} to '{new_visibility}' in Elasticsearch")
+            return True
+        else:
+            logger.error(f"Failed to update visibility in Elasticsearch: {resp.text}")
+            return False
+    except Exception as e:
+        logger.error(f"Error updating visibility in Elasticsearch: {e}")
+        return False
