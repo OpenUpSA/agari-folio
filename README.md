@@ -4,7 +4,7 @@
 
 Agari-Folio is the heart of the Agari Genomics Data stack and provides robust pathogen, schema, organisation, project and submission management and API endpoints with granular role-based access control.
 
-![Agari Genomics platform](Agari-Genomics-platform.png)
+![Agari Genomics platform](./Agari-Genomics-Platform.png)
 
 ## Features
 
