@@ -106,8 +106,15 @@ class DatabaseHealth(Resource):
     ### GET /info/health/db ###
 
     @api.doc('get_db_health')
+    @api.response(200, 'Success', example={
+        'status': 'healthy'
+    })
+    @api.response(503, 'Service Unavailable', example={
+        'status': 'unhealthy',
+        'error': 'Database connection failed'
+    })
     def get(self):
-        """Check database connectivity and schema"""
+        """Check database connectivity"""
         db_test = test_connection()
         if db_test:
             return {
