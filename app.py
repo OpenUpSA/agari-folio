@@ -94,22 +94,23 @@ default_ns = api.namespace('info', description='Utility endpoints')
 class Health(Resource):
 
     ### GET /info/health ###
+    ### Check application health status ###
 
     @api.doc('get_health')
-    @api.description('Check application health status')
     @api.response(200, 'Success', example={
         'status': 'healthy'
     })
     def get(self):
+        """Check application health status"""
         return {'status': 'healthy'}
 
 @default_ns.route('/health/db')
 class DatabaseHealth(Resource):
 
     ### GET /info/health/db ###
+    ### Check database connectivity ###
 
     @api.doc('get_db_health')
-    @api.description('Check database connectivity')
     @api.response(200, 'Success', example={
         'status': 'healthy'
     })
@@ -118,6 +119,7 @@ class DatabaseHealth(Resource):
         'error': 'Database connection failed'
     })
     def get(self):
+        """Check database connectivity"""
         db_test = test_connection()
         if db_test:
             return {
@@ -130,34 +132,38 @@ class DatabaseHealth(Resource):
 class WhoAmI(Resource):
 
     ### GET /info/whoami ###
+    ### Get current user information from JWT token ###
 
     @api.doc('get_whoami')
-    @api.description('Get current user information from JWT token')
     @require_auth(keycloak_auth)
     def get(self):
+        """Get current user information from JWT token"""
         return extract_user_info(request.user)
 
 @default_ns.route('/permissions')
 class Permissions(Resource):
 
     ### GET /info/permissions ###
+    ### Get all defined permissions ###
 
     @api.doc('get_permissions')
-    @api.description('Get all defined permissions')
     @require_auth(keycloak_auth)
     def get(self):
+        """Get all defined permissions"""
         return PERMISSIONS
 
 @default_ns.route('/permissions/check')
 class PermissionsCheckResource(Resource):
 
     ### POST /info/permissions/check ###
+    ### Check if the current user has a specific permission for a resource ###
 
     @api.doc('check_permission_for_resource')
-    @api.description('Check if the current user has a specific permission for a resource')
     @require_auth(keycloak_auth)
     def post(self):
         """
+        Check if the current user has a specific permission for a resource
+
         Request Body:
         {
             "resource_type": "project",
@@ -199,7 +205,6 @@ class GetUserId(Resource):
     ### POST /info/userid ###
 
     @api.doc('get_userid')
-    @api.description('Check if user exists and return user ID based on email')
     @api.response(200, 'Success', example={
         'user_id': '123e4567-e89b-12d3-a456-426614174000'
     })
