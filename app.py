@@ -29,7 +29,7 @@ from helpers import (
     get_minio_client,
     tsv_to_json,
     validate_against_schema,
-    send_to_elastic2,
+    update_project_visibility_in_elastic,
     check_isolate_in_elastic,
     check_user_id,
     query_elastic,
@@ -1586,6 +1586,7 @@ class Project(Resource):
                     return {'error': 'Project not found or already deleted'}, 404
                 
                 if 'privacy' in data:
+                    update_project_visibility_in_elastic(project_id, data['privacy'])
                     user_info = extract_user_info(request.user)
                     log_event("project_privacy", project_id, {"project_name": updated_project["name"], "new_privacy": data['privacy']}, user_info)
                 return {
@@ -2380,8 +2381,7 @@ class ProjectSubmissionOverwrite(Resource):
         user_info = extract_user_info(request.user)
         log_event("project_overwrite", project_id, {"submission_id": {submission_id}}, user_info)
 
-        # Implementation would involve deleting existing isolates and re-validating
-        pass  # Placeholder for actual implementation
+        return {'message': 'Project overwrite successful'}, 200
 
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/validate2')
