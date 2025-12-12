@@ -1304,63 +1304,6 @@ def json_serial(obj):
     raise TypeError(f"Type {type(obj)} not serializable")
 
 
-# NEW FUNCTION TO SEND TO FIXED INDEX
-def send_to_elastic2(document):
-    try:
-        serialized_document = json.loads(json.dumps(document, default=json_serial))
-    except Exception as e:
-        print(f"Error serializing document: {e}")
-        return False
-    
-    # Flatten isolate_data if it exists
-    if 'isolate_data' in serialized_document and serialized_document['isolate_data']:
-        isolate_data = serialized_document['isolate_data']
-        if isinstance(isolate_data, str):
-            try:
-                isolate_data = json.loads(isolate_data)
-            except json.JSONDecodeError:
-                print(f"Warning: Could not parse isolate_data as JSON: {isolate_data}")
-                isolate_data = {}
-        
-        if isinstance(isolate_data, dict):
-            # Add all fields from isolate_data to top level
-            for key, value in isolate_data.items():
-                if key not in serialized_document:  # Don't overwrite existing fields
-                    serialized_document[key] = value
-        
-        # Remove the original isolate_data field
-        del serialized_document['isolate_data']
-
-    # End workaround
-
-    # Check if document has an id field 
-    document_id = serialized_document.get('id')
-    if not document_id:
-        print("Warning: Document has no 'id' field, creating new document")
-        es_index_url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_doc"
-        method = requests.post
-    else:
-        # Use the document's UUID as the Elasticsearch document ID
-        # This ensures we always update the same document
-        es_index_url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_doc/{document_id}"
-        method = requests.put
-        print(f"Using document ID {document_id} as Elasticsearch document ID for upsert")
-
-    try:
-        # Add timeout to HTTP requests to prevent hanging
-        response = method(es_index_url, json=serialized_document, timeout=30)
-        if response.status_code in [200, 201]:
-            action = "updated/created" if method == requests.put else "indexed"
-            print(f"Successfully {action} document to {es_index_url}")
-            print(f"DEBUG: Document {document_id} with data: object_id={serialized_document.get('object_id')}, seq_error={serialized_document.get('seq_error')}")
-            return True
-        else:
-            print(f"Failed to index document: {response.text}")
-            return False, response.text
-    except Exception as e:
-        print(f"Error sending document to Elasticsearch: {e}")
-        return False, str(e)
-
 
 def query_elastic(query_body):
     es_url = settings.ELASTICSEARCH_URL
@@ -1463,7 +1406,7 @@ def bulk_send_to_elastic(documents):
     bulk_lines = []
     for idx, doc in enumerate(documents):
         logger.debug(f"Preparing document {idx} for bulk ES: id={doc.get('id')}, keys={list(doc.keys())}")
-        # Flatten isolate_data if present (same logic as send_to_elastic2)
+        
         if 'isolate_data' in doc and doc['isolate_data']:
             isolate_data = doc['isolate_data']
             if isinstance(isolate_data, str):
