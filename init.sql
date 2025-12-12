@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS projects (
     organisation_id VARCHAR(255) NOT NULL DEFAULT 'default-org', -- Keycloak organisation ID
     user_id VARCHAR(255) NOT NULL, -- Keycloak user ID of creator
     pathogen_id UUID REFERENCES pathogens(id),
-    privacy VARCHAR(20) DEFAULT 'public' CHECK (privacy IN ('public', 'private')),
+    privacy VARCHAR(20) DEFAULT 'public' CHECK (privacy IN ('public', 'private', 'semi-private')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP WITH TIME ZONE NULL
