@@ -207,6 +207,11 @@ Authorization: Bearer {{token}}
 POST {{folio}}/users/{{users_id}}
 Authorization: Bearer {{token}}
 
+###
+
+# @name delete_user
+DELETE {{folio}}/users/{{users_id}}/hard-delete
+Authorization: Bearer {{token}}
 
 ##########################
 ## ORGANISATIONS

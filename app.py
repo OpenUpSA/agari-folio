@@ -762,14 +762,14 @@ class User(Resource):
     @require_auth(keycloak_auth)
     @require_permission('manage_users')
     def delete(self, user_id):
-        """Delete a user by ID (system-admin only)"""
+        """Disable a user by ID"""
         try:
             keycloak_auth.toggle_user_enabled(user_id, enabled=False)
             access_toggled_notification(user_id, enabled=False)
             return {'message': 'User disabled successfully'}
         except Exception as e:
-            logger.exception(f"Error deleting user {user_id}: {str(e)}")
-            return {'error': f'Failed to delete user: {str(e)}'}, 500
+            logger.exception(f"Error disabling user {user_id}: {str(e)}")
+            return {'error': f'Failed to disable user: {str(e)}'}, 500
 
 
     ### POST /users/<user_id> ###
@@ -778,7 +778,7 @@ class User(Resource):
     @require_auth(keycloak_auth)
     @require_permission('manage_users')
     def post(self, user_id):
-        """Enable a disabled user by ID (system-admin only)"""
+        """Enable a disabled user by ID"""
         try:
             keycloak_auth.toggle_user_enabled(user_id, enabled=True)
             access_toggled_notification(user_id, enabled=True)
@@ -867,6 +867,44 @@ class User(Resource):
         except Exception as e:
             logger.exception(f"Error updating user {user_id}: {str(e)}")
             return {'error': f'Failed to update user: {str(e)}'}, 500
+
+
+@user_ns.route('/<string:user_id>/hard-delete')
+class UserDelete(Resource):
+    ### DELETE /users/<user_id>/hard-delete ###
+
+    @user_ns.doc('hard_delete_user')
+    @require_auth(keycloak_auth)
+    @require_permission('manage_users')
+    def delete(self, user_id):
+        """Delete a user by ID"""
+        try:
+            admin_token = keycloak_auth.get_admin_token()
+            if not admin_token:
+                return {'error': 'Failed to get admin token'}, 500
+
+            user = keycloak_auth.get_user(user_id)
+            if not user:
+                return {'error': 'User not found'}, 404
+
+            user_url = f"{keycloak_auth.keycloak_url}/admin/realms/{keycloak_auth.realm}/users/{user_id}"
+            headers = {
+                'Authorization': f'Bearer {admin_token}',
+                'Content-Type': 'application/json'
+            }
+
+            response = requests.delete(user_url, headers=headers)
+            response.raise_for_status()
+
+            logger.info(f"User {user_id} ({user.get('username')}) permanently deleted from Keycloak")
+            return {'message': 'User deleted successfully', 'user_id': user_id}
+
+        except requests.RequestException as e:
+            logger.exception(f"Keycloak API error deleting user {user_id}: {str(e)}")
+            return {'error': f'Failed to delete user from Keycloak: {str(e)}'}, 500
+        except Exception as e:
+            logger.exception(f"Error deleting user {user_id}: {str(e)}")
+            return {'error': f'Failed to delete user: {str(e)}'}, 500
 
 
 @user_ns.route('/email')
