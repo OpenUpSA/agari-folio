@@ -854,17 +854,18 @@ def test_semi_private_drafts_same_as_private_project(
     system_admin_token,
     semi_private_project,
     project_contributor,
-    project_contributor_token,
-    external_user_token,
+    external_user,
 ):
     """Drafts on semi-private projects behave like private projects"""
-    add_project_member(
+    # Get fresh token after adding user to project
+    project_contributor_token = add_project_member_and_get_token(
         client,
         system_admin_token,
         semi_private_project["id"],
-        project_contributor["user_id"],
+        project_contributor,
         "project-contributor",
     )
+    external_user_token = get_fresh_token(external_user["email"])
 
     # Create draft
     draft = create_draft_submission(
@@ -897,23 +898,22 @@ def test_semi_private_internal_access_same_as_private(
     system_admin_token,
     semi_private_project,
     project_contributor,
-    project_contributor_token,
     project_viewer,
-    project_viewer_token,
 ):
     """Internal access rules are same as private projects"""
-    add_project_member(
+    # Get fresh tokens after adding users to project
+    project_contributor_token = add_project_member_and_get_token(
         client,
         system_admin_token,
         semi_private_project["id"],
-        project_contributor["user_id"],
+        project_contributor,
         "project-contributor",
     )
-    add_project_member(
+    project_viewer_token = add_project_member_and_get_token(
         client,
         system_admin_token,
         semi_private_project["id"],
-        project_viewer["user_id"],
+        project_viewer,
         "project-viewer",
     )
 
