@@ -525,7 +525,7 @@ def org1_project_admin(client, org1, system_admin_token, keycloak_auth):
     # Add user to org1 as member
     response = client.post(
         f'/organisations/{org1["id"]}/members',
-        data=json.dumps({'user_id': user['user_id'], 'role': 'org-viewer'}),
+        data=json.dumps({'user_id': user['user_id'], 'role': 'org-viewer', 'force_role': True}),
         headers={
             'Authorization': f'Bearer {system_admin_token}',
             'Content-Type': 'application/json'
@@ -562,7 +562,7 @@ def org1_project_contributor(client, org1, system_admin_token, keycloak_auth):
     # Add user to org1 as member
     response = client.post(
         f'/organisations/{org1["id"]}/members',
-        data=json.dumps({'user_id': user['user_id'], 'role': 'org-viewer'}),
+        data=json.dumps({'user_id': user['user_id'], 'role': 'org-viewer', 'force_role': True}),
         headers={
             'Authorization': f'Bearer {system_admin_token}',
             'Content-Type': 'application/json'
@@ -599,7 +599,7 @@ def org1_project_viewer(client, org1, system_admin_token, keycloak_auth):
     # Add user to org1 as member
     response = client.post(
         f'/organisations/{org1["id"]}/members',
-        data=json.dumps({'user_id': user['user_id'], 'role': 'org-viewer'}),
+        data=json.dumps({'user_id': user['user_id'], 'role': 'org-viewer', 'force_role': True}),
         headers={
             'Authorization': f'Bearer {system_admin_token}',
             'Content-Type': 'application/json'

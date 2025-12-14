@@ -138,7 +138,7 @@ def mock_validation_stack():
         patch("app.get_minio_client") as mock_minio,
         patch("app.tsv_to_json") as mock_tsv_to_json,
         patch("app.validate_against_schema") as mock_validate,
-        patch("app.send_to_elastic2") as mock_elastic,
+        patch("app.bulk_send_to_elastic") as mock_elastic,
         patch("jobs.add_job") as mock_add_job,
     ):
         # Setup default mocks

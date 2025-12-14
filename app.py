@@ -2946,54 +2946,64 @@ class Search(Resource):
             organisation_project_ids = keycloak_auth.get_user_organisation_projects()
 
             user_project_ids.extend(organisation_project_ids)
-
-            print(f"===== User project IDs for search: {user_project_ids}")
-
-            access_filter = {
-                "bool": {
-                    "should": [
-                        {
-                            "terms": {
-                                "project_id": user_project_ids
+            
+            # Access filter logic:
+            # - Include documents where project_id is in user's accessible projects (any visibility)
+            # - OR include documents that are public | semi-private (any project)
+            if user_project_ids:
+                access_filter = {
+                    "bool": {
+                        "should": [
+                            {
+                                # User's projects: include all privacy levels
+                                # Use .keyword because project_id is mapped as text+keyword
+                                "terms": {
+                                    "project_id.keyword": user_project_ids
+                                }
+                            },
+                            {
+                                # Any public or semi-private documents
+                                "terms": {
+                                    "visibility.keyword": ["public", "semi-private"]
+                                }
                             }
-                        },
-                        {
-                            "terms": {
-                                "visibility": ["public", "semi-private"]
-                            }
-                        }
-                    ],
-                    "minimum_should_match": 1
+                        ],
+                        "minimum_should_match": 1
+                    }
                 }
-            }
-
-            print(f"===== Access filter for search: {access_filter}")
-
+            else:
+                # No user projects, only show public or semi-private documents
+                access_filter = {
+                    "terms": {
+                        "visibility.keyword": ["public", "semi-private"]
+                    }
+                }
+            
 
             # Always enforce access filter
             if not data:
                 return {'error': 'No JSON data provided'}, 400
 
             user_query = data.get('query')
-            if user_query and isinstance(user_query, dict) and 'bool' in user_query and 'must' in user_query['bool']:
-                # Already a bool/must, just append access filter
-                if not isinstance(user_query['bool']['must'], list):
-                    user_query['bool']['must'] = [user_query['bool']['must']]
-                user_query['bool']['must'].append(access_filter)
+            if user_query and isinstance(user_query, dict) and 'bool' in user_query:
+                # Add access_filter as a filter clause to existing bool
+                if 'filter' not in user_query['bool']:
+                    user_query['bool']['filter'] = []
+                elif not isinstance(user_query['bool']['filter'], list):
+                    user_query['bool']['filter'] = [user_query['bool']['filter']]
+                user_query['bool']['filter'].append(access_filter)
             else:
-                # Wrap whatever is there (or nothing) in a bool/must with access filter
-                must_clauses = []
+                # Wrap user query in bool with filter for access control
                 if user_query:
-                    must_clauses.append(user_query)
-                must_clauses.append(access_filter)
-                data['query'] = {
-                    "bool": {
-                        "must": must_clauses
+                    data['query'] = {
+                        "bool": {
+                            "must": user_query,
+                            "filter": access_filter
+                        }
                     }
-                }
-
-            print(f"===== Final search query: {json.dumps(data, indent=2)}")
-           
+                else:
+                    # No user query, just use the access filter as the query
+                    data['query'] = access_filter
 
             results = query_elastic(data)
 
