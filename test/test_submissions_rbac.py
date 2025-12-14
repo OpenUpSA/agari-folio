@@ -356,9 +356,9 @@ def test_contributor_can_delete_own_draft(
         assert cursor.fetchone() is None
 
 
-@pytest.mark.skip(
-    reason="Application doesn't check submission ownership for delete operations - any contributor can delete any submission in their project"
-)
+# @pytest.mark.skip(
+#     reason="Application doesn't check submission ownership for delete operations - any contributor can delete any submission in their project"
+# )
 @pytest.mark.rbac
 @pytest.mark.submission
 def test_contributor_cannot_delete_other_draft(
@@ -668,9 +668,9 @@ def test_contributor_can_unpublish_own_submission(
             cursor.execute("DELETE FROM submissions WHERE id = %s", (draft["id"],))
 
 
-@pytest.mark.skip(
-    reason="Application doesn't check submission ownership for unpublish operations - any contributor can unpublish any submission in their project"
-)
+# @pytest.mark.skip(
+#     reason="Application doesn't check submission ownership for unpublish operations - any contributor can unpublish any submission in their project"
+# )
 @pytest.mark.rbac
 @pytest.mark.submission
 def test_contributor_cannot_unpublish_other_submission(
@@ -846,7 +846,7 @@ def test_viewer_cannot_unpublish_submission(
 # ============================================================================
 
 
-@pytest.mark.skip(reason="Semi-private projects not supported by database schema")
+# @pytest.mark.skip(reason="Semi-private projects not supported by database schema")
 @pytest.mark.rbac
 @pytest.mark.submission
 def test_semi_private_drafts_same_as_private_project(
@@ -889,7 +889,7 @@ def test_semi_private_drafts_same_as_private_project(
             cursor.execute("DELETE FROM submissions WHERE id = %s", (draft["id"],))
 
 
-@pytest.mark.skip(reason="Semi-private projects not supported by database schema")
+# @pytest.mark.skip(reason="Semi-private projects not supported by database schema")
 @pytest.mark.rbac
 @pytest.mark.submission
 def test_semi_private_internal_access_same_as_private(
@@ -944,7 +944,7 @@ def test_semi_private_internal_access_same_as_private(
             cursor.execute("DELETE FROM submissions WHERE id = %s", (draft["id"],))
 
 
-@pytest.mark.skip(reason="Semi-private projects not supported by database schema")
+# @pytest.mark.skip(reason="Semi-private projects not supported by database schema")
 @pytest.mark.rbac
 @pytest.mark.submission
 def test_semi_private_external_cannot_list_submissions(
@@ -1009,9 +1009,9 @@ def test_public_project_drafts_remain_private(
             cursor.execute("DELETE FROM submissions WHERE id = %s", (draft["id"],))
 
 
-@pytest.mark.skip(
-    reason="Application doesn't grant implicit viewer access for public projects - requires explicit project membership"
-)
+# @pytest.mark.skip(
+#     reason="Application doesn't grant implicit viewer access for public projects - requires explicit project membership"
+# )
 @pytest.mark.rbac
 @pytest.mark.submission
 def test_public_project_external_user_has_implicit_viewer_role(
@@ -1122,9 +1122,9 @@ def test_public_project_external_user_cannot_manage_submissions(
             cursor.execute("DELETE FROM submissions WHERE id = %s", (draft["id"],))
 
 
-@pytest.mark.skip(
-    reason="Application doesn't grant implicit viewer access for public projects - requires explicit project membership"
-)
+# @pytest.mark.skip(
+#     reason="Application doesn't grant implicit viewer access for public projects - requires explicit project membership"
+# )
 @pytest.mark.rbac
 @pytest.mark.submission
 def test_public_project_external_user_can_view_published_data(

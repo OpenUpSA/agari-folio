@@ -697,9 +697,6 @@ def test_search_access_control_private_project_all_roles(
     client, role_fixture, role_name, request, private_project_with_submission
 ):
     """Test that all project roles (admin, contributor, viewer) can search private project data"""
-    # skip if role name not org-admin: fix later
-    if role_name != "org-admin":
-        pytest.skip("Skipping non org-admin roles for now")
 
     # Get the token from the fixture
     token = request.getfixturevalue(role_fixture)
