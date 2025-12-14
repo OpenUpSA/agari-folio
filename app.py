@@ -2958,13 +2958,13 @@ class Search(Resource):
                                 # User's projects: include all privacy levels
                                 # Use .keyword because project_id is mapped as text+keyword
                                 "terms": {
-                                    "project_id.keyword": user_project_ids
+                                    "project_id": user_project_ids
                                 }
                             },
                             {
                                 # Any public or semi-private documents
                                 "terms": {
-                                    "visibility.keyword": ["public", "semi-private"]
+                                    "visibility": ["public", "semi-private"]
                                 }
                             }
                         ],
@@ -2975,7 +2975,7 @@ class Search(Resource):
                 # No user projects, only show public or semi-private documents
                 access_filter = {
                     "terms": {
-                        "visibility.keyword": ["public", "semi-private"]
+                        "visibility": ["public", "semi-private"]
                     }
                 }
             
