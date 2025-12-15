@@ -1923,20 +1923,46 @@ class ProjectSubmissions2(Resource):
     @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
     def get(self, project_id):
 
-        """List all submissions including drafts"""
+        """List all submissions including drafts (drafts only visible to project members)"""
 
         try:
+            user_info = extract_user_info(request.user)
+            user_id = user_info.get('user_id')
+            user_roles = user_info.get('roles', [])
+            
+            # Check if user is a project member (has project-specific roles)
+            is_project_member = (
+                user_has_permission(user_info, 'manage_project_users', resource_type='project', resource_id=project_id)[0] or
+                user_has_permission(user_info, 'upload_submission', resource_type='project', resource_id=project_id)[0]
+            )
+            
             with get_db_cursor() as cursor:
-                cursor.execute("""
-                    SELECT s.*, 
-                           COUNT(sf.id) as file_count,
-                           ARRAY_AGG(sf.filename) FILTER (WHERE sf.id IS NOT NULL) as filenames
-                    FROM submissions s
-                    LEFT JOIN submission_files sf ON s.id = sf.submission_id
-                    WHERE s.project_id = %s
-                    GROUP BY s.id
-                    ORDER BY s.created_at DESC
-                """, (project_id,))
+                # System admins and project members see all submissions including drafts
+                # External users (on public projects) only see published submissions
+                if 'system-admin' in user_roles or is_project_member:
+                    # Project members and admins see all submissions
+                    cursor.execute("""
+                        SELECT s.*, 
+                               COUNT(sf.id) as file_count,
+                               ARRAY_AGG(sf.filename) FILTER (WHERE sf.id IS NOT NULL) as filenames
+                        FROM submissions s
+                        LEFT JOIN submission_files sf ON s.id = sf.submission_id
+                        WHERE s.project_id = %s
+                        GROUP BY s.id
+                        ORDER BY s.created_at DESC
+                    """, (project_id,))
+                else:
+                    # External users (public project viewers) only see published submissions
+                    cursor.execute("""
+                        SELECT s.*, 
+                               COUNT(sf.id) as file_count,
+                               ARRAY_AGG(sf.filename) FILTER (WHERE sf.id IS NOT NULL) as filenames
+                        FROM submissions s
+                        LEFT JOIN submission_files sf ON s.id = sf.submission_id
+                        WHERE s.project_id = %s AND s.status != 'draft'
+                        GROUP BY s.id
+                        ORDER BY s.created_at DESC
+                    """, (project_id,))
                 
                 submissions = cursor.fetchall()
                 
@@ -2005,9 +2031,19 @@ class ProjectSubmission2(Resource):
     @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
     def get(self, project_id, submission_id):
 
-        """Get submission details including associated files"""
+        """Get submission details including associated files (drafts only visible to project members)"""
 
         try:
+            user_info = extract_user_info(request.user)
+            user_id = user_info.get('user_id')
+            user_roles = user_info.get('roles', [])
+            
+            # Check if user is a project member (has project-specific roles)
+            is_project_member = (
+                user_has_permission(user_info, 'manage_project_users', resource_type='project', resource_id=project_id)[0] or
+                user_has_permission(user_info, 'upload_submission', resource_type='project', resource_id=project_id)[0]
+            )
+            
             with get_db_cursor() as cursor:
                 # Get submission details only
                 cursor.execute("""
@@ -2025,6 +2061,10 @@ class ProjectSubmission2(Resource):
                 if not submission:
                     return {'error': 'Submission not found'}, 404
                 
+                # If submission is a draft, only project members and admins can access it
+                if submission['status'] == 'draft':
+                    if not ('system-admin' in user_roles or is_project_member):
+                        return {'error': 'Submission not found'}, 404
 
                 cursor.execute("""
                     SELECT * FROM submission_files
