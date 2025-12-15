@@ -41,7 +41,20 @@ username={{username}}
 &client_secret={{client_secret}}
 
 ###
+
 @token = {{login.response.body.access_token}}
+@refresh_token = {{login.response.body.refresh_token}}
+
+###
+
+# @name refresh_token
+POST {{folio}}/users/refresh-token
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "refresh_token": ""
+}
 
 ### Keycloak generate magic link
 @redirect_uri = https://agari.openup.org.za
@@ -106,7 +119,6 @@ Content-Type: application/json
     "resource_id": "80bd4fd2-10e3-4104-abe2-713dfdd92bfa"
 }
 
-
 ###
 
 # @name permission_check
@@ -118,6 +130,16 @@ Content-Type: application/json
     "permission": "view_org_private_projects",
     "resource_type": "project",
     "resource_id": "80bd4fd2-10e3-4104-abe2-713dfdd92bfa"
+}
+
+###
+
+# @name get_userid
+POST {{folio}}/info/userid
+Content-Type: application/json
+
+{
+    "email": "michael@openup.org.za"
 }
 
 ##########################
@@ -185,6 +207,11 @@ Authorization: Bearer {{token}}
 POST {{folio}}/users/{{users_id}}
 Authorization: Bearer {{token}}
 
+###
+
+# @name delete_user
+DELETE {{folio}}/users/{{users_id}}/hard-delete
+Authorization: Bearer {{token}}
 
 ##########################
 ## ORGANISATIONS

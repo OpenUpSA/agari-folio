@@ -511,7 +511,7 @@ def semi_private_project(client, org1_admin_token, pathogen):
 
 
 @pytest.fixture
-def project_admin(client, system_admin_token, keycloak_auth):
+def org1_project_admin(client, org1, system_admin_token, keycloak_auth):
     """Create a project admin user from org1"""
     user_data = {
         'username': 'project-admin@org1.ac.za',
@@ -521,6 +521,18 @@ def project_admin(client, system_admin_token, keycloak_auth):
         'email': 'project-admin@org1.ac.za'
     }
     user = create_user_if_not_exists(client, system_admin_token, keycloak_auth, **user_data)
+    
+    # Add user to org1 as member
+    response = client.post(
+        f'/organisations/{org1["id"]}/members',
+        data=json.dumps({'user_id': user['user_id'], 'role': 'org-viewer', 'force_role': True}),
+        headers={
+            'Authorization': f'Bearer {system_admin_token}',
+            'Content-Type': 'application/json'
+        }
+    )
+    assert response.status_code == 200, f"Failed to add org1 project admin to org: {response.get_json()}"
+    
     yield user
 
     client.delete(
@@ -530,13 +542,13 @@ def project_admin(client, system_admin_token, keycloak_auth):
 
 
 @pytest.fixture
-def project_admin_token(project_admin):
-    """Get token for project admin"""
-    return keycloak_password_auth(project_admin["email"], 'pass123')
+def org1_project_admin_token(org1_project_admin):
+    """Get token for org1 project admin"""
+    return keycloak_password_auth(org1_project_admin["email"], 'pass123')
 
 
 @pytest.fixture
-def project_contributor(client, system_admin_token, keycloak_auth):
+def org1_project_contributor(client, org1, system_admin_token, keycloak_auth):
     """Create a project contributor user from org1"""
     user_data = {
         'username': 'project-contributor@org1.ac.za',
@@ -546,6 +558,18 @@ def project_contributor(client, system_admin_token, keycloak_auth):
         'email': 'project-contributor@org1.ac.za'
     }
     user = create_user_if_not_exists(client, system_admin_token, keycloak_auth, **user_data)
+    
+    # Add user to org1 as member
+    response = client.post(
+        f'/organisations/{org1["id"]}/members',
+        data=json.dumps({'user_id': user['user_id'], 'role': 'org-viewer', 'force_role': True}),
+        headers={
+            'Authorization': f'Bearer {system_admin_token}',
+            'Content-Type': 'application/json'
+        }
+    )
+    assert response.status_code == 200, f"Failed to add org1 project contributor to org: {response.get_json()}"
+    
     yield user
 
     client.delete(
@@ -555,13 +579,13 @@ def project_contributor(client, system_admin_token, keycloak_auth):
 
 
 @pytest.fixture
-def project_contributor_token(project_contributor):
-    """Get token for project contributor"""
-    return keycloak_password_auth(project_contributor["email"], 'pass123')
+def org1_project_contributor_token(org1_project_contributor):
+    """Get token for org1 project contributor"""
+    return keycloak_password_auth(org1_project_contributor["email"], 'pass123')
 
 
 @pytest.fixture
-def project_viewer(client, system_admin_token, keycloak_auth):
+def org1_project_viewer(client, org1, system_admin_token, keycloak_auth):
     """Create a project viewer user from org1"""
     user_data = {
         'username': 'project-viewer@org1.ac.za',
@@ -571,6 +595,18 @@ def project_viewer(client, system_admin_token, keycloak_auth):
         'email': 'project-viewer@org1.ac.za'
     }
     user = create_user_if_not_exists(client, system_admin_token, keycloak_auth, **user_data)
+    
+    # Add user to org1 as member
+    response = client.post(
+        f'/organisations/{org1["id"]}/members',
+        data=json.dumps({'user_id': user['user_id'], 'role': 'org-viewer', 'force_role': True}),
+        headers={
+            'Authorization': f'Bearer {system_admin_token}',
+            'Content-Type': 'application/json'
+        }
+    )
+    assert response.status_code == 200, f"Failed to add org1 project viewer to org: {response.get_json()}"
+    
     yield user
 
     client.delete(
@@ -580,9 +616,46 @@ def project_viewer(client, system_admin_token, keycloak_auth):
 
 
 @pytest.fixture
-def project_viewer_token(project_viewer):
-    """Get token for project viewer"""
-    return keycloak_password_auth(project_viewer["email"], 'pass123')
+def org1_project_viewer_token(org1_project_viewer):
+    """Get token for org1 project viewer"""
+    return keycloak_password_auth(org1_project_viewer["email"], 'pass123')
+
+
+# Legacy fixtures for backwards compatibility
+@pytest.fixture
+def project_admin(org1_project_admin):
+    """Alias for org1_project_admin for backwards compatibility"""
+    return org1_project_admin
+
+
+@pytest.fixture
+def project_admin_token(org1_project_admin_token):
+    """Alias for org1_project_admin_token for backwards compatibility"""
+    return org1_project_admin_token
+
+
+@pytest.fixture
+def project_contributor(org1_project_contributor):
+    """Alias for org1_project_contributor for backwards compatibility"""
+    return org1_project_contributor
+
+
+@pytest.fixture
+def project_contributor_token(org1_project_contributor_token):
+    """Alias for org1_project_contributor_token for backwards compatibility"""
+    return org1_project_contributor_token
+
+
+@pytest.fixture
+def project_viewer(org1_project_viewer):
+    """Alias for org1_project_viewer for backwards compatibility"""
+    return org1_project_viewer
+
+
+@pytest.fixture
+def project_viewer_token(org1_project_viewer_token):
+    """Alias for org1_project_viewer_token for backwards compatibility"""
+    return org1_project_viewer_token
 
 
 @pytest.fixture

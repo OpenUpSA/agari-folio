@@ -8,6 +8,9 @@ import requests
 import settings
 from jsonschema import validate, ValidationError, Draft7Validator
 from flask import render_template_string
+import pandas as pd
+from io import StringIO
+import re
 from auth import KeycloakAuth
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import (
@@ -23,6 +26,7 @@ from sendgrid.helpers.mail import (
 )
 import base64
 from minio import Minio
+from Bio import SeqIO
 
 from database import get_db_cursor
 import os
@@ -67,6 +71,9 @@ def load_json_schema(filename: str) -> Dict[str, Any]:
 
 
 
+
+import requests
+import json
 from settings import (
     SENDGRID_API_KEY,
     SENDGRID_FROM_EMAIL,
@@ -76,6 +83,9 @@ from settings import (
     KEYCLOAK_CLIENT_ID,
     KEYCLOAK_CLIENT_SECRET,
 )
+
+
+
 
 sg_api_key = SENDGRID_API_KEY
 sg_from_email = SENDGRID_FROM_EMAIL
@@ -400,14 +410,7 @@ def extract_invite_roles(users_list, invite_type):
 
 
 def log_event(log_type, resource_id, log_entry, user_info=None):
-    """
-    Event types:
-    - project_created, project_deleted, project_privacy
-    - user_added, user_invited, user_accepted, project_user_deleted
-    - org_user_added, org_user_invited, org_user_accepted
-    - submission_created, file_uploaded, submission_validated, submission_published, submission_unpublished
-    - data_download
-    """
+    # See readme for list of log types
     try:
         if user_info:
             action_name = f"{user_info['name']} {user_info['surname']}" if user_info.get('name') and user_info.get('surname') else user_info['username']
@@ -470,10 +473,246 @@ def get_minio_client(self):
         
     except Exception as e:
         raise e
-    
-def tsv_to_json(tsv_string, project_id):
-    import re
 
+
+def tsv_to_json(tsv_string, project_id):
+    """
+    Convert TSV string to JSON list using pandas for robust parsing.
+    Falls back to legacy implementation on error.
+    """
+    try:
+        return tsv_to_json_pandas(tsv_string, project_id)
+    except Exception as e:
+        logger.warning(f"Pandas TSV parsing failed, falling back to legacy: {e}")
+        return tsv_to_json_legacy(tsv_string, project_id)
+
+
+def tsv_to_json_pandas(tsv_string, project_id):
+    """
+    TSV to JSON conversion using pandas, with schema-driven type handling.
+    Matches legacy functionality but is faster and more robust.
+    """
+    with get_db_cursor() as cursor:
+        # Get schema
+        cursor.execute(
+            """
+            SELECT pathogen_id
+            FROM projects
+            WHERE id = %s AND deleted_at IS NULL
+            """,
+            (project_id,),
+        )
+        project_record = cursor.fetchone()
+        if not project_record:
+            raise ValueError(f"Project ID {project_id} not found")
+
+        pathogen_id = project_record["pathogen_id"]
+
+        cursor.execute(
+            """
+            SELECT schema_id
+            FROM pathogens
+            WHERE id = %s AND deleted_at IS NULL
+            """,
+            (pathogen_id,),
+        )
+        pathogen_record = cursor.fetchone()
+        if not pathogen_record:
+            raise ValueError(f"Pathogen ID {pathogen_id} not found")
+
+        schema_id = pathogen_record["schema_id"]
+
+        cursor.execute(
+            """
+            SELECT schema
+            FROM schemas
+            WHERE id = %s AND deleted_at IS NULL
+            """,
+            (schema_id,),
+        )
+        schema_record = cursor.fetchone()
+        if not schema_record:
+            raise ValueError(f"Schema ID {schema_id} not found")
+
+        schema = schema_record["schema"]
+
+    # Parse TSV with pandas
+    try:
+        df = pd.read_csv(
+            StringIO(tsv_string),
+            sep='\t',
+            dtype=str,
+            keep_default_na=False,
+            na_values=[''],
+            skipinitialspace=True
+        )
+    except Exception as e:
+        raise ValueError(f"Failed to parse TSV: {str(e)}")
+
+    df.columns = df.columns.str.strip()
+    properties = schema.get("properties", {})
+
+    for column in df.columns:
+        if column not in properties:
+            continue  # Skip columns not in schema
+
+        field_schema = properties[column]
+
+        # Handle oneOf fields
+        if "oneOf" in field_schema:
+            df[column] = df[column].apply(lambda x: process_oneof_field_pandas(x, field_schema))
+            continue
+
+        field_type = field_schema.get("type")
+        split_regex = field_schema.get("x-split-regex")
+        field_format = field_schema.get("format")
+
+        # Handle arrays
+        if field_type == "array":
+            df[column] = df[column].apply(lambda x: process_array_field(x, split_regex))
+
+        # Handle numbers
+        elif field_type == "number":
+            df[column] = df[column].apply(lambda x: convert_to_number(x))
+
+        # Handle dates (string with format date): set None if missing/empty/NaN
+        elif field_type == "string" and field_format == "date":
+            df[column] = df[column].apply(lambda x: x if (x is not None and isinstance(x, str) and x.strip()) else None)
+
+        # Handle strings (not date): always use empty string for missing/None/NaN
+        elif field_type == "string":
+            df[column] = df[column].apply(lambda x: x if (x is not None and not (isinstance(x, float) and pd.isna(x))) else "")
+
+        # Other types: leave as is
+
+    # For non-string fields, ensure NaN is replaced with None
+    import math
+    def clean_nans(obj):
+        if isinstance(obj, float) and math.isnan(obj):
+            return None
+        if isinstance(obj, dict):
+            return {k: clean_nans(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [clean_nans(x) for x in obj]
+        return obj
+
+    df = df.where(pd.notnull(df), None)
+    json_list = [clean_nans(row) for row in df.to_dict('records')]
+    return json_list
+
+
+def process_array_field(value, split_regex=None):
+    """
+    Process array field with optional regex splitting.
+    
+    
+    """
+    if pd.isna(value) or not value or not isinstance(value, str):
+        return []
+    
+    value = value.strip()
+    if not value:
+        return []
+    
+    try:
+        if split_regex:
+            split_values = re.split(split_regex, value)
+        else:
+            split_values = value.split(',')
+        
+        # Strip and filter empty values
+        return [v.strip() for v in split_values if v.strip()]
+    
+    except re.error:
+        # Fallback to comma split on regex error
+        return [v.strip() for v in value.split(',') if v.strip()]
+
+
+def convert_to_number(value):
+    """
+    Convert value to number (int or float) if possible, otherwise return original.
+    """
+    if pd.isna(value) or not value or not isinstance(value, str):
+        return None
+    
+    value = value.strip()
+    if not value:
+        return None
+    
+    try:
+        if '.' in value:
+            return float(value)
+        else:
+            return int(value)
+    except ValueError:
+        return value
+
+
+def process_oneof_field_pandas(value, field_schema):
+    """
+    Process a field with oneOf schema.
+    
+    
+    """
+    # If empty, check if oneOf contains a date type; if so, return None, else ""
+    if pd.isna(value) or not value or (isinstance(value, str) and not value.strip()):
+        oneof_options = field_schema.get("oneOf", [])
+        for option in oneof_options:
+            if option.get("type") == "string" and option.get("format") == "date":
+                return None
+        return ""
+
+    if isinstance(value, str):
+        value = value.strip()
+
+    # Try to determine the correct type from oneOf options
+    oneof_options = field_schema.get("oneOf", [])
+
+    for option in oneof_options:
+        # Skip the empty string option
+        if option.get("maxLength") == 0:
+            continue
+
+        option_type = option.get("type")
+
+        # Try number conversion
+        if option_type == "number":
+            try:
+                if '.' in str(value):
+                    return float(value)
+                else:
+                    return int(value)
+            except (ValueError, TypeError):
+                continue
+
+        # Try array with enum
+        if option_type == "array":
+            split_regex = field_schema.get("x-split-regex", ",\\s*")
+            try:
+                split_values = re.split(split_regex, str(value))
+                split_values = [v.strip() for v in split_values if v.strip()]
+                if split_values:
+                    return split_values
+            except:
+                # Fallback to comma split
+                split_values = [v.strip() for v in str(value).split(",") if v.strip()]
+                if split_values:
+                    return split_values
+
+        # Check if it matches an enum
+        if "enum" in option:
+            if value in option["enum"]:
+                return value
+
+    # If no type matched, return as string
+    return str(value) if value is not None else ""
+
+    
+def tsv_to_json_legacy(tsv_string, project_id):
+    """
+    Legacy TSV to JSON conversion using manual parsing.
+    Kept as fallback for the pandas-based implementation.
+    """
     tsv_string = tsv_string.replace('\r\n', '\n').replace('\r', '\n')
     
     with get_db_cursor() as cursor:
@@ -737,65 +976,38 @@ async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
                - On success: (True, object_id)
                - On error: (False, error_message)
     """
-    try:
-        # 1. First, check if this isolate already has an object_id
-        isolate_id = isolate.get('id')
-        if isolate_id:
-            with get_db_cursor() as cursor:
-                cursor.execute(
-                    "SELECT object_id FROM isolates WHERE id = %s AND object_id IS NOT NULL",
-                    (isolate_id,),
-                )
-                existing_record = cursor.fetchone()
-                
-                if existing_record:
-                    existing_object_id = existing_record["object_id"]
-                    print(f"Isolate {isolate_id} already has object_id: {existing_object_id}")
-                    return True, existing_object_id
-        
-        # 2. If no existing object_id, proceed with sequence extraction
-        # Get the isolate data - it should be a dictionary already
-        isolate_data = isolate.get('isolate_data', {})
-        if isinstance(isolate_data, str):
-            isolate_data = json.loads(isolate_data)
-        
-        fasta_file = isolate_data.get("fasta_file_name", "")
-        fasta_header = isolate_data.get("fasta_header_name", "")
-        isolate_sample_id = isolate_data.get("isolate_id", "")
-        
-        # Check if FASTA file is provided
-        if not fasta_file:
-            return False, "Missing FASTA file name in isolate data"
-        
-        # If no header specified, link to the complete original file instead of extracting
-        if not split_on_fasta_headers:
-            print(f"No header specified for isolate {isolate_sample_id} - linking to complete FASTA file")
-            
-            # Get the object_id from submission_files table where filename matches
-            with get_db_cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT object_id 
-                    FROM submission_files 
-                    WHERE filename = %s AND file_type = 'fasta' AND submission_id = %s
-                    ORDER BY created_at DESC 
-                    LIMIT 1
-                    """,
-                    (fasta_file, isolate['submission_id']),
-                )
-                file_record = cursor.fetchone()
-                
-                if not file_record:
-                    return False, f"FASTA file '{fasta_file}' not found in submission_files"
-            
-            # Return the original file's object_id (no extraction needed)
-            print(f"Linked isolate {isolate_sample_id} to original file with object_id: {file_record['object_id']}")
-            return True, file_record["object_id"]
-        
-        # EXISTING: Header specified - extract specific sequence
-        print(f"Looking for FASTA File: {fasta_file}, Header: {fasta_header}")
-        
-        # 3. Get the object_id from submission_files table where filename matches
+    # 1. First, check if this isolate already has an object_id
+    isolate_id = isolate.get('id')
+    if isolate_id:
+        with get_db_cursor() as cursor:
+            cursor.execute(
+                "SELECT object_id FROM isolates WHERE id = %s AND object_id IS NOT NULL",
+                (isolate_id,),
+            )
+            existing_record = cursor.fetchone()
+            if existing_record:
+                existing_object_id = existing_record["object_id"]
+                print(f"Isolate {isolate_id} already has object_id: {existing_object_id}")
+                return True, existing_object_id
+
+    # 2. If no existing object_id, proceed with sequence extraction
+    # Get the isolate data - it should be a dictionary already
+    isolate_data = isolate.get('isolate_data', {})
+    if isinstance(isolate_data, str):
+        isolate_data = json.loads(isolate_data)
+
+    fasta_file = isolate_data.get("fasta_file_name", "")
+    fasta_header = isolate_data.get("fasta_header_name", "")
+    isolate_sample_id = isolate_data.get("isolate_id", "")
+
+    # Check if FASTA file is provided
+    if not fasta_file:
+        return False, "Missing FASTA file name in isolate data"
+
+    # If no header specified, link to the complete original file instead of extracting
+    if not split_on_fasta_headers:
+        print(f"No header specified for isolate {isolate_sample_id} - linking to complete FASTA file")
+        # Get the object_id from submission_files table where filename matches
         with get_db_cursor() as cursor:
             cursor.execute(
                 """
@@ -808,88 +1020,103 @@ async def check_for_sequence_data(isolate, split_on_fasta_headers=True):
                 (fasta_file, isolate['submission_id']),
             )
             file_record = cursor.fetchone()
-            
             if not file_record:
                 return False, f"FASTA file '{fasta_file}' not found in submission_files"
-        
-        object_id = file_record["object_id"]
-        
-        # 3. Load the FASTA file from MinIO
-        minio_client = Minio(
-            endpoint=settings.MINIO_ENDPOINT,
-            access_key=settings.MINIO_ACCESS_KEY,
-            secret_key=settings.MINIO_SECRET_KEY,
-            secure=settings.MINIO_INTERNAL_SECURE
+        # Return the original file's object_id (no extraction needed)
+        print(f"Linked isolate {isolate_sample_id} to original file with object_id: {file_record['object_id']}")
+        return True, file_record["object_id"]
+
+    # EXISTING: Header specified - extract specific sequence
+    print(f"Looking for FASTA File: {fasta_file}, Header: {fasta_header}")
+    # 3. Get the object_id from submission_files table where filename matches
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT object_id 
+            FROM submission_files 
+            WHERE filename = %s AND file_type = 'fasta' AND submission_id = %s
+            ORDER BY created_at DESC 
+            LIMIT 1
+            """,
+            (fasta_file, isolate['submission_id']),
         )
-        
-        bucket_name = settings.MINIO_BUCKET
-        
-        try:
-            # Add timeout to MinIO operations
-            import socket
-            original_timeout = socket.getdefaulttimeout()
-            socket.setdefaulttimeout(30) 
-            
-            response = minio_client.get_object(bucket_name, object_id)
-            fasta_content = response.read().decode('utf-8')
-            print("====================")
-            print(fasta_content)
-            print("====================")
-            response.close()
-            response.release_conn()
-            
-            # Restore original timeout
-            socket.setdefaulttimeout(original_timeout)
-        except Exception as e:
-            socket.setdefaulttimeout(original_timeout)  # Restore timeout even on error
-            return False, f"Error loading FASTA file from MinIO: {str(e)}"
-        
-        # 5. Parse the FASTA file to check if header is in the file
-        fasta_lines = fasta_content.splitlines()
-        sequence_lines = []
-        recording = False
-        header_found = False
-        
-        for line in fasta_lines:
-            if line.startswith('>'):
-                # Check if this header matches what we're looking for
-                if line.startswith(f'>{fasta_header} ') or line == f'>{fasta_header}' or line.startswith(f'>{fasta_header}\t'):
-                    recording = True
-                    header_found = True
-                    sequence_lines.append(line)
-                else:
-                    # If we were recording and hit a different header, stop
-                    if recording:
-                        break
-            else:
-                if recording:
-                    sequence_lines.append(line)
+        file_record = cursor.fetchone()
+        if not file_record:
+            return False, f"FASTA file '{fasta_file}' not found in submission_files"
 
-        print(sequence_lines)
-        
-        # 6. Return error if header not found
-        if not header_found:
-            return False, f"Header '{fasta_header}' not found in {fasta_file} for isolate '{isolate_sample_id}'"
-        
-        sequence_data = '\n'.join(sequence_lines)
-        
-        if not sequence_data.strip():
-            return False, f"No sequence data found for isolate '{isolate_sample_id}'"
-        
-        # 7. If file and header found, pass to save_sequence_data for processing
-        new_object_id = await save_sequence_data(sequence_data, isolate['submission_id'], isolate['id'])
-        
-        # 8. Return the object_id of new FASTA file or error
-        if new_object_id:
-            return True, new_object_id
-        else:
-            return False, "Failed to save sequence data"
-            
+    object_id = file_record["object_id"]
+
+    # 3. Load the FASTA file from MinIO
+    minio_client = Minio(
+        endpoint=settings.MINIO_ENDPOINT,
+        access_key=settings.MINIO_ACCESS_KEY,
+        secret_key=settings.MINIO_SECRET_KEY,
+        secure=settings.MINIO_INTERNAL_SECURE
+    )
+
+    bucket_name = settings.MINIO_BUCKET
+
+    try:
+        # Add timeout to MinIO operations
+        import socket
+        original_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(30)
+
+        response = minio_client.get_object(bucket_name, object_id)
+        fasta_content = response.read().decode('utf-8')
+        response.close()
+        response.release_conn()
+
+        # Restore original timeout
+        socket.setdefaulttimeout(original_timeout)
     except Exception as e:
-        return False, f"Error processing sequence data: {str(e)}"
+        socket.setdefaulttimeout(original_timeout)  # Restore timeout even on error
+        return False, f"Error loading FASTA file from MinIO: {str(e)}"
+
+    # 5. Parse the FASTA file using BioPython to check if header is in the file
+    fasta_handle = StringIO(fasta_content)
+
+    sequence_found = None
+    try:
+        for record in SeqIO.parse(fasta_handle, "fasta"):
+            # BioPython's record.id is the header without '>'
+            # record.description contains the full header line
+            # Check various header match patterns
+            if (record.id == fasta_header or 
+                record.description == fasta_header or
+                record.description.startswith(fasta_header + ' ') or
+                record.description.startswith(fasta_header + '\t')):
+                sequence_found = record
+                break
+    except ValueError as e:
+        return False, f"Invalid FASTA format: {str(e)}"
+
+    # 6. Return error if header not found
+    if not sequence_found:
+        return False, f"Header '{fasta_header}' not found in {fasta_file} for isolate '{isolate_sample_id}'"
+
+    # Validate sequence isn't empty
+    if len(sequence_found.seq) == 0:
+        return False, f"Empty sequence found for header: {fasta_header}"
+
+    # Reconstruct FASTA format for storage
+    sequence_data = f">{sequence_found.description}\n{str(sequence_found.seq)}"
+
+    if not sequence_data.strip():
+        return False, f"No sequence data found for isolate '{isolate_sample_id}'"
+
+    # 7. If file and header found, pass to save_sequence_data for processing
+    # Pass the original object_id as parent_file_id
+    new_object_id = await save_sequence_data(sequence_data, isolate['submission_id'], isolate['id'], parent_file_id=object_id)
+
+    # 8. Return the object_id of new FASTA file or error
+    if new_object_id:
+        return True, new_object_id
+    else:
+        return False, "Failed to save sequence data"
 
 
-async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
+async def save_sequence_data(sequence, submission_id=None, isolate_id=None, parent_file_id=None):
     """
     Save sequence data to a FASTA file and upload it to MinIO.
     
@@ -905,22 +1132,22 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
         if not sequence or not sequence.strip():
             print("Error: No sequence data provided")
             return None
-        
+
         # 1. Generate a unique filename for the FASTA file
         unique_id = str(uuid.uuid4())
         filename = f"isolate_sequence_{unique_id}.fasta"
-        
+
         # 2. Create FASTA file content (sequence should already be in FASTA format)
         fasta_content = sequence.strip()
-        
+
         # Ensure it's valid FASTA format (starts with >)
         if not fasta_content.startswith('>'):
             print("Error: Sequence data is not in valid FASTA format")
             return None
-        
+
         print(f"Saving sequence data to file: {filename}")
         print(f"Submission ID: {submission_id}, Isolate ID: {isolate_id}")
-        
+
         # 3. Upload the FASTA file to MinIO
         minio_client = Minio(
             endpoint=settings.MINIO_ENDPOINT,
@@ -928,28 +1155,28 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
             secret_key=settings.MINIO_SECRET_KEY,
             secure=settings.MINIO_INTERNAL_SECURE
         )
-        
+
         bucket_name = settings.MINIO_BUCKET
-        
+
         # Ensure bucket exists
         if not minio_client.bucket_exists(bucket_name):
             minio_client.make_bucket(bucket_name)
-        
+
         # Convert string to bytes for upload
         fasta_bytes = fasta_content.encode('utf-8')
-        
+
         # Generate object_id for MinIO storage
         object_id = unique_id
-        
+
         # Upload to MinIO with timeout
         from io import BytesIO
         data = BytesIO(fasta_bytes)
-        
+
         # Add timeout for MinIO operations
         import socket
         original_timeout = socket.getdefaulttimeout()
-        socket.setdefaulttimeout(30) 
-        
+        socket.setdefaulttimeout(30)
+
         try:
             minio_client.put_object(
                 bucket_name=bucket_name,
@@ -963,21 +1190,21 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
             socket.setdefaulttimeout(original_timeout)  # Restore timeout even on error
             print(f"Failed to upload to MinIO: {str(e)}")
             return None
-        
+
         print(f"Successfully uploaded sequence data to MinIO with object_id: {object_id}")
-        
+
         # Optionally, save file metadata to database (submission_files table)
         try:
             with get_db_cursor() as cursor:
                 cursor.execute(
                     """
                     INSERT INTO submission_files (submission_id, isolate_id, filename, object_id, file_type, file_size, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s,NOW())
                     """,
                     (submission_id, isolate_id, filename, object_id, 'fasta', len(fasta_bytes)),
                 )
                 print(f"File metadata saved to database: {filename}")
-                
+
                 # Also update the isolates table with the object_id
                 if isolate_id:
                     cursor.execute(
@@ -989,14 +1216,14 @@ async def save_sequence_data(sequence, submission_id=None, isolate_id=None):
                         (object_id, isolate_id),
                     )
                     print(f"Updated isolate {isolate_id} with object_id: {object_id}")
-                    
+
         except Exception as db_error:
             print(f"Warning: Could not save file metadata to database: {db_error}")
             # Continue anyway, as the file was uploaded successfully
-        
+
         # 3. Return the object_id of the uploaded file
         return object_id
-        
+
     except Exception as e:
         print(f"Error saving sequence data: {str(e)}")
         return None
@@ -1077,66 +1304,6 @@ def json_serial(obj):
     raise TypeError(f"Type {type(obj)} not serializable")
 
 
-# NEW FUNCTION TO SEND TO FIXED INDEX
-def send_to_elastic2(document):
-    try:
-        serialized_document = json.loads(json.dumps(document, default=json_serial))
-    except Exception as e:
-        print(f"Error serializing document: {e}")
-        return False
-    
-    # NEW ES INDEX AND FRONTEND WORKAROUND
-    # This will flatten the isolate_data field into top-level fields which is compatible with new ES mapping and existing frontend code
-
-    # Flatten isolate_data if it exists
-    if 'isolate_data' in serialized_document and serialized_document['isolate_data']:
-        isolate_data = serialized_document['isolate_data']
-        if isinstance(isolate_data, str):
-            try:
-                isolate_data = json.loads(isolate_data)
-            except json.JSONDecodeError:
-                print(f"Warning: Could not parse isolate_data as JSON: {isolate_data}")
-                isolate_data = {}
-        
-        if isinstance(isolate_data, dict):
-            # Add all fields from isolate_data to top level
-            for key, value in isolate_data.items():
-                if key not in serialized_document:  # Don't overwrite existing fields
-                    serialized_document[key] = value
-        
-        # Remove the original isolate_data field
-        del serialized_document['isolate_data']
-
-    # End workaround
-
-    # Check if document has an id field 
-    document_id = serialized_document.get('id')
-    if not document_id:
-        print("Warning: Document has no 'id' field, creating new document")
-        es_index_url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_doc"
-        method = requests.post
-    else:
-        # Use the document's UUID as the Elasticsearch document ID
-        # This ensures we always update the same document
-        es_index_url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_doc/{document_id}"
-        method = requests.put
-        print(f"Using document ID {document_id} as Elasticsearch document ID for upsert")
-
-    try:
-        # Add timeout to HTTP requests to prevent hanging
-        response = method(es_index_url, json=serialized_document, timeout=30)
-        if response.status_code in [200, 201]:
-            action = "updated/created" if method == requests.put else "indexed"
-            print(f"Successfully {action} document to {es_index_url}")
-            print(f"DEBUG: Document {document_id} with data: object_id={serialized_document.get('object_id')}, seq_error={serialized_document.get('seq_error')}")
-            return True
-        else:
-            print(f"Failed to index document: {response.text}")
-            return False, response.text
-    except Exception as e:
-        print(f"Error sending document to Elasticsearch: {e}")
-        return False, str(e)
-
 
 def query_elastic(query_body):
     es_url = settings.ELASTICSEARCH_URL
@@ -1205,4 +1372,113 @@ def delete_from_elastic(submission_id):
             return False
     except Exception as e:
         print(f"Error deleting documents from Elasticsearch: {e}")
+        return False
+
+def delete_isolate_from_elastic(isolate_id):
+    """
+    Delete a single isolate document from Elasticsearch by its id.
+    """
+    es_url = settings.ELASTICSEARCH_URL
+    es_delete_url = f"{es_url}/agari-samples/_delete_by_query"
+    query_body = {
+        "query": {
+            "term": {
+                "id": isolate_id
+            }
+        }
+    }
+    try:
+        response = requests.post(es_delete_url, json=query_body)
+        response.raise_for_status()
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to delete isolate {isolate_id} from Elasticsearch: {str(e)}")
+        return False
+
+
+# Bulk ES helper
+def bulk_send_to_elastic(documents):
+    """Send a batch of documents to Elasticsearch using the _bulk API."""
+    if not documents:
+        logger.info("No documents to send to Elasticsearch (bulk)")
+        return True
+
+    bulk_lines = []
+    for idx, doc in enumerate(documents):
+        logger.debug(f"Preparing document {idx} for bulk ES: id={doc.get('id')}, keys={list(doc.keys())}")
+        
+        if 'isolate_data' in doc and doc['isolate_data']:
+            isolate_data = doc['isolate_data']
+            if isinstance(isolate_data, str):
+                try:
+                    isolate_data = json.loads(isolate_data)
+                except Exception:
+                    logger.warning(f"Could not parse isolate_data for doc id={doc.get('id')}")
+                    isolate_data = {}
+            if isinstance(isolate_data, dict):
+                for key, value in isolate_data.items():
+                    if key not in doc:
+                        doc[key] = value
+            del doc['isolate_data']
+        doc_id = doc.get("id")
+        action = {"index": {"_id": doc_id}} if doc_id else {"index": {}}
+        bulk_lines.append(json.dumps(action))
+        # Use json_serial for datetime/date serialization
+        bulk_lines.append(json.dumps(doc, default=json_serial))
+        logger.debug(f"Bulk action: {action}, doc: {doc}")
+    bulk_data = "\n".join(bulk_lines) + "\n"
+
+    logger.info(f"Sending bulk data to Elasticsearch: url={settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_bulk, num_docs={len(documents)}")
+    # Optionally log the bulk_data (can be large)
+    logger.debug(f"Bulk payload (truncated): {bulk_data[:1000]}...")
+
+    url = f"{settings.ELASTICSEARCH_URL}/{settings.ELASTICSEARCH_INDEX}/_bulk"
+    headers = {"Content-Type": "application/x-ndjson"}
+    try:
+        response = requests.post(url, data=bulk_data, headers=headers, timeout=30)
+        logger.info(f"Bulk ES response status: {response.status_code}")
+        if response.status_code not in (200, 201):
+            logger.error(f"Bulk indexing failed: {response.text}")
+            return False
+        # Log errors from ES bulk response if present
+        try:
+            resp_json = response.json()
+            if resp_json.get('errors'):
+                logger.error(f"Bulk ES response contains errors: {resp_json}")
+            else:
+                logger.info("Bulk ES response: all documents indexed successfully")
+        except Exception as e:
+            logger.warning(f"Could not parse bulk ES response as JSON: {e}")
+        return True
+    except Exception as e:
+        logger.error(f"Exception during bulk ES indexing: {e}")
+        return False
+    
+def update_project_visibility_in_elastic(project_id, new_visibility):
+    """
+    Bulk update all isolates in Elasticsearch for a project_id to set visibility.
+    """
+    es_url = settings.ELASTICSEARCH_URL
+    es_index = settings.ELASTICSEARCH_INDEX
+    update_url = f"{es_url}/{es_index}/_update_by_query"
+    query = {
+        "script": {
+            "source": "ctx._source.visibility = params.visibility",
+            "lang": "painless",
+            "params": {"visibility": new_visibility}
+        },
+        "query": {
+            "term": {"project_id": project_id}
+        }
+    }
+    try:
+        resp = requests.post(update_url, json=query, timeout=30)
+        if resp.status_code in (200, 201):
+            logger.info(f"Updated visibility for project_id {project_id} to '{new_visibility}' in Elasticsearch")
+            return True
+        else:
+            logger.error(f"Failed to update visibility in Elasticsearch: {resp.text}")
+            return False
+    except Exception as e:
+        logger.error(f"Error updating visibility in Elasticsearch: {e}")
         return False

@@ -24,21 +24,22 @@ from helpers import (
     role_project_member,
     role_org_member,
     role_org_member_attr,
-    check_user_id,
     access_toggled_notification,
     log_event,
     get_minio_client,
     tsv_to_json,
     validate_against_schema,
-    send_to_elastic2,
+    update_project_visibility_in_elastic,
     check_isolate_in_elastic,
     check_user_id,
     query_elastic,
     get_object_id_url,
     delete_minio_object,
     delete_from_elastic,
+    delete_isolate_from_elastic,
     PROJECT_ROLE_MAPPING,
-    ORG_ROLE_MAPPING
+    ORG_ROLE_MAPPING,
+    bulk_send_to_elastic
 )
 import uuid
 import hashlib
@@ -93,8 +94,12 @@ default_ns = api.namespace('info', description='Utility endpoints')
 class Health(Resource):
 
     ### GET /info/health ###
+    ### Check application health status ###
 
     @api.doc('get_health')
+    @api.response(200, 'Success', example={
+        'status': 'healthy'
+    })
     def get(self):
         """Check application health status"""
         return {'status': 'healthy'}
@@ -103,10 +108,18 @@ class Health(Resource):
 class DatabaseHealth(Resource):
 
     ### GET /info/health/db ###
+    ### Check database connectivity ###
 
     @api.doc('get_db_health')
+    @api.response(200, 'Success', example={
+        'status': 'healthy'
+    })
+    @api.response(503, 'Service Unavailable', example={
+        'status': 'unhealthy',
+        'error': 'Database connection failed'
+    })
     def get(self):
-        """Check database connectivity and schema"""
+        """Check database connectivity"""
         db_test = test_connection()
         if db_test:
             return {
@@ -119,43 +132,31 @@ class DatabaseHealth(Resource):
 class WhoAmI(Resource):
 
     ### GET /info/whoami ###
+    ### Get current user information from JWT token ###
 
     @api.doc('get_whoami')
     @require_auth(keycloak_auth)
     def get(self):
-
         """Get current user information from JWT token"""
-        
         return extract_user_info(request.user)
 
 @default_ns.route('/permissions')
 class Permissions(Resource):
 
     ### GET /info/permissions ###
+    ### Get all defined permissions ###
 
     @api.doc('get_permissions')
     @require_auth(keycloak_auth)
     def get(self):
-
         """Get all defined permissions"""
-        
         return PERMISSIONS
-    
-@default_ns.route('/permissions/check/<permission_name>')
-class PermissionsCheck(Resource):
-
-    ### GET /info/permissions/check/<permission_name> ###
-
-    @api.doc('check_permission')
-    @require_auth(keycloak_auth)
-    def get(self, permission_name):
-
-        return
 
 @default_ns.route('/permissions/check')
 class PermissionsCheckResource(Resource):
 
     ### POST /info/permissions/check ###
+    ### Check if the current user has a specific permission for a resource ###
 
     @api.doc('check_permission_for_resource')
     @require_auth(keycloak_auth)
@@ -165,10 +166,9 @@ class PermissionsCheckResource(Resource):
 
         Request Body:
         {
-            "resource_type": "project|study",
+            "resource_type": "project",
             "resource_id": "<uuid>",
-            "permission": "edit_project|delete_project|etc",
-            "parent_project_id": "<uuid>"  # Optional, for study checks
+            "permission": "edit_project|delete_project|etc"
         }
 
         Returns detailed permission check information for debugging
@@ -198,6 +198,58 @@ class PermissionsCheckResource(Resource):
         except Exception as e:
             logger.exception(f"Error checking permission: {str(e)}")
             return {'error': f'Failed to check permission: {str(e)}'}, 500
+
+@default_ns.route('/userid')
+class GetUserId(Resource):
+
+    ### POST /info/userid ###
+
+    @api.doc('get_userid')
+    @api.response(200, 'Success', example={
+        'user_id': '123e4567-e89b-12d3-a456-426614174000'
+    })
+    @api.response(404, 'User Not Found', example={
+        'error': 'User with email "<email>" not found'
+    })
+    @api.response(400, 'Bad Request', example={
+        'error': 'Email is required'
+    })
+    @api.response(400, 'Bad Request', example={
+        'error': 'No JSON data provided'
+    })
+    @api.response(500, 'Internal Server Error', example={
+        'error': 'Failed to check user: <error_message>'
+    })
+    def post(self):
+
+        """Check if user exists and return user ID based on email"""
+
+        try:
+            data = request.get_json()
+            if not data:
+                return {'error': 'No JSON data provided'}, 400
+
+            email = data.get('email')
+            if not email:
+                return {'error': 'Email is required'}, 400
+
+            users = keycloak_auth.get_all_users()
+            user_found = None
+            for user in users:
+                if user.get('username') == email or user.get('email') == email:
+                    user_found = user
+                    break
+
+            if not user_found:
+                return {'error': f'User with email "{email}" not found'}, 404
+
+            return {
+                'user_id': user_found.get('user_id') or user_found.get('id'),
+            }
+
+        except Exception as e:
+            logger.exception(f"Error checking user by email: {str(e)}")
+            return {'error': f'Failed to check user: {str(e)}'}, 500
 
 
 ##########################
@@ -683,7 +735,7 @@ class UserList(Resource):
         return keycloak_response
 
 
-@user_ns.route('/<string:user_id>')        
+@user_ns.route('/<string:user_id>')
 class User(Resource):
 
     ### GET /users/<user_id> ###
@@ -692,7 +744,7 @@ class User(Resource):
     @require_auth(keycloak_auth)
     def get(self, user_id):
         """Get user details by ID
-        
+
         Users can view their own profile.
         Admins can view any user's profile.
         """
@@ -701,18 +753,19 @@ class User(Resource):
             # Get current user info
             user_info = extract_user_info(request.user)
             current_user_id = user_info.get('user_id')
-            
+
             # Check if user is trying to view their own profile
             is_self_view = current_user_id == user_id
-            
+
             # Check permissions - allow self-view or admin access
             if not is_self_view:
                 has_perm, details = user_has_permission(user_info, 'manage_users')
+                user_info = keycloak_auth.get_user(user_id)
                 if not has_perm:
                     return {'error': 'Permission denied. You can only view your own profile or need admin permissions.', 'details': details}, 403
-            
+
             return user_info
-            
+
         except Exception as e:
             logger.exception(f"Error retrieving user {user_id}: {str(e)}")
             return {'error': f'Failed to retrieve user: {str(e)}'}, 500
@@ -723,14 +776,14 @@ class User(Resource):
     @require_auth(keycloak_auth)
     @require_permission('manage_users')
     def delete(self, user_id):
-        """Delete a user by ID (system-admin only)"""
+        """Disable a user by ID"""
         try:
             keycloak_auth.toggle_user_enabled(user_id, enabled=False)
             access_toggled_notification(user_id, enabled=False)
             return {'message': 'User disabled successfully'}
         except Exception as e:
-            logger.exception(f"Error deleting user {user_id}: {str(e)}")
-            return {'error': f'Failed to delete user: {str(e)}'}, 500
+            logger.exception(f"Error disabling user {user_id}: {str(e)}")
+            return {'error': f'Failed to disable user: {str(e)}'}, 500
 
 
     ### POST /users/<user_id> ###
@@ -739,7 +792,7 @@ class User(Resource):
     @require_auth(keycloak_auth)
     @require_permission('manage_users')
     def post(self, user_id):
-        """Enable a disabled user by ID (system-admin only)"""
+        """Enable a disabled user by ID"""
         try:
             keycloak_auth.toggle_user_enabled(user_id, enabled=True)
             access_toggled_notification(user_id, enabled=True)
@@ -830,6 +883,44 @@ class User(Resource):
             return {'error': f'Failed to update user: {str(e)}'}, 500
 
 
+@user_ns.route('/<string:user_id>/hard-delete')
+class UserDelete(Resource):
+    ### DELETE /users/<user_id>/hard-delete ###
+
+    @user_ns.doc('hard_delete_user')
+    @require_auth(keycloak_auth)
+    @require_permission('manage_users')
+    def delete(self, user_id):
+        """Delete a user by ID"""
+        try:
+            admin_token = keycloak_auth.get_admin_token()
+            if not admin_token:
+                return {'error': 'Failed to get admin token'}, 500
+
+            user = keycloak_auth.get_user(user_id)
+            if not user:
+                return {'error': 'User not found'}, 404
+
+            user_url = f"{keycloak_auth.keycloak_url}/admin/realms/{keycloak_auth.realm}/users/{user_id}"
+            headers = {
+                'Authorization': f'Bearer {admin_token}',
+                'Content-Type': 'application/json'
+            }
+
+            response = requests.delete(user_url, headers=headers)
+            response.raise_for_status()
+
+            logger.info(f"User {user_id} ({user.get('username')}) permanently deleted from Keycloak")
+            return {'message': 'User deleted successfully', 'user_id': user_id}
+
+        except requests.RequestException as e:
+            logger.exception(f"Keycloak API error deleting user {user_id}: {str(e)}")
+            return {'error': f'Failed to delete user from Keycloak: {str(e)}'}, 500
+        except Exception as e:
+            logger.exception(f"Error deleting user {user_id}: {str(e)}")
+            return {'error': f'Failed to delete user: {str(e)}'}, 500
+
+
 @user_ns.route('/email')
 class UserEmail(Resource):
     ### PUT /users/<user_id> ###
@@ -854,6 +945,31 @@ class UserEmail(Resource):
         except Exception as e:
             logger.exception(f"Changing user email failed: {str(e)}")
             return {"error": f"Changing user email failed: {str(e)}"}, 500
+
+
+@user_ns.route('/refresh-token')
+class RefreshToken(Resource):
+
+    ### POST /users/refresh-token ###
+
+    @api.doc('refresh_access_token')
+    def post(self):
+        try:
+            data = request.get_json()
+            if not data or 'refresh_token' not in data:
+                return {'error': 'refresh_token is required'}, 400
+
+            refresh_token = data.get('refresh_token')
+            new_tokens = keycloak_auth.refresh_access_token(refresh_token)
+
+            if not new_tokens:
+                return {'error': 'Failed to refresh token. Token may be expired or invalid.'}, 401
+
+            return new_tokens, 200
+
+        except Exception as e:
+            logger.error(f"Error in refresh token endpoint: {e}")
+            return {'error': f'Failed to refresh token: {str(e)}'}, 500
 
 
 ##########################
@@ -1437,6 +1553,7 @@ class Project(Resource):
                         ORDER BY name
                     """, (project_id, organisation_id))
                 else:
+                    # Add a check that org-partial cannot see private org projects that they are not assigned to
                     user_projects = keycloak_auth.get_user_projects()
                     cursor.execute("""
                         SELECT *
@@ -1521,6 +1638,7 @@ class Project(Resource):
                     return {'error': 'Project not found or already deleted'}, 404
                 
                 if 'privacy' in data:
+                    update_project_visibility_in_elastic(project_id, data['privacy'])
                     user_info = extract_user_info(request.user)
                     log_event("project_privacy", project_id, {"project_name": updated_project["name"], "new_privacy": data['privacy']}, user_info)
                 return {
@@ -1634,9 +1752,9 @@ class ProjectRestore(Resource):
 
 @project_ns.route('/<string:project_id>/users')
 class ProjectUsers(Resource):
-    
+
     ### GET /projects/<project_id>/users ###
-    
+
     @api.doc('list_project_users')
     @require_auth(keycloak_auth)
     @require_permission('view_project_users', resource_type='project', resource_id_arg='project_id')
@@ -1645,10 +1763,32 @@ class ProjectUsers(Resource):
         """List users associated with a project"""
 
         try:
+            organisation_id = keycloak_auth.get_user_org()
+            org_users = keycloak_auth.get_users_by_attribute('organisation_id', organisation_id)
+            org_admins = []
+            org_contributors = []
+            org_viewers = []
+            org_owners = []
+
+            for user in org_users:
+                user_roles = keycloak_auth.get_realm_roles(user['user_id'])
+                if user_roles[0] == 'agari-org-admin':
+                    org_admins.append(user)
+                elif user_roles[0] == 'agari-org-contributor':
+                    org_contributors.append(user)
+                elif user_roles[0] == 'agari-org-viewer':
+                    org_viewers.append(user)
+                elif user_roles[0] == 'agari-org-owner':
+                    org_owners.append(user)
+
             # Get all users with any project role
             all_project_admins = keycloak_auth.get_users_by_attribute('project-admin', project_id)
             all_project_contributors = keycloak_auth.get_users_by_attribute('project-contributor', project_id)
             all_project_viewers = keycloak_auth.get_users_by_attribute('project-viewer', project_id)
+
+            all_project_admins.extend(org_admins)
+            all_project_contributors.extend(org_contributors)
+            all_project_viewers.extend(org_viewers)
 
             # Create sets of user IDs for each role
             admin_user_ids = {user['user_id'] for user in all_project_admins}
@@ -1657,11 +1797,9 @@ class ProjectUsers(Resource):
 
             # Apply role hierarchy: admin > contributor > viewer
             # Remove lower privilege roles if user has higher privilege
-            
             # If user is admin, remove them from contributor and viewer lists
             contributor_user_ids = contributor_user_ids - admin_user_ids
             viewer_user_ids = viewer_user_ids - admin_user_ids
-            
             # If user is contributor (but not admin), remove them from viewer list
             viewer_user_ids = viewer_user_ids - contributor_user_ids
 
@@ -1785,20 +1923,54 @@ class ProjectSubmissions2(Resource):
     @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
     def get(self, project_id):
 
-        """List all submissions including drafts"""
+        """List all submissions including drafts (drafts only visible to project members)"""
 
         try:
+            user_info = extract_user_info(request.user)
+            user_id = user_info.get('user_id')
+            user_roles = user_info.get('roles', [])
+            user_attributes = user_info.get('attributes', {})
+            
+            # Check if user is a project member by checking for any project-specific attribute
+            # Project members have one of: project-admin, project-contributor, or project-viewer
+            is_project_member = False
+            for attr_name in ['project-admin', 'project-contributor', 'project-viewer']:
+                if attr_name in user_attributes:
+                    attr_values = user_attributes[attr_name]
+                    if isinstance(attr_values, list):
+                        is_project_member = project_id in attr_values
+                    else:
+                        is_project_member = str(attr_values) == project_id
+                    if is_project_member:
+                        break
+            
             with get_db_cursor() as cursor:
-                cursor.execute("""
-                    SELECT s.*, 
-                           COUNT(sf.id) as file_count,
-                           ARRAY_AGG(sf.filename) FILTER (WHERE sf.id IS NOT NULL) as filenames
-                    FROM submissions s
-                    LEFT JOIN submission_files sf ON s.id = sf.submission_id
-                    WHERE s.project_id = %s
-                    GROUP BY s.id
-                    ORDER BY s.created_at DESC
-                """, (project_id,))
+                # System admins and project members see all submissions including drafts
+                # External users (on public projects) only see published submissions
+                if 'system-admin' in user_roles or is_project_member:
+                    # Project members and admins see all submissions
+                    cursor.execute("""
+                        SELECT s.*, 
+                               COUNT(sf.id) as file_count,
+                               ARRAY_AGG(sf.filename) FILTER (WHERE sf.id IS NOT NULL) as filenames
+                        FROM submissions s
+                        LEFT JOIN submission_files sf ON s.id = sf.submission_id
+                        WHERE s.project_id = %s
+                        GROUP BY s.id
+                        ORDER BY s.created_at DESC
+                    """, (project_id,))
+                else:
+                    # External users (public project viewers) only see published submissions
+                    cursor.execute("""
+                        SELECT s.*, 
+                               COUNT(sf.id) as file_count,
+                               ARRAY_AGG(sf.filename) FILTER (WHERE sf.id IS NOT NULL) as filenames
+                        FROM submissions s
+                        LEFT JOIN submission_files sf ON s.id = sf.submission_id
+                        WHERE s.project_id = %s AND s.status != 'draft'
+                        GROUP BY s.id
+                        ORDER BY s.created_at DESC
+                    """, (project_id,))
                 
                 submissions = cursor.fetchall()
                 
@@ -1867,9 +2039,27 @@ class ProjectSubmission2(Resource):
     @require_permission('view_project_submissions', resource_type='project', resource_id_arg='project_id')
     def get(self, project_id, submission_id):
 
-        """Get submission details including associated files"""
+        """Get submission details including associated files (drafts only visible to project members)"""
 
         try:
+            user_info = extract_user_info(request.user)
+            user_id = user_info.get('user_id')
+            user_roles = user_info.get('roles', [])
+            user_attributes = user_info.get('attributes', {})
+            
+            # Check if user is a project member by checking for any project-specific attribute
+            # Project members have one of: project-admin, project-contributor, or project-viewer
+            is_project_member = False
+            for attr_name in ['project-admin', 'project-contributor', 'project-viewer']:
+                if attr_name in user_attributes:
+                    attr_values = user_attributes[attr_name]
+                    if isinstance(attr_values, list):
+                        is_project_member = project_id in attr_values
+                    else:
+                        is_project_member = str(attr_values) == project_id
+                    if is_project_member:
+                        break
+            
             with get_db_cursor() as cursor:
                 # Get submission details only
                 cursor.execute("""
@@ -1887,6 +2077,10 @@ class ProjectSubmission2(Resource):
                 if not submission:
                     return {'error': 'Submission not found'}, 404
                 
+                # If submission is a draft, only project members and admins can access it
+                if submission['status'] == 'draft':
+                    if not ('system-admin' in user_roles or is_project_member):
+                        return {'error': 'Submission not found'}, 404
 
                 cursor.execute("""
                     SELECT * FROM submission_files
@@ -1910,19 +2104,52 @@ class ProjectSubmission2(Resource):
     @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
     def delete(self, project_id, submission_id):
 
-        """Delete a submission"""
+        """Delete a submission (only owner, project admins, or org admins)"""
 
         try:
+            user_info = extract_user_info(request.user)
+            current_user_id = user_info.get('user_id')
+            user_roles = user_info.get('roles', [])
+            user_attributes = user_info.get('attributes', {})
+            user_org_id = user_info.get('organisation_id')
+            
+            # Check if user is a project admin
+            is_project_admin = False
+            if 'project-admin' in user_attributes:
+                attr_values = user_attributes['project-admin']
+                if isinstance(attr_values, list):
+                    is_project_admin = project_id in attr_values
+                else:
+                    is_project_admin = str(attr_values) == project_id
+            
             with get_db_cursor() as cursor:
                 
-                # check if submission exists
+                # check if submission exists and get project org
                 cursor.execute("""
-                    SELECT * FROM submissions 
-                    WHERE id = %s AND project_id = %s
+                    SELECT s.*, p.organisation_id as project_org_id
+                    FROM submissions s
+                    LEFT JOIN projects p ON s.project_id = p.id
+                    WHERE s.id = %s AND s.project_id = %s
                 """, (submission_id, project_id))
                 submission = cursor.fetchone()
                 
                 if not submission:
+                    return {'error': 'Submission not found'}, 404
+                
+                # Check if user is org admin/owner for the project's organization
+                is_org_admin = False
+                if user_org_id and submission['project_org_id']:
+                    # Handle user_org_id as list or string
+                    user_orgs = user_org_id if isinstance(user_org_id, list) else [user_org_id]
+                    if submission['project_org_id'] in user_orgs:
+                        # User is in the same org, check if they have org-admin or org-owner role
+                        is_org_admin = 'agari-org-admin' in user_roles or 'agari-org-owner' in user_roles
+                
+                # Check authorization: submission owner, project admin, org admin/owner, or system admin can delete
+                is_owner = submission['user_id'] == current_user_id
+                is_authorized = 'system-admin' in user_roles or is_project_admin or is_org_admin or is_owner
+                
+                if not is_authorized:
                     return {'error': 'Submission not found'}, 404
                 
                  # 1. Get all object_ids for files associated with this submission FIRST
@@ -2083,6 +2310,7 @@ class ProjectSubmissionFiles2(Resource):
 
         """Upload a file to submission with streaming to MinIO"""
 
+
         try:
             user_info = extract_user_info(request.user)
             with get_db_cursor() as cursor:
@@ -2090,18 +2318,15 @@ class ProjectSubmissionFiles2(Resource):
                     SELECT * FROM submissions 
                     WHERE id = %s AND project_id = %s
                 """, (submission_id, project_id))
-                
                 submission = cursor.fetchone()
                 if not submission:
                     return {'error': 'Submission not found'}, 404
-
                 if submission['status'] not in ['draft', 'error', 'validating', 'validated']:
                     return {'error': f'Cannot upload files to submission in status: {submission["status"]}.'}, 400
 
             # Check file upload
             if 'file' not in request.files:
                 return {'error': 'No file provided'}, 400
-            
             file = request.files['file']
             if not file or not file.filename:
                 return {'error': 'Invalid file'}, 400
@@ -2119,33 +2344,47 @@ class ProjectSubmissionFiles2(Resource):
             file_data = []
             file_size = 0
             md5_hash = hashlib.md5()
-            
-            # Read file in chunks for streaming
             while True:
-                chunk = file.stream.read(8192)  
+                chunk = file.stream.read(8192)
                 if not chunk:
                     break
                 file_data.append(chunk)
                 file_size += len(chunk)
                 md5_hash.update(chunk)
-            
             file_md5 = md5_hash.hexdigest()
-            
+
+            # Check for duplicate file (same filename and md5_hash)
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, filename, file_type, file_size, object_id
+                    FROM submission_files
+                    WHERE submission_id = %s AND filename = %s AND md5_hash = %s
+                """, (submission_id, file.filename, file_md5))
+                duplicate = cursor.fetchone()
+                if duplicate:
+                    logger.info(f"Duplicate file upload skipped: {file.filename} (md5: {file_md5}) for submission {submission_id}")
+                    return {
+                        'message': 'File with same name and content already exists. Skipping upload.',
+                        'submission_id': submission_id,
+                        'file': {
+                            'id': duplicate['id'],
+                            'filename': duplicate['filename'],
+                            'file_type': duplicate['file_type'],
+                            'file_size': duplicate['file_size'],
+                            'object_id': duplicate['object_id']
+                        }
+                    }, 200
+
             # Generate object_id for MinIO
             object_id = str(uuid.uuid4())
-            
             # Upload directly to MinIO
             file_content = b''.join(file_data)
-            
             try:
                 # Get MinIO credentials and upload
-                minio_bucket = settings.MINIO_BUCKET 
+                minio_bucket = settings.MINIO_BUCKET
                 minio_client = get_minio_client(self)
-                
-                # Upload to MinIO with object_id as the key
                 from io import BytesIO
                 file_stream = BytesIO(file_content)
-                
                 result = minio_client.put_object(
                     bucket_name=minio_bucket,
                     object_name=object_id,
@@ -2153,13 +2392,11 @@ class ProjectSubmissionFiles2(Resource):
                     length=file_size,
                     content_type='application/octet-stream'
                 )
-                
                 logger.info(f"Uploaded {file.filename} ({file_size} bytes) to MinIO bucket '{minio_bucket}' with object_id {object_id}")
-                
             except Exception as upload_error:
                 logger.exception(f"Failed to upload file to MinIO: {str(upload_error)}")
                 return {'error': f'MinIO upload failed: {str(upload_error)}'}, 500
-            
+
             # Store file record in database
             with get_db_cursor() as cursor:
                 cursor.execute("""
@@ -2168,7 +2405,6 @@ class ProjectSubmissionFiles2(Resource):
                     VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING *
                 """, (submission_id, file.filename, file_type, object_id, file_size, file_md5))
-                
                 file_record = cursor.fetchone()
 
             log_event("file_uploaded", project_id, {"submission_id": {submission_id}, "files": file_record}, user_info)
@@ -2183,24 +2419,14 @@ class ProjectSubmissionFiles2(Resource):
                     'object_id': file_record['object_id']
                 }
             }, 201
-            
         except Exception as e:
             logger.exception(f"Error uploading file to submission {submission_id}")
             return {'error': f'Upload failed: {str(e)}'}, 500
+         
     
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/files2/<string:file_id>')
 class ReplaceProjectSubmissionFile2(Resource):
-
-    ### PUT /projects/<project_id>/submissions2/<submission_id>/files2/<file_id>
-
-    @api.doc('replace_file_v2')
-    @require_auth(keycloak_auth)
-    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
-    def put(self, project_id, submission_id, file_id):
-        """Replace an existing submission file with a new upload (streaming to MinIO)"""
-        # Similar to upload but replaces existing file record
-        pass  # Implementation would be similar to the upload_file_v2 method
 
     
     ### DELETE /projects/<project_id>/submissions2/<submission_id>/files2/<file_id>
@@ -2282,6 +2508,21 @@ class ReplaceProjectSubmissionFile2(Resource):
         except Exception as e:
             logger.exception(f"Error deleting file {file_id} from submission {submission_id}: {str(e)}")
             return {'error': f'Deletion failed: {str(e)}'}, 500
+
+@project_ns.route('/<string:project_id>/submissions/<string:submission_id>/overwrite')
+class ProjectSubmissionOverwrite(Resource):
+    ### POST /projects/<project_id>/submissions/<submission_id>/overwrite
+
+    @api.doc('overwrite_submission_v2')
+    @require_auth(keycloak_auth)
+    @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
+    def post(self, project_id, submission_id):
+
+        """Overwrite existing submission data with new uploaded files"""
+        user_info = extract_user_info(request.user)
+        log_event("project_overwrite", project_id, {"submission_id": {submission_id}}, user_info)
+
+        return {'message': 'Project overwrite successful'}, 200
 
 
 @project_ns.route('/<string:project_id>/submissions/<string:submission_id>/validate2')
@@ -2455,30 +2696,44 @@ class ProjectSubmissionValidate2(Resource):
 
                 # Delete all existing isolates for this submission first (clean slate)
                 with get_db_cursor() as cursor:
-                    # First, get all isolate IDs to delete from Elasticsearch
+                    # First, get all isolate IDs and object_ids to delete from Elasticsearch and MinIO
                     cursor.execute("""
-                        SELECT id FROM isolates 
+                        SELECT id, object_id FROM isolates 
                         WHERE submission_id = %s
                     """, (submission_id,))
-                    
                     isolates_to_delete = cursor.fetchall()
-                    
-                    # Delete from Elasticsearch
+
+                    # Delete from Elasticsearch, MinIO, and submission_files if needed
                     for isolate in isolates_to_delete:
                         try:
-                            delete_from_elastic(isolate['id'])
+                            delete_isolate_from_elastic(isolate['id'])
                         except Exception as es_error:
                             logger.warning(f"Failed to delete isolate {isolate['id']} from Elasticsearch: {str(es_error)}")
-                    
+
+                        # If split_on_fasta_headers is True and isolate has object_id, delete from MinIO and submission_files
+                        if split_on_fasta_headers and isolate.get('object_id'):
+                            try:
+                                # Delete from MinIO
+                                delete_minio_object(isolate['object_id'])
+                            except Exception as minio_error:
+                                logger.warning(f"Failed to delete MinIO object {isolate['object_id']}: {str(minio_error)}")
+                            try:
+                                # Delete from submission_files
+                                cursor.execute("""
+                                    DELETE FROM submission_files
+                                    WHERE object_id = %s
+                                """, (isolate['object_id'],))
+                            except Exception as sf_error:
+                                logger.warning(f"Failed to delete submission_files entry for object_id {isolate['object_id']}: {str(sf_error)}")
+
                     # Now delete from database
                     cursor.execute("""
                         DELETE FROM isolates 
                         WHERE submission_id = %s
                     """, (submission_id,))
-                    
                     deleted_count = cursor.rowcount
                     if deleted_count > 0:
-                        print(f"Deleted {deleted_count} existing isolates for submission {submission_id} from database and Elasticsearch")
+                        print(f"Deleted {deleted_count} existing isolates for submission {submission_id} from database, Elasticsearch, and MinIO if needed")
 
                 # Insert all rows fresh from the TSV, checking for duplicate isolate_ids
                 for row_index, row in enumerate(tsv_json):
@@ -2519,9 +2774,9 @@ class ProjectSubmissionValidate2(Resource):
                     
                     existing_isolates = cursor.fetchall()
                     
+                    isolates_to_index = []
                     for isolate in existing_isolates:
                         isolate_data = isolate.get('isolate_data', {})
-                        
                         # Run validation against schema
                         is_valid, errors = validate_against_schema(isolate_data, isolate['tsv_row'], project_id)
 
@@ -2549,9 +2804,12 @@ class ProjectSubmissionValidate2(Resource):
                             """, (isolate['id'],))
 
                             isolate_data = cursor.fetchone()
-
                             if isolate_data:
-                                send_to_elastic2(isolate_data)
+                                isolates_to_index.append(isolate_data)
+
+                    # Bulk index all validated isolates after validation
+                    if isolates_to_index:
+                        bulk_send_to_elastic(isolates_to_index)
 
                 # After validating all isolates, check if any have errors
                 with get_db_cursor() as cursor:
@@ -2685,16 +2943,18 @@ class ProjectSubmissionPublish2(Resource):
 
             # Get published isolates to re-index in Elasticsearch
             cursor.execute("""
-                SELECT i.*, s.project_id, p.pathogen_id FROM isolates i
+                SELECT i.*, s.project_id, p.pathogen_id, p.privacy as visibility, p.name as project_name, pat.name as pathogen_name
+                FROM isolates i
                 LEFT JOIN submissions s ON i.submission_id = s.id
                 LEFT JOIN projects p ON s.project_id = p.id
+                LEFT JOIN pathogens pat ON p.pathogen_id = pat.id
                 WHERE i.submission_id = %s
                 AND i.status = 'published'
             """, (submission_id,))
             published_isolates = cursor.fetchall()
 
-            for isolate in published_isolates:
-                send_to_elastic2(isolate)
+            if published_isolates:
+                bulk_send_to_elastic(published_isolates)
 
         log_event("submission_published", submission_id, {"published_isolates": len(published_isolates)}, user_info)
         return {'message': f'Submission published successfully with {len(published_isolates)} isolates'}, 200
@@ -2709,9 +2969,51 @@ class ProjectSubmissionUnpublish2(Resource):
     @require_permission('publish_submission', resource_type='project', resource_id_arg='project_id')
     def post(self, project_id, submission_id):
 
-        """Unpublish a submission - makes isolates non-searchable"""
+        """Unpublish a submission - makes isolates non-searchable (only owner, project admins, or org admins)"""
         user_info = extract_user_info(request.user)
+        current_user_id = user_info.get('user_id')
+        user_roles = user_info.get('roles', [])
+        user_attributes = user_info.get('attributes', {})
+        user_org_id = user_info.get('organisation_id')
+        
+        # Check if user is a project admin
+        is_project_admin = False
+        if 'project-admin' in user_attributes:
+            attr_values = user_attributes['project-admin']
+            if isinstance(attr_values, list):
+                is_project_admin = project_id in attr_values
+            else:
+                is_project_admin = str(attr_values) == project_id
+        
         with get_db_cursor() as cursor:
+            # Check if submission exists, get owner and project org
+            cursor.execute("""
+                SELECT s.user_id, p.organisation_id as project_org_id
+                FROM submissions s
+                LEFT JOIN projects p ON s.project_id = p.id
+                WHERE s.id = %s AND s.project_id = %s
+            """, (submission_id, project_id))
+            submission = cursor.fetchone()
+            
+            if not submission:
+                return {'error': 'Submission not found'}, 404
+            
+            # Check if user is org admin/owner for the project's organization
+            is_org_admin = False
+            if user_org_id and submission['project_org_id']:
+                # Handle user_org_id as list or string
+                user_orgs = user_org_id if isinstance(user_org_id, list) else [user_org_id]
+                if submission['project_org_id'] in user_orgs:
+                    # User is in the same org, check if they have org-admin or org-owner role
+                    is_org_admin = 'agari-org-admin' in user_roles or 'agari-org-owner' in user_roles
+            
+            # Check authorization: submission owner, project admin, org admin/owner, or system admin can unpublish
+            is_owner = submission['user_id'] == current_user_id
+            is_authorized = 'system-admin' in user_roles or is_project_admin or is_org_admin or is_owner
+            
+            if not is_authorized:
+                return {'error': 'Submission not found'}, 404
+            
             # Revert isolates from published back to validated
             cursor.execute("""
                 UPDATE isolates
@@ -2729,16 +3031,18 @@ class ProjectSubmissionUnpublish2(Resource):
 
             # Get unpublished isolates to re-index in Elasticsearch with updated status
             cursor.execute("""
-                SELECT i.*, s.project_id, p.pathogen_id FROM isolates i
+                SELECT i.*, s.project_id, p.pathogen_id, p.privacy as visibility, p.name as project_name, pat.name as pathogen_name
+                FROM isolates i
                 LEFT JOIN submissions s ON i.submission_id = s.id
                 LEFT JOIN projects p ON s.project_id = p.id
+                LEFT JOIN pathogens pat ON p.pathogen_id = pat.id
                 WHERE i.submission_id = %s
                 AND i.status = 'validated'
             """, (submission_id,))
             unpublished_isolates = cursor.fetchall()
 
-            for isolate in unpublished_isolates:
-                send_to_elastic2(isolate)
+            if unpublished_isolates:
+                bulk_send_to_elastic(unpublished_isolates)
 
         log_event("submission_unpublished", submission_id, {"unpublished_isolates": len(unpublished_isolates)}, user_info)
         return {'message': f'Submission unpublished successfully. {len(unpublished_isolates)} isolates reverted to validated status'}, 200
@@ -2773,50 +3077,64 @@ class Search(Resource):
             organisation_project_ids = keycloak_auth.get_user_organisation_projects()
 
             user_project_ids.extend(organisation_project_ids)
-
-            access_filter = {
-                "bool": {
-                    "should": [
-                        {
-                            "terms": {
-                                "project_id": user_project_ids
-                            }
-                        },
-                        {
-                            "terms": {
-                                "visibility": ["public", "semi-private"]
-                            }
-                        }
-                    ],
-                    "minimum_should_match": 1
-                }
-            }
             
-
-            # Add access filter to the query
-            if 'query' in data and 'bool' in data['query']:
-                if 'must' not in data['query']['bool']:
-                    data['query']['bool']['must'] = []
-                elif not isinstance(data['query']['bool']['must'], list):
-                    data['query']['bool']['must'] = [data['query']['bool']['must']]
-                
-                data['query']['bool']['must'].append(access_filter)
-            elif 'query' in data:
-                existing_query = data['query']
-
-                data['query'] = {
+            # Access filter logic:
+            # - Include documents where project_id is in user's accessible projects (any visibility)
+            # - OR include documents that are public | semi-private (any project)
+            if user_project_ids:
+                access_filter = {
                     "bool": {
-                        "must": [
-                            existing_query
-                        ]
+                        "should": [
+                            {
+                                # User's projects: include all privacy levels
+                                # Use .keyword because project_id is mapped as text+keyword
+                                "terms": {
+                                    "project_id": user_project_ids
+                                }
+                            },
+                            {
+                                # Any public or semi-private documents
+                                "terms": {
+                                    "visibility": ["public", "semi-private"]
+                                }
+                            }
+                        ],
+                        "minimum_should_match": 1
                     }
                 }
-
             else:
-                data['query'] = access_filter
+                # No user projects, only show public or semi-private documents
+                access_filter = {
+                    "terms": {
+                        "visibility": ["public", "semi-private"]
+                    }
+                }
+            
 
+            # Always enforce access filter
             if not data:
                 return {'error': 'No JSON data provided'}, 400
+
+            user_query = data.get('query')
+            if user_query and isinstance(user_query, dict) and 'bool' in user_query:
+                # Add access_filter as a filter clause to existing bool
+                if 'filter' not in user_query['bool']:
+                    user_query['bool']['filter'] = []
+                elif not isinstance(user_query['bool']['filter'], list):
+                    user_query['bool']['filter'] = [user_query['bool']['filter']]
+                user_query['bool']['filter'].append(access_filter)
+            else:
+                # Wrap user query in bool with filter for access control
+                if user_query:
+                    data['query'] = {
+                        "bool": {
+                            "must": user_query,
+                            "filter": access_filter
+                        }
+                    }
+                else:
+                    # No user query, just use the access filter as the query
+                    data['query'] = access_filter
 
             results = query_elastic(data)
 
@@ -2872,14 +3190,18 @@ class Reindex(Resource):
                 isolates_batch = cursor.fetchall()
                 reindexed_count = 0
 
+                to_reindex = []
                 for isolate in isolates_batch:
                     es_exists = check_isolate_in_elastic(isolate['id'])
                     if not es_exists:
-                        elastic_operation = send_to_elastic2(isolate)
-                        
-                        if elastic_operation:
-                            reindexed_count += 1
-                        else:
+                        to_reindex.append(isolate)
+
+                elastic_operation = True
+                if to_reindex:
+                    elastic_operation = bulk_send_to_elastic(to_reindex)
+                    reindexed_count += len(to_reindex) if elastic_operation else 0
+                    if not elastic_operation:
+                        for isolate in to_reindex:
                             failures.append({
                                 'isolate_id': isolate['id'],
                                 'error': 'Failed to index isolate in Elasticsearch'

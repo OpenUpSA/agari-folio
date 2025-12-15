@@ -9,3 +9,5 @@ pytest==7.4.3
 sendgrid==6.12.5
 minio==7.2.8
 pip_system_certs==5.3
+biopython==1.84
+pandas==2.2.3

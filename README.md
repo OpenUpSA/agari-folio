@@ -2,18 +2,20 @@
 
 # Agari-Folio
 
-Agari-Folio adds Agari features to Overture Genomics Data stack, providing robust project management and granular role-based access control for genomics data workflows.
+Agari-Folio is the heart of the Agari Genomics Data stack and provides robust pathogen, schema, organisation, project and submission management and API endpoints with granular role-based access control.
 
-![Overture Genomics Data Stack](overture-stack.svg)
+![Agari Genomics platform](./Agari-Genomics-Platform.png)
 
 ## Features
 
+- Pathogen and schema management
+- Organization management
 - Project and study management
+- Submission and file management
+- Search enpoints
 - Fine-grained permissions and roles
-- Organization and user management
 - RESTful API with JWT authentication
 - Integration with Keycloak for identity management
-- Proxy for Overture services (SONG and SCORE)
 
 ## API Documentation
 
@@ -25,9 +27,6 @@ http://<your-host>:<port>/docs
 
 Replace `<your-host>` and `<port>` with your deployment details.
 
-## Proxy for Overture Services SONG and SCORE
-
-This service also acts as a proxy for the Overture services SONG and SCORE, facilitating secure and authenticated access to these services through Agari-Folio's permission system.
 
 ## Development
 
@@ -39,8 +38,6 @@ Install python dependencies:
 pip install -U  --upgrade-strategy=eager -r requirements.txt
 ```
 
-Install [mjml](https://documentation.mjml.io/#installation)
-
 Configure environment variables for accessing backing services (see settings.py)
 
 Run folio
@@ -48,6 +45,16 @@ Run folio
 ```
 python app.py
 ```
+
+## Event logging
+
+The even log endpoint can return logs of the following types
+
+  - project_created, project_deleted, project_privacy, project_overwrite
+  - user_added, user_invited, user_accepted, project_user_deleted
+  - org_user_added, org_user_invited, org_user_accepted
+  - submission_created, file_uploaded, submission_validated, submission_published, submission_unpublished
+  - data_download
 
 ## Tests
 
