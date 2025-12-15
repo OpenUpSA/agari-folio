@@ -1185,8 +1185,25 @@ def user_has_permission(user_info, permission_name, resource_type=None, resource
         access_details['access_granted_by'] = 'system_admin_role'
         access_details['reason'] = 'User has system-admin role'
         return True, access_details
+    
+    # 2. For view_project_submissions on public projects, grant access to all authenticated users
+    if permission_name == 'view_project_submissions' and resource_type == 'project' and resource_id:
+        access_details['checks_performed'].append('public_project_check')
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    SELECT privacy FROM projects 
+                    WHERE id = %s AND deleted_at IS NULL
+                """, (resource_id,))
+                project = cursor.fetchone()
+                if project and project['privacy'] == 'public':
+                    access_details['access_granted_by'] = 'public_project_implicit_viewer'
+                    access_details['reason'] = 'User has implicit viewer access to public project'
+                    return True, access_details
+        except Exception as e:
+            access_details['reason'] = f'Error checking project privacy: {str(e)}'
 
-    # 2. Check standard org roles (WITH organization check)
+    # 3. Check standard org roles (WITH organization check)
     access_details['checks_performed'].append('org_role_check')
     org_roles = ['agari-org-owner', 'agari-org-admin', 'agari-org-contributor', 'agari-org-viewer']
     
@@ -1247,7 +1264,7 @@ def user_has_permission(user_info, permission_name, resource_type=None, resource
                 access_details['reason'] = f'User has org role "{required_role}" (no resource specified)'
                 return True, access_details
 
-    # 3. Check attribute-based roles (NO organization check - project-specific permissions)
+    # 4. Check attribute-based roles (NO organization check - project-specific permissions)
     if resource_id and user_id:
         access_details['checks_performed'].append('attribute_role_check')
         for required_role in required_roles:
@@ -1296,7 +1313,7 @@ def user_has_permission(user_info, permission_name, resource_type=None, resource
                 else:
                     access_details['attribute_checks'][-1]['result'] = 'not_found'
 
-    # 4. If no access granted
+    # 5. If no access granted
     access_details['reason'] = 'User does not have required permissions'
     return False, access_details
 
