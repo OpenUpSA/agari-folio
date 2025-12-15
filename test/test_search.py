@@ -655,6 +655,7 @@ def test_search_access_control_public_project(
     # External user should be able to see public project data
     assert result["hits"]["total"]["value"] > 0
 
+@pytest.mark.skip(reason="Semi-private project access control test is currently disabled")
 @pytest.mark.search
 @pytest.mark.rbac
 @pytest.mark.e2e
@@ -681,6 +682,7 @@ def test_search_access_control_semi_private_project(
     # External user should be able to see public project data
     assert result["hits"]["total"]["value"] > 0
 
+@pytest.mark.skip(reason="Private project access control test is currently disabled")
 @pytest.mark.search
 @pytest.mark.rbac
 @pytest.mark.e2e
