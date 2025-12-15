@@ -1929,12 +1929,20 @@ class ProjectSubmissions2(Resource):
             user_info = extract_user_info(request.user)
             user_id = user_info.get('user_id')
             user_roles = user_info.get('roles', [])
+            user_attributes = user_info.get('attributes', {})
             
-            # Check if user is a project member (has project-specific roles)
-            is_project_member = (
-                user_has_permission(user_info, 'manage_project_users', resource_type='project', resource_id=project_id)[0] or
-                user_has_permission(user_info, 'upload_submission', resource_type='project', resource_id=project_id)[0]
-            )
+            # Check if user is a project member by checking for any project-specific attribute
+            # Project members have one of: project-admin, project-contributor, or project-viewer
+            is_project_member = False
+            for attr_name in ['project-admin', 'project-contributor', 'project-viewer']:
+                if attr_name in user_attributes:
+                    attr_values = user_attributes[attr_name]
+                    if isinstance(attr_values, list):
+                        is_project_member = project_id in attr_values
+                    else:
+                        is_project_member = str(attr_values) == project_id
+                    if is_project_member:
+                        break
             
             with get_db_cursor() as cursor:
                 # System admins and project members see all submissions including drafts
@@ -2037,12 +2045,20 @@ class ProjectSubmission2(Resource):
             user_info = extract_user_info(request.user)
             user_id = user_info.get('user_id')
             user_roles = user_info.get('roles', [])
+            user_attributes = user_info.get('attributes', {})
             
-            # Check if user is a project member (has project-specific roles)
-            is_project_member = (
-                user_has_permission(user_info, 'manage_project_users', resource_type='project', resource_id=project_id)[0] or
-                user_has_permission(user_info, 'upload_submission', resource_type='project', resource_id=project_id)[0]
-            )
+            # Check if user is a project member by checking for any project-specific attribute
+            # Project members have one of: project-admin, project-contributor, or project-viewer
+            is_project_member = False
+            for attr_name in ['project-admin', 'project-contributor', 'project-viewer']:
+                if attr_name in user_attributes:
+                    attr_values = user_attributes[attr_name]
+                    if isinstance(attr_values, list):
+                        is_project_member = project_id in attr_values
+                    else:
+                        is_project_member = str(attr_values) == project_id
+                    if is_project_member:
+                        break
             
             with get_db_cursor() as cursor:
                 # Get submission details only
