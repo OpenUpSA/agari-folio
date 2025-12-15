@@ -2104,19 +2104,52 @@ class ProjectSubmission2(Resource):
     @require_permission('upload_submission', resource_type='project', resource_id_arg='project_id')
     def delete(self, project_id, submission_id):
 
-        """Delete a submission"""
+        """Delete a submission (only owner, project admins, or org admins)"""
 
         try:
+            user_info = extract_user_info(request.user)
+            current_user_id = user_info.get('user_id')
+            user_roles = user_info.get('roles', [])
+            user_attributes = user_info.get('attributes', {})
+            user_org_id = user_info.get('organisation_id')
+            
+            # Check if user is a project admin
+            is_project_admin = False
+            if 'project-admin' in user_attributes:
+                attr_values = user_attributes['project-admin']
+                if isinstance(attr_values, list):
+                    is_project_admin = project_id in attr_values
+                else:
+                    is_project_admin = str(attr_values) == project_id
+            
             with get_db_cursor() as cursor:
                 
-                # check if submission exists
+                # check if submission exists and get project org
                 cursor.execute("""
-                    SELECT * FROM submissions 
-                    WHERE id = %s AND project_id = %s
+                    SELECT s.*, p.organisation_id as project_org_id
+                    FROM submissions s
+                    LEFT JOIN projects p ON s.project_id = p.id
+                    WHERE s.id = %s AND s.project_id = %s
                 """, (submission_id, project_id))
                 submission = cursor.fetchone()
                 
                 if not submission:
+                    return {'error': 'Submission not found'}, 404
+                
+                # Check if user is org admin/owner for the project's organization
+                is_org_admin = False
+                if user_org_id and submission['project_org_id']:
+                    # Handle user_org_id as list or string
+                    user_orgs = user_org_id if isinstance(user_org_id, list) else [user_org_id]
+                    if submission['project_org_id'] in user_orgs:
+                        # User is in the same org, check if they have org-admin or org-owner role
+                        is_org_admin = 'agari-org-admin' in user_roles or 'agari-org-owner' in user_roles
+                
+                # Check authorization: submission owner, project admin, org admin/owner, or system admin can delete
+                is_owner = submission['user_id'] == current_user_id
+                is_authorized = 'system-admin' in user_roles or is_project_admin or is_org_admin or is_owner
+                
+                if not is_authorized:
                     return {'error': 'Submission not found'}, 404
                 
                  # 1. Get all object_ids for files associated with this submission FIRST
@@ -2936,9 +2969,51 @@ class ProjectSubmissionUnpublish2(Resource):
     @require_permission('publish_submission', resource_type='project', resource_id_arg='project_id')
     def post(self, project_id, submission_id):
 
-        """Unpublish a submission - makes isolates non-searchable"""
+        """Unpublish a submission - makes isolates non-searchable (only owner, project admins, or org admins)"""
         user_info = extract_user_info(request.user)
+        current_user_id = user_info.get('user_id')
+        user_roles = user_info.get('roles', [])
+        user_attributes = user_info.get('attributes', {})
+        user_org_id = user_info.get('organisation_id')
+        
+        # Check if user is a project admin
+        is_project_admin = False
+        if 'project-admin' in user_attributes:
+            attr_values = user_attributes['project-admin']
+            if isinstance(attr_values, list):
+                is_project_admin = project_id in attr_values
+            else:
+                is_project_admin = str(attr_values) == project_id
+        
         with get_db_cursor() as cursor:
+            # Check if submission exists, get owner and project org
+            cursor.execute("""
+                SELECT s.user_id, p.organisation_id as project_org_id
+                FROM submissions s
+                LEFT JOIN projects p ON s.project_id = p.id
+                WHERE s.id = %s AND s.project_id = %s
+            """, (submission_id, project_id))
+            submission = cursor.fetchone()
+            
+            if not submission:
+                return {'error': 'Submission not found'}, 404
+            
+            # Check if user is org admin/owner for the project's organization
+            is_org_admin = False
+            if user_org_id and submission['project_org_id']:
+                # Handle user_org_id as list or string
+                user_orgs = user_org_id if isinstance(user_org_id, list) else [user_org_id]
+                if submission['project_org_id'] in user_orgs:
+                    # User is in the same org, check if they have org-admin or org-owner role
+                    is_org_admin = 'agari-org-admin' in user_roles or 'agari-org-owner' in user_roles
+            
+            # Check authorization: submission owner, project admin, org admin/owner, or system admin can unpublish
+            is_owner = submission['user_id'] == current_user_id
+            is_authorized = 'system-admin' in user_roles or is_project_admin or is_org_admin or is_owner
+            
+            if not is_authorized:
+                return {'error': 'Submission not found'}, 404
+            
             # Revert isolates from published back to validated
             cursor.execute("""
                 UPDATE isolates
