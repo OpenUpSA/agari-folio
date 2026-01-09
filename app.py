@@ -264,6 +264,7 @@ class PathogenList(Resource):
     ### GET /pathogens ###
 
     @pathogen_ns.doc('list_pathogens')
+    @require_auth(keycloak_auth)
     def get(self):
 
         """List all pathogens (public access)
@@ -352,6 +353,7 @@ class Pathogen(Resource):
     ### GET /pathogens/<pathogen_id> ###
 
     @pathogen_ns.doc('get_pathogen')
+    @require_auth(keycloak_auth)
     def get(self, pathogen_id):
 
         """Get details of a specific pathogen by ID (public access)"""
@@ -565,6 +567,7 @@ class SchemaList(Resource):
     ### GET /schemas ###
 
     @schema_ns.doc('list_schemas')
+    @require_auth(keycloak_auth)
     def get(self):
 
         """List all available schemas (public access)"""
@@ -659,6 +662,7 @@ class Schema(Resource):
     ### GET /schemas/<schema_id> ###
 
     @schema_ns.doc('get_schema')
+    @require_auth(keycloak_auth)
     def get(self, schema_id):
 
         """Get schema details by ID (public access)"""
@@ -953,6 +957,7 @@ class RefreshToken(Resource):
     ### POST /users/refresh-token ###
 
     @api.doc('refresh_access_token')
+    @require_auth(keycloak_auth)
     def post(self):
         try:
             data = request.get_json()
@@ -1054,6 +1059,7 @@ class Organisation(Resource):
     ### GET /organisations/<id> ###
     
     @organisation_ns.doc('get_organisation')
+    @require_auth(keycloak_auth)
     def get(self, org_id):
 
         """Get organisation details by ID"""
@@ -1345,6 +1351,7 @@ class ProjectList(Resource):
     ### GET /projects ###
 
     @api.doc('list_projects')
+    @require_auth(keycloak_auth)
     def get(self):
         
         """List projects based on user permissions with filtering and pagination
@@ -1535,16 +1542,18 @@ class Project(Resource):
     ### GET /projects/<project_id> ###
 
     @api.doc('get_project')
+    @require_auth(keycloak_auth)
     def get(self, project_id):
 
         """Get single project details based on user permissions"""
 
+        user_info = extract_user_info(request.user)
         organisation_id = keycloak_auth.get_user_org()
 
         try:
                 
             with get_db_cursor() as cursor:
-                if organisation_id is not None:
+                if organisation_id is not None and user_info["roles"][0] != "agari-org-partial":
                     cursor.execute("""
                         SELECT *
                         FROM projects
@@ -3490,6 +3499,7 @@ class ProjectInviteStatus(Resource):
 
     ### GET /invites/project/<project_id> ###
     @api.doc('get_project_invites')
+    @require_auth(keycloak_auth)
     def get(self, project_id):
         users = keycloak_auth.get_users_by_attribute('invite_project_id', project_id)
         user_invites = extract_invite_roles(users, "")
@@ -3499,6 +3509,7 @@ class ProjectInviteStatus(Resource):
 
     ### DELETE /invites/project/<project_id> ###
     @api.doc('delete_project_invite')
+    @require_auth(keycloak_auth)
     def delete(self, project_id):
         user = keycloak_auth.get_users_by_attribute('invite_project_id', project_id)[0]
         user_id = user["user_id"]
@@ -3526,6 +3537,7 @@ class OrgInviteStatus(Resource):
     ### GET /invites/organisation/<org_id> ###
 
     @api.doc('get_project_invites')
+    @require_auth(keycloak_auth)
     def get(self, org_id):
         users = keycloak_auth.get_users_by_attribute('invite_org_id', org_id)
         user_invites = extract_invite_roles(users, "org_")
@@ -3535,6 +3547,7 @@ class OrgInviteStatus(Resource):
 
     ### DELETE /invites/organisation/<project_id> ###
     @api.doc('delete_organisation_invite')
+    @require_auth(keycloak_auth)
     def delete(self, org_id):
         user = keycloak_auth.get_users_by_attribute('invite_org_id', org_id)[0]
         user_id = user["user_id"]
