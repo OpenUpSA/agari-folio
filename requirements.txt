@@ -5,7 +5,7 @@ cryptography==45.0.7
 requests==2.32.5
 psycopg2-binary==2.9.7
 python-dotenv==1.0.0
-pytest==7.4.3
+pytest==9.0.3
 sendgrid==6.12.5
 minio==7.2.8
 pip_system_certs==5.3
