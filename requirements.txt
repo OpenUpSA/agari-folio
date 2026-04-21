@@ -4,7 +4,7 @@ PyJWT==2.8.0
 cryptography==45.0.7
 requests==2.32.5
 psycopg2-binary==2.9.7
-python-dotenv==1.0.0
+python-dotenv==1.2.2
 pytest==7.4.3
 sendgrid==6.12.5
 minio==7.2.8
